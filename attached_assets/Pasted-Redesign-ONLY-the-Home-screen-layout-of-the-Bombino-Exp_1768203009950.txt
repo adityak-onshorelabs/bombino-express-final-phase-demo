@@ -1,0 +1,139 @@
+Redesign ONLY the Home screen layout of the Bombino Express Phase 1 app to introduce clear visual hierarchy, differentiated CTAs, and a more professional, minimal, high-utility feel.
+
+Do NOT add new features. Do NOT change Phase 1 scope. This is a layout and hierarchy correction only.
+
+PRIMARY GOAL:
+Users should immediately understand:
+1) What is the PRIMARY action
+2) What is the SECONDARY action
+3) What requires LOGIN vs what does not
+4) What Bombino stands for (without clutter)
+
+----------------------------------
+A) HOME SCREEN STRUCTURE (NEW HIERARCHY)
+----------------------------------
+
+Use a 4-zone layout instead of stacked white cards:
+
+ZONE 1 – PRIMARY ACTION (Hero Section)
+----------------------------------
+This is the ONLY dominant card on the screen.
+
+• Purpose: Track Shipment (guest allowed)
+• Design:
+  - Full-width hero card
+  - Subtle red gradient background (very light, not loud)
+  - Clear title: “Track your shipment”
+  - Single input field (AWB)
+  - One bold primary CTA button (red)
+
+• Remove any secondary CTAs from this zone.
+• This section must visually dominate the screen.
+
+----------------------------------
+ZONE 2 – CORE ACTIONS (Action Strip)
+----------------------------------
+Immediately below the hero, place TWO horizontally aligned action tiles:
+
+• Get Rates
+• Ship Now
+
+Design rules:
+- These must NOT look like the hero card
+- Use icon + label style (not large cards)
+- Slightly elevated, compact, rectangular tiles
+- Distinct icon background colors:
+  - Get Rates → muted gold / amber accent
+  - Ship Now → muted green accent
+- Clearly secondary to tracking, but still actionable
+
+----------------------------------
+ZONE 3 – AUTHENTICATION CTA (CLEAN & ELEGANT)
+----------------------------------
+Replace the current stacked login/signup block.
+
+Design as a SINGLE compact banner:
+- Text: “Sign in to manage your shipments”
+- Two inline buttons:
+  - Primary: Login (filled)
+  - Secondary: Sign Up (outline)
+
+Rules:
+- No card container
+- No heavy background
+- Minimal height
+- Should feel optional, not forced
+- Place AFTER core actions, not before
+
+----------------------------------
+ZONE 4 – SUPPORT + TRUST (LIGHTWEIGHT)
+----------------------------------
+
+Split support and trust into TWO minimal sections:
+
+1) Support (horizontal pills):
+   - WhatsApp
+   - Call Us
+   - Use pill buttons, not cards
+   - Soft background tint, no elevation
+
+2) Why Bombino? (Visual strip):
+   - Replace large cards with small icon + label chips
+   - Use subtle background tint (very light red)
+   - Max 3 items
+   - Compact height
+
+----------------------------------
+B) VISUAL DIFFERENTIATION RULES
+----------------------------------
+
+1) Only ONE section may be a “card with elevation” → Hero section
+2) Action tiles must be flatter and smaller
+3) Support must feel lightweight and secondary
+4) Trust indicators must feel informational, not clickable
+
+----------------------------------
+C) COLOR & CONTRAST USAGE
+----------------------------------
+
+• Red = Primary actions only
+• White cards = Use sparingly
+• Background = light neutral gray
+• Icons = solid, bold, recognizable
+• No more than 3 accent colors on the home screen
+
+----------------------------------
+D) SPACING & BREATHING ROOM
+----------------------------------
+
+• Increase vertical spacing between sections
+• Reduce padding inside cards
+• Avoid stacking multiple rounded containers back-to-back
+• Let the background breathe between sections
+
+----------------------------------
+E) LOGIN / SIGNUP BEHAVIOR
+----------------------------------
+
+• Guest users:
+  - See Track Shipment
+  - See Get Rates
+  - See Ship Now
+  - See Login/Signup banner only once
+
+• Logged-in users:
+  - Login/Signup banner disappears
+  - Home feels cleaner and more focused
+
+----------------------------------
+F) FINAL FEEL CHECK
+----------------------------------
+
+The Home screen must feel:
+✔ Calm
+✔ Focused
+✔ Intentional
+✔ Professional
+✔ Enterprise-grade
+
+If two elements look equally important, hierarchy has failed — simplify further.
