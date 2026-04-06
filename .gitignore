@@ -1,0 +1,8 @@
+node_modules
+.cursor
+.env
+.env.development
+.env.production
+client/.env.development
+client/.env.production
+dist

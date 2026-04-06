@@ -1,0 +1,173 @@
+import { useState, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { Link } from "wouter";
+import { Sparkles } from "lucide-react";
+
+const FAB_SIZE = 64;
+const DEFAULT_BOTTOM_PX = 48; // FAB bottom edge from viewport bottom (matches calc(4rem - 16px))
+const DRAG_THRESHOLD_PX = 10;
+const MARGIN_EDGE = 8;
+
+// Session-only in-memory store: survives route changes, cleared on full page refresh
+// Stored as top-left (left, top) in viewport px so dragged mode uses one coordinate system
+let storedFabPosition: { left: number; top: number } | null = null;
+function getStoredFabPosition(): { left: number; top: number } | null {
+  return storedFabPosition;
+}
+function setStoredFabPosition(pos: { left: number; top: number } | null): void {
+  storedFabPosition = pos;
+}
+
+function getDefaultTopLeft(): { left: number; top: number } {
+  if (typeof window === "undefined") return { left: 0, top: 0 };
+  return {
+    left: window.innerWidth / 2 - FAB_SIZE / 2,
+    top: window.innerHeight - DEFAULT_BOTTOM_PX - FAB_SIZE,
+  };
+}
+
+function clampTopLeft(
+  left: number,
+  top: number
+): { left: number; top: number } {
+  if (typeof window === "undefined") return { left, top };
+  const minLeft = MARGIN_EDGE;
+  const maxLeft = window.innerWidth - FAB_SIZE - MARGIN_EDGE;
+  const minTop = MARGIN_EDGE;
+  const maxTop = window.innerHeight - FAB_SIZE - MARGIN_EDGE;
+  return {
+    left: Math.max(minLeft, Math.min(maxLeft, left)),
+    top: Math.max(minTop, Math.min(maxTop, top)),
+  };
+}
+
+export function SupportFab() {
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(
+    () => getStoredFabPosition()
+  );
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const positionStartRef = useRef<{ left: number; top: number }>({ left: 0, top: 0 });
+  const hasDraggedThisGestureRef = useRef(false);
+
+  const getCurrentTopLeft = useCallback(
+    () => position ?? getDefaultTopLeft(),
+    [position]
+  );
+
+  const updatePosition = useCallback(
+    (next: { left: number; top: number } | null) => {
+      setStoredFabPosition(next);
+      setPosition(next);
+    },
+    []
+  );
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      dragStartRef.current = { clientX: e.clientX, clientY: e.clientY };
+      positionStartRef.current = getCurrentTopLeft();
+      hasDraggedThisGestureRef.current = false;
+      setIsDragging(true);
+    },
+    [getCurrentTopLeft]
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (dragStartRef.current === null) return;
+      const dx = e.clientX - dragStartRef.current.clientX;
+      const dy = e.clientY - dragStartRef.current.clientY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance > DRAG_THRESHOLD_PX) {
+        hasDraggedThisGestureRef.current = true;
+        const rawLeft = positionStartRef.current.left + dx;
+        const rawTop = positionStartRef.current.top + dy;
+        const next = clampTopLeft(rawLeft, rawTop);
+        updatePosition(next);
+      }
+    },
+    [updatePosition]
+  );
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    dragStartRef.current = null;
+    setIsDragging(false);
+  }, []);
+
+  const handlePointerCancel = useCallback((e: React.PointerEvent) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    dragStartRef.current = null;
+    setIsDragging(false);
+  }, []);
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    if (hasDraggedThisGestureRef.current) {
+      e.preventDefault();
+    }
+    hasDraggedThisGestureRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    if (position === null) return;
+    const onResize = () => {
+      setPosition((prev) => {
+        if (!prev) return null;
+        const clamped = clampTopLeft(prev.left, prev.top);
+        setStoredFabPosition(clamped);
+        return clamped;
+      });
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [position]);
+
+  const isPositioned = position !== null;
+
+  // Default mode: only bottom, let .fab-wrapper provide left: 50%
+  // Dragged mode: explicit viewport-fixed top-left, all other positioning cleared
+  // touch-action: none so the browser does not consume touch drags as scroll/pan (RCA fix)
+  const style: React.CSSProperties = isPositioned
+    ? {
+        position: "fixed",
+        left: position.left,
+        top: position.top,
+        bottom: "auto",
+        right: "auto",
+        transform: "none",
+        touchAction: "none",
+      }
+    : { bottom: `${DEFAULT_BOTTOM_PX}px`, touchAction: "none" };
+
+  const fabContent = (
+    <div
+      className={`fab-wrapper ${isPositioned ? "fab-wrapper-dragged" : ""}`}
+      style={style}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      role="presentation"
+    >
+      <div className="fab-aura" aria-hidden />
+      <Link
+        href="/help"
+        className={`fab-button ${isDragging ? "fab-dragging" : ""}`}
+        aria-label="Open Support Assistant"
+        data-testid="fab-support"
+        onClick={handleClick}
+      >
+        <span className="fab-icon-wrap">
+          <Sparkles className="h-7 w-7" strokeWidth={2} aria-hidden />
+        </span>
+      </Link>
+    </div>
+  );
+
+  if (typeof document !== "undefined") {
+    return createPortal(fabContent, document.body);
+  }
+  return fabContent;
+}

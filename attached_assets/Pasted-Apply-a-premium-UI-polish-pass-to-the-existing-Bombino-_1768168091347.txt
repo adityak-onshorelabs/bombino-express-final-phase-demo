@@ -1,0 +1,102 @@
+Apply a premium UI polish pass to the existing Bombino Express Phase 1 app without changing functionality or adding new features. This is a visual and interaction refinement only.
+
+GOAL:
+Make the app feel modern, premium, and “international logistics grade” using subtle depth, motion, and micro-interactions — not flashy, not heavy.
+
+A) SOFT GLASS + DEPTH (VERY SUBTLE)
+1) Card Elevation:
+   - All primary cards (Track Shipment, Get Rates, Ship Now, Support):
+     - Border-radius: 16px
+     - Shadow: 0 6px 20px rgba(0, 0, 0, 0.06)
+     - Hover/press state: shadow deepens slightly
+2) Optional soft blur (use sparingly):
+   - For hero card backgrounds only:
+     - backdrop-filter: blur(6px)
+     - background: rgba(255, 255, 255, 0.85)
+   - Do NOT blur the entire page.
+   - Do NOT blur text-heavy areas.
+
+B) ICON CONTAINERS WITH RED GRADIENT ACCENT
+1) All major icons must sit inside rounded icon containers:
+   - Size: 40x40 or 44x44
+   - Border-radius: 12px
+2) Icon container backgrounds:
+   - Use a subtle red gradient:
+     - linear-gradient(135deg, #C62828 0%, #E53935 100%)
+     - Opacity: 8–12% only
+   - Icon itself:
+     - Solid style
+     - Color: #C62828
+3) Active states:
+   - On tap, icon container slightly scales down (0.96)
+   - Gradient opacity increases slightly
+
+C) MICRO-MOTION (FAST, DELIBERATE)
+1) Screen transitions:
+   - Use fade + slight vertical movement (4–6px)
+   - Duration: 180–220ms
+   - Ease: ease-out
+2) Buttons:
+   - On press:
+     - Scale to 0.97
+     - Shadow tightens
+   - On release:
+     - Bounce back smoothly (no spring overshoot)
+3) Input focus:
+   - Input border animates to Bombino red over 120ms
+   - Subtle glow: 0 0 0 3px rgba(198, 40, 40, 0.12)
+
+D) PREMIUM TYPOGRAPHY RHYTHM
+1) Increase hierarchy clarity:
+   - Page titles: font-weight 600
+   - Section headers: font-weight 500
+   - Supporting text: lighter gray (#6B7280)
+2) Increase line-height slightly for calm reading:
+   - Body text: 1.45–1.5
+3) Avoid dense text blocks.
+   - Break into short lines.
+   - Use spacing instead of dividers.
+
+E) BOTTOM NAV BAR POLISH
+1) Background:
+   - Solid Bombino red (#C62828)
+2) Active tab:
+   - White icon + label
+   - Small underline or pill indicator (white, 60% opacity)
+3) Inactive tabs:
+   - White icons at ~65% opacity
+4) Add subtle top shadow to nav bar:
+   - 0 -4px 12px rgba(0, 0, 0, 0.12)
+
+F) EMPTY STATE DESIGN (VERY IMPORTANT)
+For guest notifications and empty shipment states:
+1) Use friendly minimal empty states:
+   - Centered icon inside a soft red gradient circle
+   - Short headline
+   - One-line explanation
+   - Single CTA button
+2) Do NOT use plain text only.
+3) Do NOT use emojis.
+
+Example:
+Icon (Notification Off)
+Title: “No notifications yet”
+Subtitle: “Login to receive shipment updates”
+CTA: Login
+
+G) DO NOT DO
+- Do NOT introduce neon colors
+- Do NOT overuse gradients
+- Do NOT add heavy animations
+- Do NOT add glass blur everywhere
+- Do NOT change Phase 1 scope or logic
+
+H) FINAL FEEL CHECK
+The UI should feel:
+✔ Calm  
+✔ Confident  
+✔ International  
+✔ High-trust  
+✔ Built for business, not consumer gimmicks  
+
+If any visual change reduces clarity or speed, revert it.

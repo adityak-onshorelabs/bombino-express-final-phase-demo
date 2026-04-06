@@ -1,0 +1,119 @@
+Update the existing Bombino Express Phase 1 demo app with the following fixes and design improvements. DO NOT add any Phase 2/3 functionality. Keep Phase 1 scope intact.
+
+A) ACCESS CONTROL (CRITICAL)
+1) Guest mode must NOT show any “Recent Shipments”, “Order History”, “Shipment Details history”, or any user-specific stats/cards.
+2) Home screen for guest should show ONLY:
+   - Header + logo
+   - A single “Track Shipment” card (AWB input + Track CTA)
+   - A compact “Get Rates” CTA card
+   - A compact “Login / Sign up” CTA row
+   - A small “Support” section (WhatsApp + Call buttons)
+3) The following routes must require authentication:
+   - Orders screen
+   - Shipment creation (Ship)
+   - Profile
+   - Any “Recent shipments” or “Active shipments” widgets
+If a guest taps these, show a friendly “Please login to continue” screen with a single primary CTA “Login”.
+
+B) HOME SCREEN SIMPLIFICATION (REMOVE CLUTTER)
+1) Reduce the home screen to a minimal, high-utility layout.
+2) Remove hero banner images and any extra sections that cause visual noise.
+3) Use clean spacing and fewer cards:
+   - One primary Track card
+   - One secondary Get Rates card
+   - Optional: 2 small quick-action buttons (Ship, Support) ONLY if not cluttered
+4) Logged-in home can show:
+   - A compact “My Shipments” summary (max 2 shipments visible + “View all”)
+   - Notifications preview (max 2)
+No long lists on the home screen.
+
+C) BOTTOM NAVIGATION (FOOTER) – MUST CHANGE
+Replace the bottom tab bar with ONLY 4 tabs:
+1) Home
+2) Rates
+3) Ship
+4) Receive
+
+Definitions:
+- Home: guest and logged-in home
+- Rates: Get Rates flow (available for guests and logged-in)
+- Ship: Create Shipment flow (requires login; USA → India only)
+- Receive: Tracking + received shipments view (guest sees only Track UI; logged-in sees incoming shipments list if available from seeded data)
+
+Remove any other footer items. No 5th tab. No profile in footer.
+
+D) CURRENCY & PRICING (USA → INDIA)
+1) Because this is USA → India corridor, display ALL rates in USD, not INR.
+2) Update demo rate rules (USD):
+Standard:
+- Up to 0.5kg: $18
+- 1kg: $22
+- 2kg: $34
+- 5kg: $72
+- Above 5kg: $12 per kg
+Express:
+- Up to 0.5kg: $24
+- 1kg: $30
+- 2kg: $44
+- 5kg: $92
+- Above 5kg: $16 per kg
+3) Show disclaimer: “Estimated only. Final charges may vary.”
+4) Ensure the Rates results page and Create Shipment summary both show USD consistently.
+
+E) VISUAL DESIGN UPGRADE (MODERN + MINIMAL + HIGH UTILITY)
+Overall goal: more premium, minimal, modern, and app-like. Remove generic-looking UI.
+
+1) Typography:
+- Use a modern sans font (e.g., Inter) and consistent hierarchy:
+  - Screen titles: semibold
+  - Card titles: medium
+  - Body text: regular
+2) Cards:
+- Use fewer cards, stronger spacing, subtle shadows, and clear borders.
+- Reduce heavy outlines; prefer light borders and clean elevation.
+3) Buttons:
+- Primary button in Bombino red (#C62828)
+- Secondary buttons neutral with border
+- Make CTAs consistent and not oversized.
+4) Icons:
+- Replace generic icons with solid, visually appealing icons using lucide-react (or heroicons).
+- Use consistent icon style (solid or filled).
+- For key actions (Track, Rates, Ship, Receive, Support), use bold icons that look premium.
+5) Reduce visual noise:
+- No big hero images
+- No excessive dividers
+- No redundant labels
+- Keep each screen “scan-friendly” in 3 seconds
+
+F) SCREEN-SPECIFIC NOTES
+1) Rates screen:
+- Keep it as a clean “Get Rates” flow.
+- Use a 2-step form max:
+  Step 1: Package type + weight + pieces + optional dimensions
+  Step 2: From/To (locked USA → India) + postal codes (zip + pincode) + date
+- Results screen shows two options (Standard/Express) with expandable “Cost breakdown”.
+2) Ship screen:
+- Requires login
+- USA → India locked
+- Clean 3-step wizard: Sender, Receiver, Package
+- Use serviceable pincode validation
+- Show USD estimate before submission
+3) Receive screen:
+- Guest: Track card only
+- Logged-in: “Incoming shipments” list (if present) else empty state with Track CTA
+
+G) DATA & SEEDING
+1) Keep seeded shipments in DB, but do not show them to guest.
+2) For guest tracking, allow tracking by AWB without login.
+3) Ensure status details are only accessible if:
+- Guest: they entered an AWB to track
+- Logged-in: via Orders/Receive list
+
+H) DELIVERABLE
+After changes:
+- App should feel minimal, premium, and uncluttered
+- Guest experience should not leak any user shipment data
+- Footer must have only: Home, Rates, Ship, Receive
+- All pricing in USD for USA → India
+
+Implement these changes directly in the existing codebase and update any relevant components, routing guards, and UI layout accordingly.

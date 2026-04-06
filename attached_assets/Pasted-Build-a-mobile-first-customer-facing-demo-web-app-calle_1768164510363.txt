@@ -1,0 +1,225 @@
+Build a mobile-first customer-facing demo web app called “Bombino Express” (Phase 1 + Geo Phase 1 USA → India). The UI should take inspiration from the DHL mobile app structure and flow hierarchy (hero tracking card on home, “Let’s get started” CTA list, login/signup entry points, form-driven quote flow), but DO NOT copy DHL colors or brand. Use Bombino branding only.
+
+STACK (Replit-friendly):
+- Next.js (App Router) + Tailwind CSS
+- SQLite + Prisma
+- Server Actions or API routes for backend calls
+- Cookie/session auth for demo
+
+BOMBINO BRAND (use these only):
+- Primary Red: #C62828
+- Secondary Red (darker): #9B1C1C
+- Text Grey: #6B7280
+- Border Grey: #E5E7EB
+- Background: #FFFFFF
+- Card background: #F9FAFB
+Rules:
+- No DHL yellow/black, no gradients, no dark theme.
+- Look premium, reliable, logistics-focused.
+- Use red for primary CTA buttons and active states.
+- Use neutral greys and clean spacing like a modern courier app.
+
+LOGO:
+- Expect a file at /public/bombino-logo.png
+- Place the logo in the top header area across key screens.
+- Add tagline under logo in small grey: “Bringing the world closer”.
+
+HIGH-LEVEL EXPERIENCE (inspired by DHL app):
+- Home screen should feel like:
+  1) Header with hamburger menu icon (left), logo centered, notifications bell icon (right)
+  2) Hero banner section (image placeholder) with greeting “Hello, {name/Guest}”
+  3) Prominent “Track your shipment” card overlay with an input + scan icon button + arrow CTA
+  4) “Let’s get started” section below with 2 big CTAs: “Get Rates” and “Create Shipment”
+  5) Inline login/signup links near the CTAs when user is logged out
+  6) Bottom navigation with 5 tabs
+
+GEO PHASE 1 CONSTRAINT:
+- Entire demo supports only USA → India shipments.
+- Create Shipment: origin fixed to USA, destination fixed to India.
+- Rates: only USA → India.
+- Orders: only shows USA → India shipments.
+
+PHASE 1 FEATURES ONLY (do not add Phase 2 or 3):
+- OTP-based auth
+- View rates (rate cards)
+- Create shipment request
+- Track shipment (AWB)
+- Order history + order details
+- Shipping label download (mock)
+- Notifications feed (in-app only)
+- Customer support access via WhatsApp and Call (deep links only)
+
+SPLASH + ONBOARDING (new requirement):
+- Show a Splash screen on app load for 1.2 seconds with Bombino logo centered and tagline below.
+- After splash, show 3 swipeable onboarding screens (with Skip + Next + Get Started):
+  1) “Track shipments in real-time” (subtitle: “Status, ETA, and hold-up alerts in one place.”)
+  2) “Create shipments in minutes” (subtitle: “USA → India bookings with saved details.”)
+  3) “Rates, history, and support” (subtitle: “Check rates, view past orders, and reach support quickly.”)
+- After onboarding: if not logged in, go to Home in “Guest mode” but allow Track and Rates. Creating shipment requires login.
+
+NAVIGATION:
+Bottom tabs (mobile-first):
+1) Home
+2) Track
+3) Create
+4) Rates
+5) Orders
+Plus a Profile screen accessible via hamburger menu or Orders screen header.
+
+HOME (DHL-inspired layout):
+Logged out (Guest):
+- Hero banner + “Hello, Guest”
+- Track card: input “Enter AWB / Tracking number” + button to Track
+- “Let’s get started” CTAs:
+  - Get Rates
+  - Create Shipment (tapping prompts login)
+- Login | Sign up inline links
+- Show a small “Recent Updates” preview (3 notifications seeded, read-only)
+Logged in:
+- Same layout but greeting “Hello, {firstName}”
+- “Active shipments” mini cards (3)
+- “Recent shipments” (latest 3)
+- Notifications preview (latest 3)
+
+AUTH (OTP demo, not password-based):
+- Login screen inspired by DHL’s clean form:
+  - Input: Email or Mobile
+  - “Send OTP” shows a “Demo OTP: 6-digit” block (in UI)
+  - OTP input + Verify button
+- Sign up screen:
+  - First name, last name, email, mobile, country code selector (simple)
+  - On submit, proceed to OTP verify
+- No passwords in this demo. Keep it OTP-only.
+- Include “Forgot access?” link that just routes to Login (demo note).
+
+TRACK:
+- Input AWB + Track button
+- If found: open Shipment Details
+- If not found: show friendly error and sample AWBs to try (2 examples)
+
+SHIPMENT DETAILS (must feel premium):
+- Top section:
+  - AWB + copy button
+  - Status pill badge
+  - USA → India route line
+  - Created date, Last updated, ETA
+- Tracking timeline:
+  - Vertical stepper with timestamps + locations
+  - Highlight current step using Bombino red
+- Hold-up/Exception card:
+  - Show only when status is “Customs Hold” or “Exception”
+  - Include short reason (mock) and “Contact Support” CTA
+- Actions:
+  - Download Shipping Label (mock)
+  - WhatsApp Support (wa.me placeholder)
+  - Call Support (tel placeholder)
+
+RATES (Get a quote flow inspired by DHL quote screens):
+- Screen title: “Get rates”
+- Fields:
+  - Shipping date (default today, optional)
+  - What are you shipping? (Document / Package)
+  - Shipping from: USA (locked) + city/state/zip
+  - Shipping to: India (locked) + city/state/pincode
+  - Package details card:
+    - Weight (kg) required
+    - Number of pieces (default 1)
+    - Optional dimensions (L/W/H)
+    - Declared value (optional) + currency dropdown (default USD)
+- CTA button at bottom (sticky): “Get Rates Now”
+- Results page:
+  - Show two options:
+    - Standard
+    - Express
+  - Each option shows:
+    - Price estimate (INR)
+    - Estimated delivery date/time (mock)
+    - Expandable “Cost summary” accordion (like DHL) with 3–4 line items
+  - Add a disclaimer: “Estimated only. Final charges may vary.”
+
+Rate rules (demo):
+Standard:
+- Up to 0.5kg: ₹1200
+- 1kg: ₹1450
+- 2kg: ₹2200
+- 5kg: ₹4800
+- Above 5kg: ₹850 per kg
+Express:
+- Up to 0.5kg: ₹1600
+- 1kg: ₹1950
+- 2kg: ₹2900
+- 5kg: ₹6200
+- Above 5kg: ₹1100 per kg
+
+CREATE SHIPMENT (Phase 1 only, still simple but polished):
+- Screen title: “Create shipment”
+- Stepper wizard (3 steps) with progress indicator (like DHL multi-step):
+  Step 1: Sender (USA, locked)
+  Step 2: Receiver (India, locked)
+  Step 3: Package + Summary
+- Validate serviceable pincode for India using seeded serviceable pincodes list.
+- Show an “Estimated price” based on Rates rules.
+- Submit creates shipment and generates AWB: BMB + 9 digits
+- Initial status: “Pickup Scheduled”
+- Add 2 tracking events automatically.
+
+ORDERS:
+- Order history list with search by AWB
+- Each order card shows:
+  - AWB
+  - Status pill
+  - Route “USA → India”
+  - Created date
+  - Price estimate
+- Tap opens Shipment Details
+- Each order has “Download label” action
+
+NOTIFICATIONS (Phase 1, in-app only):
+- Build a Notifications table and show feed screen accessible via bell icon in header
+- Generate notifications when:
+  - Shipment created
+  - Status changed (for seeded shipments)
+  - Hold-up alert present
+- Severity: info/warn
+- No push notifications needed; just in-app UI.
+
+SUPPORT (Phase 1 only):
+- Provide WhatsApp and Call buttons across:
+  - Shipment Details
+  - Profile
+- Use placeholders:
+  - WhatsApp: https://wa.me/0000000000?text=Hi%20Bombino%20Support
+  - Call: tel:+10000000000
+
+DATABASE MODELS:
+User: id, firstName, lastName, email, phone, createdAt
+Shipment: id, awb, userId, originCountry, originCity, originState, originZip, destCountry, destCity, destState, destPincode, weight, pieces, dimensionsL, dimensionsW, dimensionsH, declaredValue, currency, productType, serviceType, status, priceEstimate, eta, lastUpdateAt, createdAt
+TrackingEvent: id, shipmentId, status, note, location, timestamp
+Notification: id, userId, title, body, severity, createdAt, readAt
+ServiceablePincode: id, pincode
+
+SEED DATA:
+- Seed 1 demo user and 10 shipments (USA → India only):
+  - 2 Delivered
+  - 3 In Transit
+  - 1 Customs Hold (with reason)
+  - 1 Out for Delivery
+  - 1 Exception (address issue)
+  - 2 Pickup Scheduled
+- Each shipment: 6–10 tracking events with timestamps + locations.
+- Seed 30 serviceable India pincodes.
+
+UI QUALITY REQUIREMENTS:
+- App-like feel on mobile (safe areas, sticky CTA buttons)
+- Rounded cards, clear typography hierarchy
+- Avoid clutter, follow competitor-style layout hierarchy, but Bombino colors.
+- Add subtle micro-interactions (hover/press states, loading spinners).
+
+DELIVERABLE:
+- Working demo app in Replit
+- Seeded data
+- README with a 90-second demo script:
+  1) Splash + onboarding
+  2) Track a seeded AWB and show hold-up UI
+  3) Get rates flow and show results
+  4) Login OTP and create shipment, then show in Orders

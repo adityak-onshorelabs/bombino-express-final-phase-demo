@@ -1,0 +1,490 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/plusjakartasans/v8/LDIbaomQNQcsA88c7O9yZ4KMCoOg4IA6-91aHEjcWuA_qU79TR_V.woff2) format('woff2');
+}
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/plusjakartasans/v8/LDIbaomQNQcsA88c7O9yZ4KMCoOg4IA6-91aHEjcWuA_qU79TR_V.woff2) format('woff2');
+}
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/plusjakartasans/v8/LDIbaomQNQcsA88c7O9yZ4KMCoOg4IA6-91aHEjcWuA_qU79TR_V.woff2) format('woff2');
+}
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/plusjakartasans/v8/LDIbaomQNQcsA88c7O9yZ4KMCoOg4IA6-91aHEjcWuA_qU79TR_V.woff2) format('woff2');
+}
+
+:root {
+  --background: 247 247 249;
+  --foreground: 17 24 39;
+  --card: 255 255 255;
+  --card-foreground: 17 24 39;
+  --popover: 255 255 255;
+  --popover-foreground: 17 24 39;
+  --primary: 198 40 40;
+  --primary-foreground: 255 255 255;
+  --secondary: 243 244 246;
+  --secondary-foreground: 17 24 39;
+  --muted: 243 244 246;
+  --muted-foreground: 107 114 128;
+  --accent: 254 242 242;
+  --accent-foreground: 153 27 27;
+  --destructive: 239 68 68;
+  --destructive-foreground: 255 255 255;
+  --border: 229 231 235;
+  --input: 229 231 235;
+  --ring: 198 40 40;
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --color-background: oklch(from rgb(var(--background)) l c h);
+  --color-foreground: oklch(from rgb(var(--foreground)) l c h);
+  --color-card: oklch(from rgb(var(--card)) l c h);
+  --color-card-foreground: oklch(from rgb(var(--card-foreground)) l c h);
+  --color-popover: oklch(from rgb(var(--popover)) l c h);
+  --color-popover-foreground: oklch(from rgb(var(--popover-foreground)) l c h);
+  --color-primary: oklch(from rgb(var(--primary)) l c h);
+  --color-primary-foreground: oklch(from rgb(var(--primary-foreground)) l c h);
+  --color-secondary: oklch(from rgb(var(--secondary)) l c h);
+  --color-secondary-foreground: oklch(from rgb(var(--secondary-foreground)) l c h);
+  --color-muted: oklch(from rgb(var(--muted)) l c h);
+  --color-muted-foreground: oklch(from rgb(var(--muted-foreground)) l c h);
+  --color-accent: oklch(from rgb(var(--accent)) l c h);
+  --color-accent-foreground: oklch(from rgb(var(--accent-foreground)) l c h);
+  --color-destructive: oklch(from rgb(var(--destructive)) l c h);
+  --color-destructive-foreground: oklch(from rgb(var(--destructive-foreground)) l c h);
+  --color-border: oklch(from rgb(var(--border)) l c h);
+  --color-input: oklch(from rgb(var(--input)) l c h);
+  --color-ring: oklch(from rgb(var(--ring)) l c h);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+* {
+  @apply border-border;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { 
+    opacity: 0;
+    transform: translateY(6px); 
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0); 
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* BIA chat: message entrance */
+@keyframes bia-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-bia-message-in {
+  animation: bia-message-in 250ms ease-out forwards;
+}
+
+/* BIA chat: typing indicator dots */
+@keyframes bia-typing-dot {
+  0%, 60%, 100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+.bia-typing-dot {
+  animation: bia-typing-dot 1s ease-in-out infinite;
+}
+
+.bia-typing-dot:nth-child(1) { animation-delay: 0ms; }
+.bia-typing-dot:nth-child(2) { animation-delay: 200ms; }
+.bia-typing-dot:nth-child(3) { animation-delay: 400ms; }
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(198, 40, 40, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(198, 40, 40, 0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.2s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out forwards;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s infinite;
+}
+
+/* Support FAB: floating idle (translateY 0 → -3px → 0) */
+@keyframes fab-float {
+  0%,
+  100% {
+    transform: translate(-50%, 0);
+  }
+  50% {
+    transform: translate(-50%, -3px);
+  }
+}
+
+/* Support FAB: rotating sparkle aura (slow rotation + soft opacity) */
+@keyframes fab-aura-rotate {
+  0% {
+    transform: rotate(0deg);
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.82;
+  }
+  100% {
+    transform: rotate(360deg);
+    opacity: 0.55;
+  }
+}
+
+/* Support FAB: icon subtle rotation (0° → 12° → 0°) */
+@keyframes fab-icon-rotate {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(12deg);
+  }
+}
+
+/* Support FAB: tap sparkle burst */
+@keyframes fab-sparkle-burst {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+/* Support FAB: white halo boundary (fixed) + red glow (breathing) */
+@keyframes fab-glow-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(255, 255, 255, 0.75),
+      0 0 6px 2px rgba(255, 255, 255, 0.4),
+      0 0 10px rgba(198, 40, 40, 0.3),
+      0 0 20px rgba(198, 40, 40, 0.25),
+      0 0 32px rgba(198, 40, 40, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(255, 255, 255, 0.75),
+      0 0 6px 2px rgba(255, 255, 255, 0.4),
+      0 0 14px rgba(198, 40, 40, 0.4),
+      0 0 28px rgba(198, 40, 40, 0.3),
+      0 0 44px rgba(198, 40, 40, 0.25);
+  }
+}
+
+/* FAB wrapper: position + float animation. touch-action: none so drag is not consumed as scroll. */
+.fab-wrapper {
+  position: fixed;
+  left: 50%;
+  z-index: 51;
+  width: 4rem;
+  height: 4rem;
+  overflow: visible;
+  animation: fab-float 4s ease-in-out infinite;
+  touch-action: none;
+}
+
+/* Dragged mode: fully independent viewport positioning. No centering, no bottom anchor. */
+.fab-wrapper-dragged {
+  left: auto;
+  right: auto;
+  bottom: auto;
+  transform: none;
+  animation: none;
+}
+
+/* Subtle scale feedback while dragging */
+.fab-button.fab-dragging {
+  transform: scale(1.03);
+}
+
+/* FAB aura: blurred sparkle halo behind button */
+.fab-aura {
+  position: absolute;
+  inset: -0.75rem;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow:
+    0 -1.5rem 1.25rem -0.25rem rgba(255, 255, 255, 0.14),
+    0 1.5rem 1.25rem -0.25rem rgba(255, 255, 255, 0.1),
+    1.5rem 0 1.25rem -0.25rem rgba(255, 255, 255, 0.12),
+    -1.5rem 0 1.25rem -0.25rem rgba(255, 255, 255, 0.1),
+    1rem 1rem 1rem -0.25rem rgba(255, 255, 255, 0.08),
+    -1rem -1rem 1rem -0.25rem rgba(255, 255, 255, 0.1),
+    -1rem 1rem 1rem -0.25rem rgba(255, 255, 255, 0.08),
+    1rem -1rem 1rem -0.25rem rgba(255, 255, 255, 0.08);
+  filter: blur(8px);
+  animation: fab-aura-rotate 12s linear infinite;
+  pointer-events: none;
+}
+
+/* FAB shimmer: diagonal sweep every 4s, 800ms sweep, fade in/out */
+@keyframes fab-shimmer {
+  0% {
+    opacity: 0;
+    background-position: -70% 0;
+  }
+  3% {
+    opacity: 0.28;
+  }
+  20% {
+    opacity: 0.32;
+    background-position: 170% 0;
+  }
+  23% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+    background-position: 170% 0;
+  }
+}
+
+/* FAB button: 64px, glow, tap scale + burst */
+.fab-button {
+  position: relative;
+  display: flex;
+  width: 4rem;
+  height: 4rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  @apply bg-primary text-white;
+  transition: transform 0.15s ease-out;
+  animation: fab-glow-breathe 2.5s ease-in-out infinite;
+}
+
+.fab-button:active {
+  transform: scale(0.94);
+}
+
+/* Shimmer layer: diagonal highlight sweep, does not block pointer events */
+.fab-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 9999px;
+  background: linear-gradient(
+    115deg,
+    transparent 0%,
+    transparent 28%,
+    rgba(255, 255, 255, 0.3) 48%,
+    rgba(255, 255, 255, 0.3) 52%,
+    transparent 72%,
+    transparent 100%
+  );
+  background-size: 75% 100%;
+  background-position: -70% 0;
+  background-repeat: no-repeat;
+  filter: blur(0.5px);
+  opacity: 0;
+  pointer-events: none;
+  animation: fab-shimmer 4s ease-in-out infinite;
+}
+
+.fab-button::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle at center,
+    rgba(255, 255, 255, 0.5) 0%,
+    transparent 70%
+  );
+  opacity: 0;
+  pointer-events: none;
+}
+
+.fab-button:active::after {
+  animation: fab-sparkle-burst 0.4s ease-out forwards;
+  opacity: 1;
+}
+
+/* FAB icon: subtle rotation cycle */
+.fab-icon-wrap {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fab-icon-rotate 5s ease-in-out infinite;
+}
+
+/* Premium metric number: subtle light sweep across text (visible, elegant) */
+@keyframes metric-text-shimmer {
+  0% {
+    background-position: 150% 50%;
+  }
+  18% {
+    background-position: -50% 50%;
+  }
+  28% {
+    background-position: -50% 50%;
+  }
+  100% {
+    background-position: 150% 50%;
+  }
+}
+
+/* Hero metric: full foreground so number reads dominant; light band for subtle shimmer */
+.metric-number-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--foreground)) 0%,
+    rgb(var(--foreground)) 28%,
+    rgb(100 116 139) 42%,
+    rgb(148 163 184) 50%,
+    rgb(100 116 139) 58%,
+    rgb(var(--foreground)) 72%,
+    rgb(var(--foreground)) 100%
+  );
+  background-size: 280% 100%;
+  background-position: 150% 50%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: metric-text-shimmer 7s ease-in-out infinite;
+}
+
+.card-elevated {
+  @apply bg-card rounded-2xl border border-border shadow-[0_6px_20px_rgba(0,0,0,0.06)] transition-shadow;
+}
+
+.card-elevated:hover {
+  @apply shadow-[0_8px_24px_rgba(0,0,0,0.08)];
+}
+
+.card-elevated:active {
+  @apply shadow-[0_4px_16px_rgba(0,0,0,0.06)];
+}
+
+.icon-container {
+  @apply w-11 h-11 rounded-xl bg-gradient-to-br from-primary/12 to-primary/6 flex items-center justify-center transition-all;
+}
+
+.icon-container:active {
+  @apply scale-95 from-primary/16 to-primary/10;
+}
+
+.btn-primary {
+  @apply bg-primary hover:bg-primary/90 active:scale-[0.97] transition-all shadow-lg shadow-primary/20;
+}
+
+input:focus {
+  @apply ring-[3px] ring-primary/12 border-primary transition-all duration-150;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.page-title {
+  @apply text-lg font-semibold text-foreground;
+}
+
+.section-header {
+  @apply text-sm font-medium text-foreground;
+}
+
+.body-text {
+  @apply text-sm text-muted-foreground leading-relaxed;
+}

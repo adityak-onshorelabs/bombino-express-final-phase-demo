@@ -1,0 +1,159 @@
+Update the existing Bombino Express Phase 1 demo app (USA → India only) with the following functional and UI improvements. Do NOT add Phase 2 or Phase 3 features.
+
+GOALS:
+1) Fix Get Rates flow to support US users properly: weight in pounds (lb) and dimensions in inches (in).
+2) Fix guest mode privacy: guests must NOT see any shipment notifications, shipment updates, order info, or notification counts.
+3) Redesign UI to look modern, vibrant, and premium using Bombino’s red accents. Reduce “too much plain white” look while still maintaining a clean minimal product feel.
+
+A) GET RATES FLOW: ADD LB + INCH SUPPORT (CRITICAL)
+1) In Rates screen and Create Shipment package step:
+   - Add a unit toggle for weight: lb / kg (default lb for USA → India).
+   - Add a unit toggle for dimensions: in / cm (default in for USA → India).
+2) Required fields for Rates:
+   - Weight (lb) required
+   - Number of pieces (default 1) required
+   - Dimensions L/W/H in inches (optional but visible)
+   - Declared value (optional)
+3) When user inputs lb and inches:
+   - Convert internally for calculations if needed:
+     - lb to kg: kg = lb * 0.453592
+     - inches to cm: cm = in * 2.54
+   - Store both raw input + normalized values in the DB:
+     - weightLb, weightKg
+     - dimLIn, dimWIn, dimHIn
+     - dimLCm, dimWCm, dimHCm
+4) Pricing display must remain USD only (USA → India corridor).
+5) Update Rates results page to show a clear summary at top:
+   - Package type, pieces
+   - Weight in lb (and small grey secondary in kg)
+   - Dimensions in inches (and small grey secondary in cm)
+6) Update Create Shipment estimate summary to show lb and inches prominently (with conversions as secondary text).
+
+USD RATE RULES (must use these):
+Standard:
+- Up to 1.0 lb: $18
+- Up to 2.2 lb (1kg): $22
+- Up to 4.4 lb (2kg): $34
+- Up to 11 lb (5kg): $72
+- Above 11 lb: $12 per kg (use converted kg and round up to 0.5 kg)
+Express:
+- Up to 1.0 lb: $24
+- Up to 2.2 lb (1kg): $30
+- Up to 4.4 lb (2kg): $44
+- Up to 11 lb (5kg): $92
+- Above 11 lb: $16 per kg (use converted kg and round up to 0.5 kg)
+
+Rounding rule:
+- If kg is 2.01, round up to 2.5 for pricing beyond slab thresholds.
+
+B) GUEST MODE PRIVACY FIXES: ZERO SHIPMENT UPDATES
+Right now guest is seeing shipment updates in notifications. This must be corrected.
+
+1) Guests must NOT see:
+   - Any notifications list items
+   - Any shipment updates
+   - Any order history
+   - Any “recent shipments” sections
+   - Any bell badge count (must be hidden or set to 0)
+2) Guest notifications behavior:
+   - Bell icon can exist, but tapping it should show a simple empty state:
+     Title: “Notifications”
+     Body: “Login to receive shipment updates and alerts.”
+     CTA: “Login”
+   - Bell badge count must not show any number for guest.
+3) DB data access guard:
+   - Notifications query must always be scoped by logged-in userId.
+   - For guest userId = null, return zero notifications always.
+4) Track shipment remains allowed for guest:
+   - A guest can track only if they enter an AWB.
+   - The tracking results they see should not include any user-specific data, only shipment status timeline for that AWB.
+
+C) UI REDESIGN: MORE VIBRANT, MODERN, PREMIUM
+The current UI looks dull due to too much plain white and weak visual hierarchy. Redesign it with a modern minimal but energetic look using Bombino red as the core accent.
+
+Bombino Brand:
+- Primary Red: #C62828
+- Dark Red: #9B1C1C
+- Off-white background: #F7F7F9 (use this instead of pure white)
+- Card white: #FFFFFF
+- Text: #111827 (primary), #6B7280 (secondary)
+- Border: #E5E7EB
+
+Design principles:
+- Use off-white page background (#F7F7F9).
+- Use white cards with soft shadow.
+- Use red accents for primary actions and selected nav item.
+- Add subtle color elements: small red chips, red highlights, tinted sections. Do not flood the UI with red.
+- Improve spacing and hierarchy. Less text, stronger headings, better grouping.
+
+Specific UI changes:
+1) Header
+   - Keep hamburger left, logo centered, bell right.
+   - Add a thin red accent line under the header OR a soft red-tinted header background (very light tint, not solid).
+   - Tagline can remain but reduce visual weight (smaller, grey).
+2) Home
+   - Make “Track Shipment” the hero card, larger and more premium:
+     - Card has a left icon circle with red tint background
+     - CTA arrow button in red with subtle shadow
+     - Input field with slightly tinted background and rounded corners
+   - Get Rates and Ship Now cards:
+     - Use modern icon tiles with red-tinted or neutral-tinted icon backgrounds
+     - Replace generic icons with bold lucide icons (filled look if possible)
+3) Buttons
+   - Primary: red background, white text, rounded-xl, soft shadow
+   - Secondary: white background, red border, red text
+4) Bottom navigation (allowed suggestion)
+   - Make bottom nav background Bombino red (#C62828).
+   - Icons and labels in white at 70% opacity.
+   - Active tab: full white + small underline indicator or pill highlight.
+   - Keep the 4 tabs only: Home, Rates, Ship, Receive.
+5) Cards and sections
+   - Add section containers with subtle rounded corners.
+   - Remove harsh dividers.
+   - Use consistent padding (16px) and card spacing (12px).
+6) Icons (important)
+   - Replace all generic icons with lucide-react icons. Use a consistent set:
+     - Track: ScanSearch or LocateFixed
+     - Rates: BadgeDollarSign
+     - Ship: Send or PackagePlus
+     - Receive: Inbox or PackageSearch
+     - WhatsApp: use a custom simple SVG icon or lucide MessageCircle with green accent
+     - Call: PhoneCall icon
+   - Make icons visually stronger:
+     - Put icons inside rounded icon containers (32-40px) with light tinted backgrounds.
+7) Reduce empty space at bottom
+   - Ensure the home screen content ends naturally with a support card, and the rest is not just blank white.
+   - Consider adding a small “Why Bombino” mini strip for guest only:
+     - “USA → India specialists”
+     - “Transparent rates”
+     - “Fast support”
+   Keep it short and visually appealing, with 3 small chips.
+
+D) FIX BELL BADGE AND NOTIFICATION COUNT
+In the screenshot, bell shows “4”. This must never happen for guest.
+- If user is not logged in, do not render the badge at all.
+- If logged in, badge count equals unread notifications for that user only.
+
+E) UPDATE DATABASE MODELS (if needed)
+Update Shipment / Quote models to store both units:
+- weightLb, weightKg
+- dimLIn, dimWIn, dimHIn
+- dimLCm, dimWCm, dimHCm
+
+F) ACCEPTANCE TESTS (MUST PASS)
+1) Logged out user:
+   - Home shows Track, Get Rates, Ship Now, Login/Signup, Support.
+   - No “recent shipments”.
+   - No notification updates.
+   - Bell has no badge. Notification screen is empty with login CTA.
+2) Get Rates:
+   - Weight input accepts lb, shows conversions, returns USD rates.
+   - Dimensions in inches are present.
+3) Logged in user:
+   - Sees their shipments and notifications properly.
+   - Bell shows badge only for unread notifications.
+4) Bottom nav:
+   - Exactly 4 tabs: Home, Rates, Ship, Receive.
+   - Bottom nav background is Bombino red with white icons.
+
+Implement these changes directly in the existing codebase and update the UI to look more premium and vibrant while staying minimal and high-utility.
