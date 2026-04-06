@@ -1,11 +1,13 @@
-import { Pool } from 'pg';
+import { Pool } from "pg";
+import { getPgPoolConfig } from "./pgPoolConfig";
 
-const appPool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  max: 5,
-  connectionTimeoutMillis: 3000,
-  idleTimeoutMillis: 10000,
-});
+const appPool = new Pool(
+  getPgPoolConfig({
+    max: 5,
+    connectionTimeoutMillis: 3000,
+    idleTimeoutMillis: 10000,
+  }),
+);
 
 appPool.on('error', (err) => {
   console.error('[appDb] non-fatal pool error:', err.message);

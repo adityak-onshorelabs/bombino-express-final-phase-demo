@@ -49,6 +49,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { Pool } from "pg";
+import { getPgPoolConfig } from "./pgPoolConfig";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -58,7 +59,7 @@ const httpServer = createServer(app);
 
 // ─── Session + Auth ───────────────────────────────────────────────────────────
 const PgStore = connectPgSimple(session);
-const sessionPool = new Pool({ connectionString: process.env.DATABASE_URL });
+const sessionPool = new Pool(getPgPoolConfig());
 
 app.use(
   session({

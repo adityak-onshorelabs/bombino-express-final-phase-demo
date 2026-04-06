@@ -1,14 +1,51 @@
-import { ArrowLeft, User, Mail, Phone, LogOut, Phone as PhoneIcon, Send } from 'lucide-react';
-import { useLocation, Link } from 'wouter';
+import { useEffect, useState } from 'react';
+import {
+  ArrowLeft,
+  User,
+  Mail,
+  Phone,
+  LogOut,
+  Phone as PhoneIcon,
+  UserCircle,
+  Shield,
+  Calendar,
+} from 'lucide-react';
+import { useLocation } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import bombinoLogo from '@/assets/image_1768167970562.png';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { BottomNav } from '@/components/BottomNav';
 
+function formatMemberSince(iso: string | undefined | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
 export default function Profile() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, logout } = useAppStore();
+  const [profile, setProfile] = useState<any>(null);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/user/profile', { credentials: 'include' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setProfile(data);
+      } catch {
+        // silent fallback to Zustand
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn]);
 
   if (!isLoggedIn) {
     return (
@@ -46,9 +83,26 @@ export default function Profile() {
     );
   }
 
-  const handleLogout = () => {
+  const displayName = profile?.full_name ?? user?.fullName ?? '';
+  const displayEmail = profile?.email ?? user?.email ?? '';
+  const displayPhone =
+    profile != null
+      ? profile.phone && String(profile.phone).trim()
+        ? String(profile.phone)
+        : 'Not set'
+      : 'Not set';
+  const displayUsername = profile?.username ?? user?.username ?? '';
+  const displayRole = profile?.role ?? user?.role ?? '';
+  const memberSince = profile?.created_at ? formatMemberSince(profile.created_at) : null;
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    } catch {
+      // ignore network errors; still clear client session
+    }
     logout();
-    setLocation('/home');
+    setLocation('/login');
   };
 
   return (
@@ -72,9 +126,9 @@ export default function Profile() {
             <User className="w-10 h-10 text-primary" />
           </div>
           <h2 className="text-lg font-semibold text-foreground">
-            {user?.fullName}
+            {displayName}
           </h2>
-          <p className="text-sm text-muted-foreground">{user?.email}</p>
+          <p className="text-sm text-muted-foreground">{displayEmail}</p>
         </div>
 
         <div className="bg-white rounded-xl border border-border divide-y divide-border mb-4">
@@ -84,7 +138,7 @@ export default function Profile() {
             </div>
             <div className="flex-1">
               <p className="text-[10px] text-muted-foreground">Email</p>
-              <p className="font-medium text-sm">{user?.email}</p>
+              <p className="font-medium text-sm">{displayEmail}</p>
             </div>
           </div>
           <div className="flex items-center gap-3 p-4">
@@ -92,10 +146,39 @@ export default function Profile() {
               <Phone className="w-4 h-4 text-muted-foreground" />
             </div>
             <div className="flex-1">
-              <p className="text-[10px] text-muted-foreground">Username</p>
-              <p className="font-medium text-sm">{user?.username}</p>
+              <p className="text-[10px] text-muted-foreground">Phone</p>
+              <p className="font-medium text-sm">{displayPhone}</p>
             </div>
           </div>
+          <div className="flex items-center gap-3 p-4">
+            <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
+              <UserCircle className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] text-muted-foreground">Username</p>
+              <p className="font-medium text-sm">{displayUsername}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 p-4">
+            <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
+              <Shield className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] text-muted-foreground">Role</p>
+              <p className="font-medium text-sm">{displayRole}</p>
+            </div>
+          </div>
+          {memberSince ? (
+            <div className="flex items-center gap-3 p-4">
+              <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
+                <Calendar className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[10px] text-muted-foreground">Member since</p>
+                <p className="font-medium text-sm">{memberSince}</p>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="bg-white rounded-xl border border-border divide-y divide-border mb-4">
