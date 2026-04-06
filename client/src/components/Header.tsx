@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Menu, Bell } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
@@ -8,11 +9,35 @@ interface HeaderProps {
 }
 
 export function Header({ onMenuClick }: HeaderProps) {
-  const { isLoggedIn, notifications, user } = useAppStore();
-  
-  const unreadCount = isLoggedIn 
-    ? notifications.filter(n => n.userId === user?.id && !n.readAt).length 
-    : 0;
+  const { isLoggedIn } = useAppStore();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setUnreadCount(0);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/notifications/unread-count', {
+          credentials: 'include',
+        });
+        if (cancelled) return;
+        if (!res.ok) {
+          setUnreadCount(0);
+          return;
+        }
+        const data = (await res.json()) as { count?: number };
+        setUnreadCount(typeof data.count === 'number' ? data.count : 0);
+      } catch {
+        if (!cancelled) setUnreadCount(0);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn]);
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm safe-top border-b border-border shadow-sm">
@@ -24,7 +49,7 @@ export function Header({ onMenuClick }: HeaderProps) {
         >
           <Menu className="w-5 h-5 text-foreground" />
         </button>
-        
+
         <Link href="/home" className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center max-w-[min(200px,55vw)]">
           <img
             src={bombinoLogo}
@@ -33,10 +58,10 @@ export function Header({ onMenuClick }: HeaderProps) {
             data-testid="img-logo"
           />
         </Link>
-        
-        <Link 
-          href="/notifications" 
-          className="relative p-2 -mr-2 rounded-xl hover:bg-muted active:scale-95 transition-all" 
+
+        <Link
+          href="/notifications"
+          className="relative p-2 -mr-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
           data-testid="button-notifications"
         >
           <Bell className="w-5 h-5 text-foreground" />

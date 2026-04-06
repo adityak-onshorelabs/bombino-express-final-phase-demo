@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useLocation, Link } from 'wouter';
 import { Search, ArrowRight, BadgeDollarSign, Send, Phone, Bell, ChevronRight } from 'lucide-react';
 import { Header } from '@/components/Header';
@@ -9,6 +9,21 @@ import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
+import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
+
+interface HomeNotificationRow {
+  id: string;
+  title: string | null;
+  body: string | null;
+  type: string | null;
+  created_at: string;
+}
+
+function homeStatusLabel(status: string | null): string {
+  if (!status) return 'Unknown';
+  if (status === 'ENTRY') return 'Entry';
+  return status;
+}
 
 
 function WhyBombinoSection() {
@@ -53,14 +68,54 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState('');
   const [, setLocation] = useLocation();
-  const { isLoggedIn, user, shipments, notifications } = useAppStore();
+  const { isLoggedIn, user } = useAppStore();
 
-  const userShipments = isLoggedIn 
-    ? shipments.filter(s => s.userId === user?.id).slice(0, 2) 
-    : [];
-  const userNotifications = isLoggedIn 
-    ? notifications.filter(n => n.userId === user?.id).slice(0, 2) 
-    : [];
+  const [shipmentsLoading, setShipmentsLoading] = useState(false);
+  const [shipmentsError, setShipmentsError] = useState(false);
+  const [apiShipments, setApiShipments] = useState<ShipmentHistoryItem[]>([]);
+
+  const [notificationsError, setNotificationsError] = useState(false);
+  const [apiNotifications, setApiNotifications] = useState<HomeNotificationRow[]>([]);
+
+  const loadHomeData = useCallback(async () => {
+    if (!isLoggedIn) {
+      setApiShipments([]);
+      setApiNotifications([]);
+      setShipmentsError(false);
+      setNotificationsError(false);
+      return;
+    }
+    setShipmentsLoading(true);
+    setShipmentsError(false);
+    setNotificationsError(false);
+
+    const shipRes = await fetch('/api/shipments/history', { credentials: 'include' }).catch(() => null);
+    if (!shipRes || !shipRes.ok) {
+      setShipmentsError(true);
+      setApiShipments([]);
+    } else {
+      const data = (await shipRes.json().catch(() => [])) as ShipmentHistoryItem[];
+      setApiShipments(Array.isArray(data) ? data : []);
+    }
+
+    const notifRes = await fetch('/api/notifications', { credentials: 'include' }).catch(() => null);
+    if (!notifRes || !notifRes.ok) {
+      setNotificationsError(true);
+      setApiNotifications([]);
+    } else {
+      const raw = (await notifRes.json().catch(() => [])) as HomeNotificationRow[];
+      setApiNotifications(Array.isArray(raw) ? raw : []);
+    }
+
+    setShipmentsLoading(false);
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    void loadHomeData();
+  }, [loadHomeData]);
+
+  const userShipments = apiShipments.slice(0, 2);
+  const userNotifications = apiNotifications.slice(0, 3);
 
   const handleTrack = () => {
     if (trackingNumber.trim()) {
@@ -194,29 +249,35 @@ export default function Home() {
         )}
 
         {/* Logged-in: My Shipments */}
-        {isLoggedIn && userShipments.length > 0 && (
+        {isLoggedIn && !shipmentsError && !shipmentsLoading && userShipments.length > 0 && (
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-medium text-foreground">My Shipments</h2>
-              <Link href="/receive" className="text-xs text-primary font-medium flex items-center gap-0.5 hover:underline">
+              <Link href="/orders" className="text-xs text-primary font-medium flex items-center gap-0.5 hover:underline">
                 View all <ChevronRight className="w-3 h-3" />
               </Link>
             </div>
             <div className="space-y-2">
               {userShipments.map((shipment) => (
                 <Link
-                  key={shipment.id}
-                  href={`/shipment/${shipment.awb}`}
+                  key={shipment.awb_number + shipment.created_at}
+                  href={`/shipment/${encodeURIComponent(shipment.awb_number)}`}
                   className="block bg-white rounded-xl border border-border p-4 hover:border-primary/20 hover:shadow-sm active:scale-[0.99] transition-all"
-                  data-testid={`shipment-card-${shipment.awb}`}
+                  data-testid={`shipment-card-${shipment.awb_number}`}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-medium text-sm">{shipment.awb}</span>
-                    <StatusBadge status={shipment.status} />
+                    <span className="font-medium text-sm">{shipment.awb_number}</span>
+                    <StatusBadge status={homeStatusLabel(shipment.current_status)} />
                   </div>
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{shipment.destCity}, {shipment.destCountry}</span>
-                    <span>${shipment.priceEstimate}</span>
+                    <span>
+                      {[shipment.consignee_city, shipment.consignee_country].filter(Boolean).join(', ') || '—'}
+                    </span>
+                    <span>
+                      {shipment.total_amount != null && String(shipment.total_amount) !== ''
+                        ? `${(shipment.currency ?? 'INR').toUpperCase() === 'INR' ? '₹' : ''}${Number(shipment.total_amount).toLocaleString()}`
+                        : '—'}
+                    </span>
                   </div>
                 </Link>
               ))}
@@ -225,7 +286,7 @@ export default function Home() {
         )}
 
         {/* Logged-in: Recent Updates */}
-        {isLoggedIn && userNotifications.length > 0 && (
+        {isLoggedIn && !notificationsError && userNotifications.length > 0 && (
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-medium text-foreground">Recent Updates</h2>
@@ -234,31 +295,34 @@ export default function Home() {
               </Link>
             </div>
             <div className="space-y-2">
-              {userNotifications.map((notif) => (
-                <div
-                  key={notif.id}
-                  className="flex items-start gap-3 p-3.5 bg-white rounded-xl border border-border"
-                  data-testid={`notification-${notif.id}`}
-                >
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    notif.severity === 'warn' ? 'bg-amber-100' : 'bg-blue-100'
-                  }`}>
-                    <Bell className={`w-4 h-4 ${
-                      notif.severity === 'warn' ? 'text-amber-600' : 'text-blue-600'
-                    }`} />
+              {userNotifications.map((notif) => {
+                const isWarn = notif.type === 'exception' || notif.type === 'customs_hold';
+                return (
+                  <div
+                    key={notif.id}
+                    className="flex items-start gap-3 p-3.5 bg-white rounded-xl border border-border"
+                    data-testid={`notification-${notif.id}`}
+                  >
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        isWarn ? 'bg-amber-100' : 'bg-blue-100'
+                      }`}
+                    >
+                      <Bell className={`w-4 h-4 ${isWarn ? 'text-amber-600' : 'text-blue-600'}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm text-foreground">{notif.title ?? ''}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{notif.body ?? ''}</p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm text-foreground">{notif.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{notif.body}</p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
 
         {/* Logged-in: Empty State */}
-        {isLoggedIn && userShipments.length === 0 && (
+        {isLoggedIn && !shipmentsError && !shipmentsLoading && apiShipments.length === 0 && (
           <div className="text-center py-8">
             <div className="w-14 h-14 bg-gradient-to-br from-primary/10 to-primary/5 rounded-full flex items-center justify-center mx-auto mb-3">
               <Send className="w-6 h-6 text-primary" />

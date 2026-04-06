@@ -1,6 +1,14 @@
 import "dotenv/config";
+import { setDefaultResultOrder } from "node:dns";
 import path from "path";
 import fs from "fs";
+
+// Cloud Postgres (e.g. Supabase) often resolves to IPv6 first; some networks time out on IPv6.
+// Prefer IPv4 for all outbound connections in this process (Node 17+). Also applied via
+// server/dns-ipv4first.mjs + NODE_OPTIONS --import so DNS order is set before any module loads.
+if (typeof setDefaultResultOrder === "function") {
+  setDefaultResultOrder("ipv4first");
+}
 // #region agent log
 const DEBUG_LOG = path.join(process.cwd(), ".cursor", "debug-643d35.log");
 function debugLog(payload: Record<string, unknown>) {
@@ -53,6 +61,11 @@ import { getPgPoolConfig } from "./pgPoolConfig";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+
+console.log(
+  "DATABASE_URL host:",
+  new URL(process.env.DATABASE_URL || "").hostname,
+);
 
 const app = express();
 const httpServer = createServer(app);

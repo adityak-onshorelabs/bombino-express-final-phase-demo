@@ -10,6 +10,7 @@ import type { CreateShipmentPayload, RateParams } from "./itd";
 import { storage } from "./storage";
 import { handleChat } from "./supportAgent";
 import type { ChatMessage } from "./supportTypes";
+import { persistShipmentAfterCreate } from "./persistShipment.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
   SUPPORT_CHAT_MAX_CONTENT_LENGTH,
@@ -149,6 +150,75 @@ export async function registerRoutes(
         });
       }
       return res.json(profile);
+    }
+  );
+
+  // ── Shipments history & notifications (DB) ──────────────────────────────
+
+  app.get(
+    "/api/shipments/history",
+    requireUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        return res.json([]);
+      }
+      const rows = await safeQuery(
+        `SELECT awb_number, consignee_name, consignee_city, consignee_country, service_name, total_amount, currency, current_status, booking_date, created_at
+         FROM shipments WHERE user_id = $1 ORDER BY created_at DESC`,
+        [req.session.dbUserId]
+      );
+      return res.json(rows ?? []);
+    }
+  );
+
+  app.get(
+    "/api/notifications/unread-count",
+    requireUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        return res.json({ count: 0 });
+      }
+      const row = (await safeQueryOne(
+        `SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1 AND (is_read IS NOT TRUE)`,
+        [req.session.dbUserId]
+      )) as { count: number } | null;
+      return res.json({ count: row?.count ?? 0 });
+    }
+  );
+
+  app.get(
+    "/api/notifications",
+    requireUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        return res.json([]);
+      }
+      const rows = await safeQuery(
+        `SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC`,
+        [req.session.dbUserId]
+      );
+      return res.json(rows ?? []);
+    }
+  );
+
+  app.patch(
+    "/api/notifications/:id/read",
+    requireUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        return res.status(404).json({ message: "Not found" });
+      }
+      const rows = await safeQuery(
+        `UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = $1 AND user_id = $2 RETURNING id`,
+        [req.params.id, req.session.dbUserId]
+      );
+      if (rows === null) {
+        return res.status(500).json({ message: "Database error" });
+      }
+      if (rows.length === 0) {
+        return res.status(404).json({ message: "Not found" });
+      }
+      return res.json({ ok: true });
     }
   );
 
@@ -293,6 +363,14 @@ export async function registerRoutes(
       const token = await itdClient.getToken();
       const data = await itdClient.createShipment(payload, token);
       res.json(data);
+      if (data.success && req.session.dbUserId) {
+        void persistShipmentAfterCreate(
+          req.session.dbUserId,
+          payload,
+          data,
+          req.ip
+        );
+      }
     } catch (err) {
       console.error("[POST /api/shipments] createShipment failed:", err);
       const message = err instanceof Error ? err.message : "Shipment creation failed";
@@ -335,7 +413,7 @@ export async function registerRoutes(
         const base = (process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 5000}`).replace(/\/$/, "");
         res.json({ id: saved.id, file_path: `${base}/api/kyc/documents/${saved.id}/file` });
       } catch (err) {
-        console.error("[POST /api/kyc/upload] failed:", err);
+        console.error("KYC upload full error:", JSON.stringify(err, Object.getOwnPropertyNames(err as object)));
         res.status(500).json({ message: "Failed to save KYC document." });
       }
     }

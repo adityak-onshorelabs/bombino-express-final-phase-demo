@@ -1,20 +1,90 @@
+import { useEffect, useState, useCallback } from 'react';
+import { useLocation } from 'wouter';
 import { ArrowLeft, Bell, AlertTriangle, Info, LogIn } from 'lucide-react';
-import { useLocation, Link } from 'wouter';
+import { format, parseISO, isValid } from 'date-fns';
 import { useAppStore } from '@/lib/store';
-import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
+interface ApiNotification {
+  id: string;
+  user_id: string;
+  type: string | null;
+  title: string | null;
+  body: string | null;
+  data: { awb?: string } | null;
+  is_read: boolean | null;
+  read_at: string | null;
+  shipment_id: string | null;
+  created_at: string;
+}
+
+function parseNotifData(raw: unknown): { awb?: string } {
+  if (!raw || typeof raw !== 'object') return {};
+  const d = raw as Record<string, unknown>;
+  const awb = d.awb;
+  return typeof awb === 'string' ? { awb } : {};
+}
+
 export default function Notifications() {
   const [, setLocation] = useLocation();
-  const { isLoggedIn, notifications, user, markNotificationRead } = useAppStore();
+  const { isLoggedIn } = useAppStore();
 
-  const userNotifications = isLoggedIn 
-    ? notifications.filter(n => n.userId === user?.id)
-    : [];
+  const [items, setItems] = useState<ApiNotification[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleNotificationClick = (id: string) => {
-    markNotificationRead(id);
+  const loadNotifications = useCallback(async () => {
+    if (!isLoggedIn) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/notifications', { credentials: 'include' });
+      if (!res.ok) {
+        setItems([]);
+        return;
+      }
+      const data = (await res.json()) as ApiNotification[];
+      setItems(Array.isArray(data) ? data : []);
+    } catch {
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    void loadNotifications();
+  }, [loadNotifications]);
+
+  const handleNotificationClick = async (n: ApiNotification) => {
+    const data = parseNotifData(n.data);
+    try {
+      const res = await fetch(`/api/notifications/${n.id}/read`, {
+        method: 'PATCH',
+        credentials: 'include',
+      });
+      if (res.ok) {
+        setItems((prev) =>
+          prev.map((x) =>
+            x.id === n.id ? { ...x, is_read: true, read_at: new Date().toISOString() } : x
+          )
+        );
+        if (data.awb) {
+          setLocation(`/shipment/${encodeURIComponent(data.awb)}`);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const formatTime = (iso: string) => {
+    const d = parseISO(iso);
+    if (!isValid(d)) return '';
+    return format(d, 'MMM d, h:mm a');
   };
 
   return (
@@ -42,7 +112,7 @@ export default function Notifications() {
             <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
               Login to receive shipment updates and alerts.
             </p>
-            <Button 
+            <Button
               onClick={() => setLocation('/login')}
               className="btn-primary h-11 px-6 rounded-xl"
               data-testid="button-login-notifications"
@@ -51,57 +121,72 @@ export default function Notifications() {
               Login
             </Button>
           </div>
-        ) : userNotifications.length === 0 ? (
+        ) : loading ? (
+          <div className="text-center py-8 text-sm text-muted-foreground">Loading…</div>
+        ) : items.length === 0 ? (
           <div className="text-center py-12">
             <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
               <Bell className="w-8 h-8 text-muted-foreground" />
             </div>
             <h2 className="font-semibold text-foreground mb-2">No notifications yet</h2>
-            <p className="text-sm text-muted-foreground leading-relaxed">You'll see updates here when you have shipments.</p>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              You'll see updates here when you have shipments.
+            </p>
           </div>
         ) : (
           <div className="space-y-3">
-            {userNotifications.map((notif) => (
-              <button
-                key={notif.id}
-                onClick={() => handleNotificationClick(notif.id)}
-                className={cn(
-                  'w-full text-left flex items-start gap-3 p-4 rounded-2xl border transition-all card-elevated',
-                  notif.readAt
-                    ? 'bg-card border-border'
-                    : 'bg-primary/5 border-primary/20'
-                )}
-                data-testid={`notification-item-${notif.id}`}
-              >
-                <div className={cn(
-                  'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0',
-                  notif.severity === 'warn' ? 'bg-gradient-to-br from-amber-100 to-amber-50' : 'bg-gradient-to-br from-blue-100 to-blue-50'
-                )}>
-                  {notif.severity === 'warn' ? (
-                    <AlertTriangle className="w-5 h-5 text-amber-600" />
-                  ) : (
-                    <Info className="w-5 h-5 text-blue-600" />
+            {items.map((notif) => {
+              const unread = notif.is_read !== true;
+              const isWarn =
+                notif.type === 'exception' ||
+                notif.type === 'customs_hold' ||
+                (notif.title ?? '').toLowerCase().includes('hold');
+              return (
+                <button
+                  key={notif.id}
+                  type="button"
+                  onClick={() => void handleNotificationClick(notif)}
+                  className={cn(
+                    'w-full text-left flex items-start gap-3 p-4 rounded-2xl border transition-all card-elevated',
+                    unread ? 'bg-primary/5 border-primary/20' : 'bg-card border-border'
                   )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className={cn(
-                      'font-medium text-sm',
-                      !notif.readAt && 'text-primary'
-                    )}>
-                      {notif.title}
-                    </p>
-                    {!notif.readAt && (
-                      <span className="w-2 h-2 bg-primary rounded-full flex-shrink-0 mt-1.5" />
+                  data-testid={`notification-item-${notif.id}`}
+                >
+                  <div
+                    className={cn(
+                      'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0',
+                      isWarn
+                        ? 'bg-gradient-to-br from-amber-100 to-amber-50'
+                        : 'bg-gradient-to-br from-blue-100 to-blue-50'
+                    )}
+                  >
+                    {isWarn ? (
+                      <AlertTriangle className="w-5 h-5 text-amber-600" />
+                    ) : (
+                      <Info className="w-5 h-5 text-blue-600" />
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{notif.body}</p>
-                  <p className="text-[10px] text-muted-foreground mt-2">
-                    {format(notif.createdAt, 'MMM d, h:mm a')}
-                  </p>
-                </div>
-              </button>
-            ))}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p
+                        className={cn('font-medium text-sm', unread && 'text-primary')}
+                      >
+                        {notif.title ?? ''}
+                      </p>
+                      {unread && (
+                        <span className="w-2 h-2 bg-primary rounded-full flex-shrink-0 mt-1.5" />
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">
+                      {notif.body ?? ''}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-2">
+                      {formatTime(notif.created_at)}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </main>

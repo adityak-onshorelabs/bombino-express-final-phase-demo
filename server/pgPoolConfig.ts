@@ -1,3 +1,4 @@
+import type { ConnectionOptions } from "tls";
 import type { PoolConfig } from "pg";
 
 /**
@@ -23,16 +24,20 @@ export function assertDatabaseUrl(): string {
   return raw;
 }
 
-function isSupabaseDbHost(connectionString: string): boolean {
+function isCloudPostgresHost(connectionString: string): boolean {
   try {
     const h = new URL(connectionString).hostname;
-    return h.endsWith(".supabase.co");
+    return (
+      h.endsWith(".supabase.co") ||
+      h.endsWith(".pooler.supabase.com") ||
+      h.endsWith(".neon.tech")
+    );
   } catch {
     return false;
   }
 }
 
-/** Parse postgres:// URL into discrete fields (avoids pg + connectionString ssl merge bugs). */
+/** Parse postgres:// URL into discrete fields (avoids pg ignoring `family` when using connectionString). */
 function parsePostgresUrl(connectionString: string): {
   host: string;
   port: number;
@@ -51,38 +56,73 @@ function parsePostgresUrl(connectionString: string): {
   };
 }
 
+function sslOptionsFromUrl(connectionString: string): boolean | ConnectionOptions {
+  if (process.env.PG_SSL_ALLOW_UNSAFE === "1") {
+    return { rejectUnauthorized: false };
+  }
+  try {
+    const u = new URL(connectionString);
+    const mode = u.searchParams.get("sslmode")?.toLowerCase();
+    if (mode === "disable") {
+      return false;
+    }
+  } catch {
+    /* fall through */
+  }
+  return { rejectUnauthorized: true };
+}
+
 /**
  * Shared pg Pool options for session store, Drizzle, and appDb.
- * - Trims DATABASE_URL (avoids hidden newline/space bugs).
- * - Supabase `db.*.supabase.co` often resolves only to IPv6 (AAAA). Node + some
- *   networks then fail with getaddrinfo ENOTFOUND unless we prefer IPv4 (A records).
- *   Default: use IPv4 for *.supabase.co unless PG_USE_IPV4=0.
- * - PG_SSL_ALLOW_UNSAFE=1: use discrete host/user/password + ssl (node-pg applies
- *   `ssl` incorrectly when mixed with `connectionString` on some setups).
+ *
+ * **IPv6 ETIMEDOUT (Supabase / Neon):** `pg` often ignores `family` when `connectionString`
+ * is used, so Node still connects via IPv6. For cloud hosts we use discrete
+ * `host` / `port` / credentials plus `family: 4` so the TCP stack resolves A records only.
+ * The hostname is preserved (not replaced by an IP) so TLS servername verification still works.
+ *
+ * - `PG_USE_IPV4=0` disables `family: 4` for cloud hosts (rare).
+ * - `PG_SSL_ALLOW_UNSAFE=1` sets `ssl: { rejectUnauthorized: false }` (dev only).
  */
 export function getPgPoolConfig(overrides?: Partial<PoolConfig>): PoolConfig {
   const connectionString = assertDatabaseUrl();
+  const cloud = isCloudPostgresHost(connectionString);
   const preferIpv4 =
     process.env.PG_USE_IPV4 === "1" ||
-    (process.env.PG_USE_IPV4 !== "0" && isSupabaseDbHost(connectionString));
-  const sslUnsafe = process.env.PG_SSL_ALLOW_UNSAFE === "1";
+    (process.env.PG_USE_IPV4 !== "0" && cloud);
 
-  const common = {
-    ...overrides,
-    ...(preferIpv4 ? { family: 4 } : {}),
-  } as PoolConfig;
+  const base = { ...overrides } as PoolConfig;
+
+  const sslUnsafe = process.env.PG_SSL_ALLOW_UNSAFE === "1";
+  const ssl = sslOptionsFromUrl(connectionString);
+
+  // Discrete config: required so `family: 4` is honored (fixes ETIMEDOUT to IPv6).
+  if (cloud && preferIpv4) {
+    const p = parsePostgresUrl(connectionString);
+    return {
+      host: p.host,
+      port: p.port,
+      user: p.user,
+      password: p.password,
+      database: p.database,
+      ssl,
+      family: 4,
+      ...base,
+    } as PoolConfig;
+  }
 
   if (sslUnsafe) {
     const p = parsePostgresUrl(connectionString);
     return {
       ...p,
       ssl: { rejectUnauthorized: false },
-      ...common,
+      ...(preferIpv4 ? { family: 4 } : {}),
+      ...base,
     } as PoolConfig;
   }
 
   return {
     connectionString,
-    ...common,
+    ...(preferIpv4 ? { family: 4 } : {}),
+    ...base,
   } as PoolConfig;
 }
