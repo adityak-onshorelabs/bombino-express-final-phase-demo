@@ -127,6 +127,17 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/debug/session", (req, res) => {
+    res.json({
+      hasSession: !!req.session,
+      hasItdToken: !!req.session.itdToken,
+      hasUser: !!req.session.user,
+      hasDbUserId: !!req.session.dbUserId,
+      sessionID: req.sessionID,
+      cookieSettings: req.session.cookie,
+    });
+  });
+
   // POST /api/auth/logout — destroy session
   app.post("/api/auth/logout", (req: Request, res: Response) => {
     req.session.destroy((err) => {
