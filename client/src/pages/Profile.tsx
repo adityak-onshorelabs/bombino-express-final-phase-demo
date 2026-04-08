@@ -183,7 +183,7 @@ export default function Profile() {
 
         <div className="bg-white rounded-xl border border-border divide-y divide-border mb-4">
           <a
-            href="https://wa.me/0000000000?text=Hi%20Bombino%20Support"
+            href="https://api.whatsapp.com/send?phone=917045999553"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors"
@@ -197,7 +197,7 @@ export default function Profile() {
             </div>
           </a>
           <a
-            href="tel:+10000000000"
+            href="tel:+912266400000"
             className="flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors"
             data-testid="link-profile-call"
           >

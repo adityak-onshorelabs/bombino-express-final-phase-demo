@@ -225,7 +225,7 @@ export default function Home() {
             {/* Support Pills - refined */}
             <div className="flex gap-3" data-testid="zone-support">
               <a
-                href="https://wa.me/0000000000?text=Hi%20Bombino%20Support"
+                href="https://api.whatsapp.com/send?phone=917045999553"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-green-700 text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-green-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
@@ -235,7 +235,7 @@ export default function Home() {
                 WhatsApp
               </a>
               <a
-                href="tel:+10000000000"
+                href="tel:+912266400000"
                 className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-foreground text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-primary/20 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
                 data-testid="button-call-home"
               >

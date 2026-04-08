@@ -99,7 +99,7 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
             <div className="border-t border-border my-4" />
 
             <a
-              href="https://wa.me/0000000000?text=Hi%20Bombino%20Support"
+              href="https://api.whatsapp.com/send?phone=917045999553"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
@@ -112,7 +112,7 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
             </a>
 
             <a
-              href="tel:+10000000000"
+              href="tel:+912266400000"
               className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
               data-testid="link-call"
             >

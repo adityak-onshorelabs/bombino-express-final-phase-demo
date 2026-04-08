@@ -38,7 +38,7 @@ export default function Signup() {
 
         <div className="space-y-3 max-w-md mx-auto">
           <a
-            href="mailto:accounts@bombinoexpress.com"
+            href="mailto:bombino@bombinoexp.com"
             className="flex items-center gap-3 p-4 rounded-xl border border-border bg-white hover:bg-muted/30 transition-colors"
           >
             <div className="w-10 h-10 bg-muted rounded-full flex items-center justify-center shrink-0">
@@ -47,13 +47,13 @@ export default function Signup() {
             <div className="flex-1 min-w-0">
               <p className="text-xs text-muted-foreground">Email us</p>
               <p className="font-medium text-sm text-foreground break-all">
-                accounts@bombinoexpress.com
+                bombino@bombinoexp.com
               </p>
             </div>
           </a>
 
           <a
-            href="https://wa.me/919876543210"
+            href="https://api.whatsapp.com/send?phone=917045999553"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-3 p-4 rounded-xl border border-border bg-white hover:bg-muted/30 transition-colors"
@@ -63,7 +63,7 @@ export default function Signup() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs text-muted-foreground">WhatsApp us</p>
-              <p className="font-medium text-sm text-foreground">+91 XXXXX XXXXX</p>
+              <p className="font-medium text-sm text-foreground">+91 70459 99553</p>
             </div>
           </a>
         </div>

@@ -234,7 +234,7 @@ export default function ShipmentDetails() {
                 <h3 className="font-semibold text-red-700 text-sm">{currentStatus}</h3>
                 <p className="text-xs text-red-600 mt-1">Contact support for details.</p>
                 <a
-                  href="https://wa.me/0000000000?text=Hi%20Bombino%20Support"
+                  href="https://api.whatsapp.com/send?phone=917045999553"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold text-red-700"
@@ -289,7 +289,7 @@ export default function ShipmentDetails() {
       <div className="fixed bottom-16 left-0 right-0 z-40 bg-white border-t border-border p-4 safe-bottom">
         <div className="flex justify-end gap-2 max-w-md mx-auto">
           <a
-            href="https://wa.me/0000000000?text=Hi%20Bombino%20Support"
+            href="https://api.whatsapp.com/send?phone=917045999553"
             target="_blank"
             rel="noopener noreferrer"
             className="w-11 h-11 bg-green-50 border border-green-200 rounded-xl flex items-center justify-center hover:bg-green-100 transition-colors"
@@ -298,7 +298,7 @@ export default function ShipmentDetails() {
             <img src={whatsAppLogo} alt="WhatsApp" className="w-5 h-5 object-contain" />
           </a>
           <a
-            href="tel:+10000000000"
+            href="tel:+912266400000"
             className="w-11 h-11 bg-primary/10 border border-primary/20 rounded-xl flex items-center justify-center hover:bg-primary/20 transition-colors"
             data-testid="button-call"
           >
