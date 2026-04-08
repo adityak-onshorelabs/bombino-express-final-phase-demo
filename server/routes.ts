@@ -115,7 +115,12 @@ export async function registerRoutes(
           console.error("[login] DB sync error (non-fatal):", e.message);
         }
       })();
-      res.json(user);
+      req.session.save((err) => {
+        if (err) {
+          console.error("[login] session save error:", err);
+        }
+        res.json(user);
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Login failed";
       res.status(401).json({ message });
