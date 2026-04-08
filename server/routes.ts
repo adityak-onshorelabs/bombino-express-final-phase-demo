@@ -3,11 +3,11 @@ import { safeQuery, safeQueryOne } from "./appDb.js";
 import type { Server } from "http";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import multer from "multer";
 import { z } from "zod";
 import { itdClient } from "./itd";
 import type { CreateShipmentPayload, RateParams } from "./itd";
-import { storage } from "./storage";
 import { handleChat } from "./supportAgent";
 import type { ChatMessage } from "./supportTypes";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
@@ -28,6 +28,17 @@ const kycUpload = multer({
     }
   },
 });
+
+const kycMemStore = new Map<
+  string,
+  {
+    buffer: Buffer;
+    mimeType: string;
+    originalFilename: string;
+    documentType: string;
+    documentNo: string;
+  }
+>();
 
 function requireUser(req: Request, res: Response, next: NextFunction): void {
   if (!req.session.user) {
@@ -401,17 +412,17 @@ export async function registerRoutes(
       }
 
       try {
-        const saved = await storage.saveKycDocument({
-          documentType:     parsed.data.document_type,
-          documentNo:       parsed.data.document_no,
+        const id = crypto.randomUUID();
+        kycMemStore.set(id, {
+          buffer: req.file.buffer,
+          mimeType: req.file.mimetype,
           originalFilename: req.file.originalname,
-          mimeType:         req.file.mimetype,
-          fileSizeBytes:    req.file.size,
-          fileData:         req.file.buffer.toString("base64"),
+          documentType: parsed.data.document_type,
+          documentNo: parsed.data.document_no,
         });
 
         const base = (process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 5000}`).replace(/\/$/, "");
-        res.json({ id: saved.id, file_path: `${base}/api/kyc/documents/${saved.id}/file` });
+        res.json({ id, file_path: `${base}/api/kyc/documents/${id}/file` });
       } catch (err) {
         console.error("KYC upload full error:", JSON.stringify(err, Object.getOwnPropertyNames(err as object)));
         res.status(500).json({ message: "Failed to save KYC document." });
@@ -422,19 +433,18 @@ export async function registerRoutes(
   // GET /api/kyc/documents/:id/file — serve KYC document (no auth; ITD must be able to fetch)
   app.get("/api/kyc/documents/:id/file", async (req: Request, res: Response) => {
     try {
-      const doc = await storage.getKycDocument(req.params.id);
+      const doc = kycMemStore.get(req.params.id);
       if (!doc) {
         res.status(404).json({ message: "Document not found." });
         return;
       }
-      const buf = Buffer.from(doc.fileData, "base64");
       res.set({
         "Content-Type":        doc.mimeType,
-        "Content-Length":      String(buf.length),
+        "Content-Length":      String(doc.buffer.length),
         "Cache-Control":       "private, max-age=3600",
         "Content-Disposition": `inline; filename="${doc.originalFilename}"`,
       });
-      res.send(buf);
+      res.send(doc.buffer);
     } catch (err) {
       console.error("[GET /api/kyc/documents/:id/file] failed:", err);
       res.status(500).json({ message: "Failed to retrieve document." });
