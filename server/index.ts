@@ -55,12 +55,16 @@ function debugLog(payload: Record<string, unknown>) {
 // #endregion
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
-import MemoryStore from "memorystore";
+import { createClient } from "redis";
+import { RedisStore } from "connect-redis";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
-const MemStore = MemoryStore(session);
+const redisClient = createClient({
+  url: process.env.REDIS_URL || "redis://localhost:6379",
+});
+redisClient.connect().catch(console.error);
 
 console.log(
   "DATABASE_URL host:",
@@ -74,9 +78,7 @@ const httpServer = createServer(app);
 // ─── Session + Auth ───────────────────────────────────────────────────────────
 app.use(
   session({
-    store: new MemStore({
-      checkPeriod: 86400000,
-    }),
+    store: new RedisStore({ client: redisClient }),
     secret: process.env.SESSION_SECRET ?? "dev-secret",
     resave: false,
     saveUninitialized: false,
