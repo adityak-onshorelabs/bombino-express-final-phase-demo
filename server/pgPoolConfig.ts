@@ -56,7 +56,9 @@ function parsePostgresUrl(connectionString: string): {
   };
 }
 
-function sslOptionsFromUrl(connectionString: string): boolean | ConnectionOptions {
+function sslOptionsFromUrl(
+  connectionString: string
+): boolean | ConnectionOptions {
   if (process.env.PG_SSL_ALLOW_UNSAFE === "1") {
     return { rejectUnauthorized: false };
   }
@@ -65,6 +67,15 @@ function sslOptionsFromUrl(connectionString: string): boolean | ConnectionOption
     const mode = u.searchParams.get("sslmode")?.toLowerCase();
     if (mode === "disable") {
       return false;
+    }
+    // Supabase pooler uses a certificate chain that Node does not
+    // trust by default. Always disable rejectUnauthorized for
+    // known Supabase hosts — the connection is still encrypted.
+    if (
+      u.hostname.endsWith(".supabase.co") ||
+      u.hostname.endsWith(".pooler.supabase.com")
+    ) {
+      return { rejectUnauthorized: false };
     }
   } catch {
     /* fall through */
