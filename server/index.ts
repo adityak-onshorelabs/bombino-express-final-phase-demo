@@ -55,12 +55,12 @@ function debugLog(payload: Record<string, unknown>) {
 // #endregion
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
-import connectPgSimple from "connect-pg-simple";
-import { Pool } from "pg";
-import { getPgPoolConfig } from "./pgPoolConfig";
+import MemoryStore from "memorystore";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+
+const MemStore = MemoryStore(session);
 
 console.log(
   "DATABASE_URL host:",
@@ -72,12 +72,11 @@ app.set('trust proxy', 1);
 const httpServer = createServer(app);
 
 // ─── Session + Auth ───────────────────────────────────────────────────────────
-const PgStore = connectPgSimple(session);
-const sessionPool = new Pool(getPgPoolConfig());
-
 app.use(
   session({
-    store: new PgStore({ pool: sessionPool, createTableIfMissing: true }),
+    store: new MemStore({
+      checkPeriod: 86400000,
+    }),
     secret: process.env.SESSION_SECRET ?? "dev-secret",
     resave: false,
     saveUninitialized: false,
