@@ -1,7 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useLayoutEffect, type CSSProperties } from 'react';
 import confetti from 'canvas-confetti';
-import { ArrowLeft, Check, Package, User, MapPin, Send, ArrowRight, Loader2, AlertTriangle, FileText, Copy } from 'lucide-react';
-import { useLocation, useSearch } from 'wouter';
+import {
+  ArrowLeft,
+  Check,
+  Package,
+  User,
+  MapPin,
+  Send,
+  ArrowRight,
+  Loader2,
+  AlertTriangle,
+  FileText,
+  Copy,
+  Zap,
+  ChevronDown,
+} from 'lucide-react';
+import { useLocation } from 'wouter';
 import { useMutation } from '@tanstack/react-query';
 import { BottomNav } from '@/components/BottomNav';
 import { CorridorRouteInfo } from '@/components/CorridorRouteInfo';
@@ -89,6 +103,111 @@ interface CreateShipmentResponse {
   };
 }
 
+interface RateParams {
+  product_code: string;
+  destination_code: string;
+  booking_date: string;
+  origin_code: string;
+  pcs: string;
+  actual_weight: string;
+}
+
+interface ITDChargeApplyEntry {
+  name: string;
+  amount: number;
+}
+
+interface ITDRateRow {
+  id: string;
+  code: string;
+  rate: number;
+  fsc: number;
+  cgst: number;
+  sgst: number;
+  other_charges: number;
+  chrage_apply_data?: Record<string, ITDChargeApplyEntry>;
+  sub_total: number;
+  total: number;
+  per_kg: number;
+  weight: string;
+  gst_per: string;
+  internal_api_service_code?: string;
+}
+
+interface ITDRateResponse {
+  success?: boolean;
+  data?: ITDRateRow[];
+}
+
+const BOMBINO_RED = '#b91c1c';
+const BEST_GREEN = '#166534';
+const BEST_BADGE_BG = '#dcfce7';
+
+const ratesResultsShellStyle = {
+  '--color-background-primary': '#ffffff',
+  '--color-background-secondary': 'rgb(247 247 249)',
+  '--color-border-tertiary': 'rgba(55, 65, 81, 0.12)',
+} as CSSProperties;
+
+/** Indian Rupee with sensible fraction digits (no float noise). */
+function formatInr(n: number): string {
+  return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
+
+function normalizeRateRow(raw: unknown): ITDRateRow | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const id = r.id != null ? String(r.id) : '';
+  const code =
+    typeof r.code === 'string'
+      ? r.code
+      : typeof r.internal_api_service_code === 'string'
+        ? r.internal_api_service_code
+        : '';
+  if (!id && !code) return null;
+  const num = (v: unknown): number => (typeof v === 'number' && !Number.isNaN(v) ? v : Number(v) || 0);
+  const str = (v: unknown): string => (typeof v === 'string' ? v : String(v ?? ''));
+  let chrage = r.chrage_apply_data;
+  if (chrage && typeof chrage === 'object' && !Array.isArray(chrage)) {
+    chrage = chrage as Record<string, ITDChargeApplyEntry>;
+  } else {
+    chrage = undefined;
+  }
+  return {
+    id: id || code,
+    code: code || id,
+    rate: num(r.rate),
+    fsc: num(r.fsc),
+    cgst: num(r.cgst),
+    sgst: num(r.sgst),
+    other_charges: num(r.other_charges),
+    chrage_apply_data: chrage as ITDRateRow['chrage_apply_data'],
+    sub_total: num(r.sub_total),
+    total: num(r.total),
+    per_kg: num(r.per_kg),
+    weight: str(r.weight),
+    gst_per: str(r.gst_per),
+    internal_api_service_code:
+      typeof r.internal_api_service_code === 'string' ? r.internal_api_service_code : undefined,
+  };
+}
+
+function dedupeAndSort(rows: ITDRateRow[]): ITDRateRow[] {
+  const seen = new Set<string>();
+  const deduped: ITDRateRow[] = [];
+  for (const row of rows) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    deduped.push(row);
+  }
+  return [...deduped].sort((a, b) => a.total - b.total);
+}
+
+function itemizedChargesEmpty(service: ITDRateRow): boolean {
+  const d = service.chrage_apply_data;
+  return !d || Object.keys(d).length === 0;
+}
+
 const steps = [
   { id: 1, title: 'Sender', icon: User },
   { id: 2, title: 'Receiver', icon: MapPin },
@@ -96,17 +215,7 @@ const steps = [
   { id: 4, title: 'Invoice', icon: FileText },
 ];
 
-const DEFAULT_API_SERVICE_CODE = 'BOMBINO PREMIUM DDP SERVICE';
-
-function apiServiceCodeFromSearch(search: string): string {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
-  const fromQuery = params.get('api_service_code');
-  return fromQuery && fromQuery.trim() ? fromQuery : DEFAULT_API_SERVICE_CODE;
-}
-
 export default function CreateShipment() {
-  const search = useSearch();
-  const [apiServiceCode] = useState(() => apiServiceCodeFromSearch(search));
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, addShipment, addNotification } = useAppStore();
   const [currentStep, setCurrentStep] = useState(1);
@@ -145,7 +254,13 @@ export default function CreateShipment() {
   const [invoiceQty, setInvoiceQty] = useState('1');
   const [invoiceUnitWeight, setInvoiceUnitWeight] = useState('');
   const [invoiceUnitRate, setInvoiceUnitRate] = useState('');
-  const [productType, setProductType] = useState<'COMMERCIAL' | 'CSB V' | 'DOX' | 'SPX'>('SPX');
+  const [productType, setProductType] = useState('');
+
+  const [rateResults, setRateResults] = useState<ITDRateRow[] | null>(null);
+  const [selectedService, setSelectedService] = useState<ITDRateRow | null>(null);
+  const [ratesError, setRatesError] = useState('');
+  const [serviceSelectionError, setServiceSelectionError] = useState('');
+  const [expandedById, setExpandedById] = useState<Record<string, boolean>>({});
 
   const [kycResult, setKycResult] = useState<KycUploadResult | null>(null);
 
@@ -275,6 +390,59 @@ export default function CreateShipment() {
     },
   });
 
+  const rateMutation = useMutation({
+    mutationFn: (params: RateParams) =>
+      apiRequest('POST', '/api/rates', params).then((r) => r.json() as Promise<ITDRateResponse>),
+    onMutate: () => {
+      setSelectedService(null);
+      setRateResults(null);
+      setRatesError('');
+      setServiceSelectionError('');
+    },
+    onSuccess: (data) => {
+      const rawList: unknown[] = Array.isArray(data)
+        ? (data as unknown[])
+        : Array.isArray(data?.data)
+          ? (data.data as unknown[])
+          : [];
+      const services: ITDRateRow[] = rawList
+        .map((item) => normalizeRateRow(item))
+        .filter((row): row is ITDRateRow => row !== null);
+      setRateResults(services);
+    },
+    onError: (err) => {
+      setRateResults(null);
+      const msg = err instanceof Error ? err.message.replace(/^\d+:\s*/, '') : 'Rate calculation failed';
+      setRatesError(msg);
+    },
+  });
+
+  const displayRates = useMemo(() => {
+    if (!rateResults?.length) return [];
+    return dedupeAndSort(rateResults);
+  }, [rateResults]);
+
+  useLayoutEffect(() => {
+    if (displayRates.length === 0) return;
+    const bestId = displayRates[0].id;
+    setExpandedById({ [bestId]: true });
+  }, [displayRates]);
+
+  const handleGetRates = (): void => {
+    if (!productType.trim()) return;
+    setRatesError('');
+    const w = parseFloat(weight) || 1;
+    const weightKg = weightUnit === 'kg' ? w : lbToKg(w);
+    rateMutation.mutate({
+      product_code: productType,
+      destination_code: 'US',
+      booking_date: new Date().toISOString().split('T')[0],
+      origin_code: 'IN',
+      pcs: String(parseInt(pieces) || 1),
+      actual_weight: String(weightKg.toFixed(2)),
+    });
+  };
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-background pb-20" data-testid="screen-create-login-required">
@@ -354,7 +522,11 @@ export default function CreateShipment() {
             <div className="mt-4 pt-4 border-t border-border space-y-3 text-sm">
               <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground shrink-0">Service</span>
-                <span className="font-medium text-foreground text-right text-xs break-words">{apiServiceCode}</span>
+                <span className="font-medium text-foreground text-right text-xs break-words">
+                  {selectedService
+                    ? selectedService.internal_api_service_code || selectedService.code
+                    : '—'}
+                </span>
               </div>
               <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground shrink-0">Booking date</span>
@@ -454,9 +626,23 @@ export default function CreateShipment() {
     return weightUnit === 'lb' ? w : w / 0.453592;
   };
 
+  const getWeightKg = (): number => {
+    const w = parseFloat(weight) || 1;
+    return weightUnit === 'kg' ? w : lbToKg(w);
+  };
+
   const handleSubmit = () => {
     setSubmitError('');
+    setServiceSelectionError('');
     setFieldErrors({});
+    if (!productType.trim()) {
+      setSubmitError('Please select a product type');
+      return;
+    }
+    if (!selectedService) {
+      setServiceSelectionError('Please select a shipping service');
+      return;
+    }
     const invE: Record<string, boolean> = {};
     const qtyNum = parseInt(invoiceQty, 10);
     if (!invoiceQty.trim() || Number.isNaN(qtyNum) || qtyNum < 1) invE.invoiceQty = true;
@@ -484,6 +670,9 @@ export default function CreateShipment() {
     const contentTrimmed = shipmentContent.trim();
     const lineHsCode = contentTrimmed ? (getHsnCode(contentTrimmed) || '') : '';
 
+    const apiServiceCodeResolved =
+      selectedService.internal_api_service_code || selectedService.code;
+
     const payload: CreateShipmentPayload = {
       product_code: productType,
       destination_code: 'US',
@@ -502,7 +691,7 @@ export default function CreateShipment() {
       free_form_currency: 'USD',
       terms_of_trade: 'FOB',
       entry_type: 2,
-      api_service_code: apiServiceCode,
+      api_service_code: apiServiceCodeResolved,
       shipper_name: senderName,
       shipper_company_name: senderCompany || senderName,
       shipper_contact_no: senderPhone,
@@ -1151,9 +1340,18 @@ export default function CreateShipment() {
               <div className="space-y-2">
                 <div className="space-y-1">
                   <span className="text-sm text-muted-foreground">Product Type</span>
-                  <Select value={productType} onValueChange={(v) => setProductType(v as typeof productType)}>
+                  <Select
+                    value={productType || undefined}
+                    onValueChange={(v) => {
+                      setProductType(v);
+                      setRateResults(null);
+                      setSelectedService(null);
+                      setRatesError('');
+                      setServiceSelectionError('');
+                    }}
+                  >
                     <SelectTrigger className="mt-1">
-                      <SelectValue />
+                      <SelectValue placeholder="Select product type" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="COMMERCIAL">COMMERCIAL</SelectItem>
@@ -1166,7 +1364,9 @@ export default function CreateShipment() {
                 <div className="flex justify-between text-sm gap-2">
                   <span className="text-muted-foreground shrink-0">Service</span>
                   <span className="font-medium text-foreground text-right text-xs break-words">
-                    {apiServiceCode}
+                    {selectedService
+                      ? selectedService.internal_api_service_code || selectedService.code
+                      : '—'}
                   </span>
                 </div>
                 <div className="flex justify-between text-sm gap-2">
@@ -1177,6 +1377,242 @@ export default function CreateShipment() {
                 </div>
               </div>
             </div>
+
+            <Button
+              type="button"
+              onClick={handleGetRates}
+              disabled={!productType.trim() || rateMutation.isPending}
+              className="w-full h-12 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-xl shadow-md disabled:opacity-70 flex items-center justify-center gap-2"
+              data-testid="button-get-rates-invoice"
+            >
+              {rateMutation.isPending ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <>
+                  <Zap className="w-4 h-4 shrink-0" aria-hidden />
+                  Get Rates
+                </>
+              )}
+            </Button>
+
+            {ratesError ? (
+              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
+                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-600">{ratesError}</p>
+              </div>
+            ) : null}
+
+            {rateResults !== null ? (
+              <div
+                className="rounded-xl pb-1"
+                style={ratesResultsShellStyle}
+                data-testid="invoice-rate-results"
+              >
+                {displayRates.length > 0 ? (
+                  <>
+                    <h3 className="text-sm font-semibold text-foreground px-1 mb-2">
+                      Select a Shipping Service
+                    </h3>
+                    <div className="flex flex-col gap-[10px]">
+                      {displayRates.map((service, idx) => {
+                        const isBest = idx === 0;
+                        const displayName = service.code || service.internal_api_service_code || 'Service';
+                        const letter = displayName.trim().charAt(0).toUpperCase() || '?';
+                        const gstTotal = service.cgst + service.sgst;
+                        const open = !!expandedById[service.id];
+                        const weightStr =
+                          service.weight?.trim() || String(getWeightKg().toFixed(2));
+                        const itemizedEmpty = itemizedChargesEmpty(service);
+                        const showOtherChargesAggregate =
+                          service.other_charges > 0 && itemizedEmpty;
+                        const isSelected = selectedService?.id === service.id;
+
+                        const toggle = (): void => {
+                          setExpandedById((prev) => ({
+                            ...prev,
+                            [service.id]: !prev[service.id],
+                          }));
+                        };
+
+                        return (
+                          <div
+                            key={service.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => {
+                              setSelectedService(service);
+                              setServiceSelectionError('');
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setSelectedService(service);
+                                setServiceSelectionError('');
+                              }
+                            }}
+                            className={cn(
+                              'rounded-[14px] border-[0.5px] border-[var(--color-border-tertiary)] bg-[var(--color-background-primary)] overflow-hidden relative outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer',
+                              isSelected && 'ring-2 ring-primary border-primary'
+                            )}
+                            data-testid={`invoice-rate-card-${idx}`}
+                          >
+                            {isSelected ? (
+                              <div className="absolute top-3 right-3 z-10 rounded-full bg-primary p-0.5 text-white">
+                                <Check className="w-3.5 h-3.5" strokeWidth={3} aria-hidden />
+                              </div>
+                            ) : null}
+                            <div className="flex items-center gap-3 px-4 pt-[14px] pb-3">
+                              <div
+                                className="w-[34px] h-[34px] shrink-0 rounded-[10px] flex items-center justify-center text-[13px] font-medium text-white"
+                                style={{ backgroundColor: isBest ? BEST_GREEN : BOMBINO_RED }}
+                              >
+                                {letter}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[13px] font-medium text-foreground leading-snug">
+                                  {displayName}
+                                </p>
+                                <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {weightStr} kg chargeable
+                                  </span>
+                                  {isBest ? (
+                                    <span
+                                      className="inline-block rounded-[20px] px-[7px] py-0.5 text-[9px] font-medium"
+                                      style={{ backgroundColor: BEST_BADGE_BG, color: BEST_GREEN }}
+                                    >
+                                      Best value
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <div className="shrink-0 text-right pr-6">
+                                <p
+                                  className="text-[20px] font-medium tabular-nums"
+                                  style={{ color: BOMBINO_RED }}
+                                >
+                                  {formatInr(service.total)}
+                                </p>
+                                <p className="text-[10px] text-muted-foreground">incl. GST</p>
+                              </div>
+                            </div>
+
+                            <div className="h-[0.5px] bg-[var(--color-border-tertiary)]" />
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggle();
+                              }}
+                              className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-black/[0.02] transition-colors"
+                            >
+                              <span className="text-[11px] text-muted-foreground">
+                                {open ? 'Hide breakdown' : 'View price breakdown'}
+                              </span>
+                              <ChevronDown
+                                className={cn(
+                                  'w-[11px] h-[11px] text-muted-foreground shrink-0 transition-transform duration-200',
+                                  open && 'rotate-180'
+                                )}
+                              />
+                            </button>
+
+                            {open ? (
+                              <div className="bg-[var(--color-background-secondary)] px-4 py-3 border-t-[0.5px] border-[var(--color-border-tertiary)]">
+                                <div className="space-y-2">
+                                  <div className="flex justify-between gap-3 text-[11px]">
+                                    <span className="text-muted-foreground">Base rate</span>
+                                    <span className="font-medium tabular-nums">{formatInr(service.rate)}</span>
+                                  </div>
+                                  {service.fsc !== 0 ? (
+                                    <div className="flex justify-between gap-3 text-[11px]">
+                                      <span className="text-muted-foreground">Fuel surcharge (FSC)</span>
+                                      <span className="font-medium tabular-nums">{formatInr(service.fsc)}</span>
+                                    </div>
+                                  ) : null}
+                                  {!itemizedEmpty
+                                    ? Object.values(service.chrage_apply_data!)
+                                        .filter((entry) => entry.amount !== 0)
+                                        .map((entry, i) => (
+                                          <div
+                                            key={`${service.id}-chg-${i}`}
+                                            className="flex justify-between gap-3 text-[11px]"
+                                          >
+                                            <span className="text-muted-foreground">{entry.name}</span>
+                                            <span className="font-medium tabular-nums">
+                                              {formatInr(entry.amount)}
+                                            </span>
+                                          </div>
+                                        ))
+                                    : null}
+                                  {showOtherChargesAggregate ? (
+                                    <div className="flex justify-between gap-3 text-[11px]">
+                                      <span className="text-muted-foreground">Other charges</span>
+                                      <span className="font-medium tabular-nums">
+                                        {formatInr(service.other_charges)}
+                                      </span>
+                                    </div>
+                                  ) : null}
+                                </div>
+
+                                <div className="my-3 h-[0.5px] bg-[var(--color-border-tertiary)]" />
+
+                                <div className="space-y-2">
+                                  {service.sub_total !== 0 ? (
+                                    <div className="flex justify-between gap-3 text-[11px]">
+                                      <span className="text-muted-foreground">Sub-total</span>
+                                      <span className="font-medium tabular-nums">
+                                        {formatInr(service.sub_total)}
+                                      </span>
+                                    </div>
+                                  ) : null}
+                                  {gstTotal !== 0 ? (
+                                    <div className="flex justify-between gap-3 text-[11px]">
+                                      <span className="text-muted-foreground">
+                                        GST ({service.gst_per || '0'}%)
+                                      </span>
+                                      <span className="font-medium tabular-nums">{formatInr(gstTotal)}</span>
+                                    </div>
+                                  ) : null}
+                                </div>
+
+                                <div className="my-3 h-px bg-[var(--color-border-tertiary)] opacity-80" />
+
+                                <div className="flex justify-between gap-3 items-baseline">
+                                  <span className="text-[11px] text-muted-foreground">Total payable</span>
+                                  <span
+                                    className="text-[13px] font-medium tabular-nums"
+                                    style={{ color: BOMBINO_RED }}
+                                  >
+                                    {formatInr(service.total)}
+                                  </span>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : !rateMutation.isPending ? (
+                  <p className="text-sm text-muted-foreground text-center py-4 px-2">
+                    No rates available for this selection
+                  </p>
+                ) : null}
+
+                {serviceSelectionError ? (
+                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mt-3">
+                    <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-red-600">{serviceSelectionError}</p>
+                  </div>
+                ) : null}
+
+                <p className="text-[10px] text-muted-foreground text-center mt-4">
+                  Estimated only. Final charges may vary.
+                </p>
+              </div>
+            ) : null}
 
             <div className="bg-card rounded-xl border border-border p-4 space-y-3 shadow-sm">
               <Label className="text-sm font-semibold">Invoice Item</Label>
