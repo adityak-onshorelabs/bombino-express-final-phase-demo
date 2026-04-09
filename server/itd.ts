@@ -250,12 +250,13 @@ class ITDClient {
   // Uses the provided user token if given, otherwise falls back to the shared company token.
   async trackShipment(
     trackingNo: string,
-    token?: string
+    token?: string,
+    customerCode?: string
   ): Promise<ITDTrackingResult[]> {
     const authToken = token ?? (await this.getToken());
     const params = new URLSearchParams({
       api_company_id: process.env.ITD_API_COMPANY_ID ?? "2",
-      customer_code: process.env.ITD_CUSTOMER_CODE ?? "",
+      customer_code: customerCode ?? process.env.ITD_CUSTOMER_CODE ?? "",
       tracking_no: trackingNo,
     });
 
@@ -308,12 +309,17 @@ class ITDClient {
   }
 
   // POST /docket_api/customer_rate_cals (multipart/form-data, different domain)
-  async getRates(params: RateParams, userEmail?: string, customerCode?: string): Promise<unknown> {
+  async getRates(
+    params: RateParams,
+    userEmail?: string,
+    customerCode?: string,
+    passwordPlaintext?: string
+  ): Promise<unknown> {
     const username = Buffer.from(
       userEmail ?? process.env.ITD_EMAIL ?? ""
     ).toString("base64");
     const password = Buffer.from(
-      process.env.ITD_PASSWORD ?? ""
+      passwordPlaintext ?? process.env.ITD_PASSWORD ?? ""
     ).toString("base64");
     const apiCompanyId = process.env.ITD_API_COMPANY_ID ?? "2";
 

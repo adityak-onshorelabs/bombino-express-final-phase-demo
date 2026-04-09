@@ -3,12 +3,15 @@ import {
   countUnreadNotifications,
   findItdUserIdByCustomerId,
   getItdUserProfileById,
+  getItdUserTokenAndSecretsById,
   insertLoginAuditLog,
   listNotificationsByUserId,
   listShipmentsByUserId,
   markNotificationRead,
   upsertItdUserAndReturnId,
 } from "./appDb.js";
+import { decryptPassword, encryptPassword } from "./crypto.js";
+import { refreshItdTokenIfNeeded } from "./itdTokenRefresh.js";
 import type { Server } from "http";
 import fs from "fs";
 import path from "path";
@@ -114,6 +117,10 @@ export async function registerRoutes(
       // Non-blocking DB sync — never affects login response
       void (async () => {
         try {
+          const tokenExpiresAt = new Date(
+            Date.now() + 24 * 60 * 60 * 1000
+          ).toISOString();
+          const enc = encryptPassword(password);
           const dbRow = await upsertItdUserAndReturnId({
             itd_customer_id: user.id,
             itd_customer_code: user.customerId,
@@ -121,6 +128,14 @@ export async function registerRoutes(
             full_name: user.fullName,
             username: user.username,
             role: user.role,
+            itd_token: token,
+            itd_token_expires_at: tokenExpiresAt,
+            ...(enc.encrypted && enc.iv
+              ? {
+                  itd_password_encrypted: enc.encrypted,
+                  encryption_iv: enc.iv,
+                }
+              : {}),
           });
           if (dbRow?.id) {
             void insertLoginAuditLog({
@@ -261,45 +276,89 @@ export async function registerRoutes(
 
   // ── ITD: Tracking ────────────────────────────────────────────────────────
 
-  // GET /api/track/:trackingNo — no login required; uses session token if available
-  app.get("/api/track/:trackingNo", async (req: Request, res: Response) => {
-    const { trackingNo } = req.params;
+  // GET /api/track/:trackingNo — no login required; guest uses company token + superadmin
+  app.get(
+    "/api/track/:trackingNo",
+    ensureDbUser,
+    refreshItdTokenIfNeeded,
+    async (req: Request, res: Response) => {
+      const { trackingNo } = req.params;
 
-    try {
-      const data = await itdClient.trackShipment(trackingNo, req.session.itdToken);
-      res.json(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Tracking failed";
-      res.status(502).json({ message });
+      try {
+        const user = req.session.user;
+        const data = await itdClient.trackShipment(
+          trackingNo,
+          user ? req.session.itdToken : undefined,
+          user ? user.code : "superadmin"
+        );
+        res.json(data);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Tracking failed";
+        res.status(502).json({ message });
+      }
     }
-  });
+  );
 
   // ── ITD: Rate Calculation ─────────────────────────────────────────────────
 
-  app.post("/api/rates", async (req: Request, res: Response) => {
-    const { product_code, destination_code, booking_date, origin_code, pcs, actual_weight } =
-      req.body as RateParams;
+  app.post(
+    "/api/rates",
+    ensureDbUser,
+    refreshItdTokenIfNeeded,
+    async (req: Request, res: Response) => {
+      const { product_code, destination_code, booking_date, origin_code, pcs, actual_weight } =
+        req.body as RateParams;
 
-    if (!product_code || !destination_code || !actual_weight) {
-      res.status(400).json({ message: "product_code, destination_code, and actual_weight are required" });
-      return;
-    }
+      if (!product_code || !destination_code || !actual_weight) {
+        res.status(400).json({ message: "product_code, destination_code, and actual_weight are required" });
+        return;
+      }
 
-    try {
-      const data = await itdClient.getRates({
+      const rateParams: RateParams = {
         product_code,
         destination_code,
         booking_date: booking_date ?? new Date().toISOString().split("T")[0],
         origin_code: origin_code ?? "IN",
         pcs: pcs ?? "1",
         actual_weight,
-      }, req.session.user?.email, req.session.user?.code);
-      res.json(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Rate calculation failed";
-      res.status(502).json({ message });
+      };
+
+      try {
+        let data: unknown;
+        const sessionUser = req.session.user;
+        if (sessionUser && req.session.dbUserId) {
+          try {
+            const secrets = await getItdUserTokenAndSecretsById(req.session.dbUserId);
+            if (
+              secrets?.itd_password_encrypted &&
+              secrets?.encryption_iv
+            ) {
+              const plain = decryptPassword(
+                secrets.itd_password_encrypted,
+                secrets.encryption_iv
+              );
+              data = await itdClient.getRates(
+                rateParams,
+                sessionUser.email,
+                sessionUser.code,
+                plain
+              );
+            } else {
+              data = await itdClient.getRates(rateParams);
+            }
+          } catch {
+            data = await itdClient.getRates(rateParams);
+          }
+        } else {
+          data = await itdClient.getRates(rateParams);
+        }
+        res.json(data);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Rate calculation failed";
+        res.status(502).json({ message });
+      }
     }
-  });
+  );
 
   // ── Support: AI chat ──────────────────────────────────────────────────────
 
@@ -383,7 +442,11 @@ export async function registerRoutes(
   // ── ITD: Create Shipment ──────────────────────────────────────────────────
 
   // POST /api/shipments — requires login (session token)
-  app.post("/api/shipments", ensureDbUser, async (req: Request, res: Response) => {
+  app.post(
+    "/api/shipments",
+    ensureDbUser,
+    refreshItdTokenIfNeeded,
+    async (req: Request, res: Response) => {
     if (!req.session.itdToken) {
       res.status(401).json({ message: "Login required to create a shipment" });
       return;

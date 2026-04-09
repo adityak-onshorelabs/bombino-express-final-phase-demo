@@ -95,6 +95,10 @@ type UpsertItdUserInput = {
   full_name: string;
   username: string;
   role: string;
+  itd_token?: string | null;
+  itd_token_expires_at?: string | null;
+  itd_password_encrypted?: string | null;
+  encryption_iv?: string | null;
 };
 
 export async function upsertItdUserAndReturnId(
@@ -104,11 +108,22 @@ export async function upsertItdUserAndReturnId(
   if (!client) return null;
 
   const now = new Date().toISOString();
+  const { itd_token, itd_token_expires_at, itd_password_encrypted, encryption_iv, ...rest } =
+    payload;
+  const optionalCols: Record<string, string | null | undefined> = {};
+  if (itd_token !== undefined) optionalCols.itd_token = itd_token;
+  if (itd_token_expires_at !== undefined) optionalCols.itd_token_expires_at = itd_token_expires_at;
+  if (itd_password_encrypted !== undefined) {
+    optionalCols.itd_password_encrypted = itd_password_encrypted;
+  }
+  if (encryption_iv !== undefined) optionalCols.encryption_iv = encryption_iv;
+
   const { data, error } = await client
     .from("itd_users")
     .upsert(
       {
-        ...payload,
+        ...rest,
+        ...optionalCols,
         last_login_at: now,
         updated_at: now,
       },
@@ -122,6 +137,55 @@ export async function upsertItdUserAndReturnId(
     return null;
   }
   return data;
+}
+
+export type ItdUserTokenSecretsRow = {
+  itd_token_expires_at: string | null;
+  itd_password_encrypted: string | null;
+  encryption_iv: string | null;
+};
+
+export async function getItdUserTokenAndSecretsById(
+  userId: string
+): Promise<ItdUserTokenSecretsRow | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("itd_token_expires_at, itd_password_encrypted, encryption_iv")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getItdUserTokenAndSecretsById", error);
+    return null;
+  }
+  return data;
+}
+
+export async function updateItdUserTokenById(
+  userId: string,
+  token: string,
+  expiresAtIso: string
+): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { error } = await client
+    .from("itd_users")
+    .update({
+      itd_token: token,
+      itd_token_expires_at: expiresAtIso,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", userId);
+
+  if (error) {
+    logSupabaseError("updateItdUserTokenById", error);
+    return false;
+  }
+  return true;
 }
 
 export async function insertLoginAuditLog(input: {
