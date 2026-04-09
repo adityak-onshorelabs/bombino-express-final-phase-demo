@@ -48,6 +48,43 @@ function requireUser(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
+async function ensureDbUser(
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> {
+  if (req.session.dbUserId || !req.session.user) {
+    next();
+    return;
+  }
+
+  try {
+    const row = (await safeQueryOne(
+      "SELECT id FROM itd_users WHERE itd_customer_id = $1 LIMIT 1",
+      [req.session.user.id]
+    )) as { id: string } | null;
+
+    if (!row?.id) {
+      console.error(
+        `[ensureDbUser] no itd_users row found for itd_customer_id=${req.session.user.id}`
+      );
+      next();
+      return;
+    }
+
+    req.session.dbUserId = row.id;
+    req.session.save((err) => {
+      if (err) {
+        console.error("[ensureDbUser] session save error:", err);
+      }
+      next();
+    });
+  } catch (err) {
+    console.error("[ensureDbUser] failed:", err);
+    next();
+  }
+}
+
 // ─── Route registration ───────────────────────────────────────────────────────
 
 export async function registerRoutes(
@@ -96,7 +133,6 @@ export async function registerRoutes(
             ]
           );
           if (dbRow?.id) {
-            req.session.dbUserId = dbRow.id;
             void safeQuery(
               `INSERT INTO audit_log
           (user_id, action, metadata, ip_address)
@@ -161,6 +197,7 @@ export async function registerRoutes(
   app.get(
     "/api/user/profile",
     requireUser,
+    ensureDbUser,
     async (req: Request, res: Response) => {
       if (!req.session.dbUserId) {
         return res.status(404).json({
@@ -185,6 +222,7 @@ export async function registerRoutes(
   app.get(
     "/api/shipments/history",
     requireUser,
+    ensureDbUser,
     async (req: Request, res: Response) => {
       if (!req.session.dbUserId) {
         return res.json([]);
@@ -201,6 +239,7 @@ export async function registerRoutes(
   app.get(
     "/api/notifications/unread-count",
     requireUser,
+    ensureDbUser,
     async (req: Request, res: Response) => {
       if (!req.session.dbUserId) {
         return res.json({ count: 0 });
@@ -216,6 +255,7 @@ export async function registerRoutes(
   app.get(
     "/api/notifications",
     requireUser,
+    ensureDbUser,
     async (req: Request, res: Response) => {
       if (!req.session.dbUserId) {
         return res.json([]);
@@ -231,6 +271,7 @@ export async function registerRoutes(
   app.patch(
     "/api/notifications/:id/read",
     requireUser,
+    ensureDbUser,
     async (req: Request, res: Response) => {
       if (!req.session.dbUserId) {
         return res.status(404).json({ message: "Not found" });
@@ -373,7 +414,7 @@ export async function registerRoutes(
   // ── ITD: Create Shipment ──────────────────────────────────────────────────
 
   // POST /api/shipments — requires login (session token)
-  app.post("/api/shipments", async (req: Request, res: Response) => {
+  app.post("/api/shipments", ensureDbUser, async (req: Request, res: Response) => {
     if (!req.session.itdToken) {
       res.status(401).json({ message: "Login required to create a shipment" });
       return;
