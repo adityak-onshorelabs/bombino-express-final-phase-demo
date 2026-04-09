@@ -5,6 +5,7 @@ import { useLocation, useSearch } from 'wouter';
 import { useMutation } from '@tanstack/react-query';
 import { BottomNav } from '@/components/BottomNav';
 import { CorridorRouteInfo } from '@/components/CorridorRouteInfo';
+import { AddressPicker, type SavedAddress } from '@/components/AddressPicker';
 import { KycUpload, type KycUploadResult } from '@/components/KycUpload';
 import { ShipmentContentSearch } from '@/components/ShipmentContentSearch';
 import { Button } from '@/components/ui/button';
@@ -610,6 +611,20 @@ export default function CreateShipment() {
         {currentStep === 1 && (
           <div className="space-y-4 animate-fade-in">
             <CorridorRouteInfo />
+            <AddressPicker
+              type="sender"
+              isLoggedIn={isLoggedIn}
+              onSelect={(address: SavedAddress) => {
+                setSenderName(address.full_name);
+                setSenderCompany(address.company ?? '');
+                setSenderPhone(address.phone.replace(/\D/g, '').slice(0, 10));
+                setSenderAddress(address.address_line_1);
+                setSenderCity(address.city);
+                setSenderState(address.state ?? '');
+                setSenderZip(address.pincode ?? '');
+                setFieldErrors({});
+              }}
+            />
 
             <div className="bg-card rounded-xl border border-border p-4 space-y-3 shadow-sm">
               <div>
@@ -762,6 +777,20 @@ export default function CreateShipment() {
         {currentStep === 2 && (
           <div className="space-y-4 animate-fade-in">
             <CorridorRouteInfo />
+            <AddressPicker
+              type="recipient"
+              isLoggedIn={isLoggedIn}
+              onSelect={(address: SavedAddress) => {
+                setReceiverName(address.full_name);
+                setReceiverCompany(address.company ?? '');
+                setReceiverPhone(address.phone.replace(/\D/g, '').slice(0, 10));
+                setReceiverAddress(address.address_line_1);
+                setReceiverCity(address.city);
+                setReceiverState(address.state ?? '');
+                setReceiverZip(address.pincode ?? '');
+                setFieldErrors({});
+              }}
+            />
 
             <div className="bg-card rounded-xl border border-border p-4 space-y-3 shadow-sm">
               <div>

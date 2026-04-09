@@ -280,6 +280,40 @@ export async function listNotificationsByUserId(userId: string): Promise<any[] |
   return data ?? [];
 }
 
+export async function listAddressesByUserIdAndType(
+  userId: string,
+  type: "sender" | "recipient"
+): Promise<
+  {
+    id: string;
+    full_name: string;
+    company: string | null;
+    phone: string;
+    address_line_1: string;
+    city: string;
+    state: string | null;
+    pincode: string | null;
+    type: "sender" | "recipient";
+  }[] | null
+> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("addresses")
+    .select("id, full_name, company, phone, address_line_1, city, state, pincode, type")
+    .eq("user_id", userId)
+    .eq("type", type)
+    .order("use_count", { ascending: false })
+    .order("last_used_at", { ascending: false });
+
+  if (error) {
+    logSupabaseError("listAddressesByUserIdAndType", error);
+    return null;
+  }
+  return data ?? [];
+}
+
 export async function markNotificationRead(
   notificationId: string,
   userId: string

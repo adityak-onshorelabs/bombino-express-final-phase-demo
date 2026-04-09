@@ -5,6 +5,7 @@ import {
   getItdUserProfileById,
   getItdUserTokenAndSecretsById,
   insertLoginAuditLog,
+  listAddressesByUserIdAndType,
   listNotificationsByUserId,
   listShipmentsByUserId,
   markNotificationRead,
@@ -225,6 +226,25 @@ export async function registerRoutes(
         return res.json([]);
       }
       const rows = await listShipmentsByUserId(req.session.dbUserId);
+      return res.json(rows ?? []);
+    }
+  );
+
+  app.get(
+    "/api/addresses",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const parseType = z.enum(["sender", "recipient"]).safeParse(req.query.type);
+      if (!parseType.success) {
+        return res.status(400).json({ message: "type must be sender or recipient" });
+      }
+
+      if (!req.session.dbUserId) {
+        return res.json([]);
+      }
+
+      const rows = await listAddressesByUserIdAndType(req.session.dbUserId, parseType.data);
       return res.json(rows ?? []);
     }
   );
