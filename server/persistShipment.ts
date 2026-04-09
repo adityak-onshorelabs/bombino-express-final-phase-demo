@@ -1,4 +1,9 @@
-import { safeQuery, safeQueryOne } from "./appDb.js";
+import {
+  insertAddressAndReturnId,
+  insertShipmentAndReturnId,
+  insertShipmentCreatedAuditLog,
+  insertShipmentCreatedNotification,
+} from "./appDb.js";
 import type { CreateShipmentPayload, CreateShipmentResponse } from "./itd.js";
 
 function countryCodeFromLabel(country: string | undefined): string {
@@ -50,52 +55,40 @@ export async function persistShipmentAfterCreate(
   const senderCountryCode = countryCodeFromLabel(payload.shipper_country);
   const recipientCountryCode = countryCodeFromLabel(payload.consignee_country);
 
-  const senderRow = (await safeQueryOne(
-    `INSERT INTO addresses (
-      user_id, type, full_name, company, email, phone,
-      address_line_1, city, state, pincode, country_code, country_name
-    ) VALUES ($1, 'sender', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-    RETURNING id`,
-    [
-      dbUserId,
-      payload.shipper_name,
-      payload.shipper_company_name || null,
-      payload.shipper_email || null,
-      payload.shipper_contact_no,
-      payload.shipper_address_line_1,
-      payload.shipper_city,
-      payload.shipper_state || null,
-      payload.shipper_zip_code || null,
-      senderCountryCode,
-      payload.shipper_country || null,
-    ]
-  )) as { id: string } | null;
+  const senderRow = await insertAddressAndReturnId({
+    user_id: dbUserId,
+    type: "sender",
+    full_name: payload.shipper_name,
+    company: payload.shipper_company_name || null,
+    email: payload.shipper_email || null,
+    phone: payload.shipper_contact_no,
+    address_line_1: payload.shipper_address_line_1,
+    city: payload.shipper_city,
+    state: payload.shipper_state || null,
+    pincode: payload.shipper_zip_code || null,
+    country_code: senderCountryCode,
+    country_name: payload.shipper_country || null,
+  });
 
   if (!senderRow?.id) {
     console.error("[persistShipment] sender address insert failed");
     return;
   }
 
-  const recipientRow = (await safeQueryOne(
-    `INSERT INTO addresses (
-      user_id, type, full_name, company, email, phone,
-      address_line_1, city, state, pincode, country_code, country_name
-    ) VALUES ($1, 'recipient', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-    RETURNING id`,
-    [
-      dbUserId,
-      payload.consignee_name,
-      payload.consignee_company_name || null,
-      payload.consignee_email || null,
-      payload.consignee_contact_no,
-      payload.consignee_address_line_1,
-      payload.consignee_city,
-      payload.consignee_state || null,
-      payload.consignee_zip_code || null,
-      recipientCountryCode,
-      payload.consignee_country || null,
-    ]
-  )) as { id: string } | null;
+  const recipientRow = await insertAddressAndReturnId({
+    user_id: dbUserId,
+    type: "recipient",
+    full_name: payload.consignee_name,
+    company: payload.consignee_company_name || null,
+    email: payload.consignee_email || null,
+    phone: payload.consignee_contact_no,
+    address_line_1: payload.consignee_address_line_1,
+    city: payload.consignee_city,
+    state: payload.consignee_state || null,
+    pincode: payload.consignee_zip_code || null,
+    country_code: recipientCountryCode,
+    country_name: payload.consignee_country || null,
+  });
 
   if (!recipientRow?.id) {
     console.error("[persistShipment] recipient address insert failed");
@@ -105,64 +98,40 @@ export async function persistShipmentAfterCreate(
   const remoteCharges = parseOptionalAmount(itdResponse.data.remote_area_charges);
   const totalAmount = remoteCharges;
 
-  const shipmentRow = (await safeQueryOne(
-    `INSERT INTO shipments (
-      user_id, awb_number, sender_address_id, recipient_address_id,
-      sender_name, sender_company, sender_phone, sender_city, sender_state, sender_country,
-      consignee_name, consignee_company, consignee_phone, consignee_city, consignee_state, consignee_country,
-      service_name, service_code, product_code,
-      origin_country, destination_country,
-      weight_kg, pieces, declared_value, currency,
-      invoice_number, contents_description,
-      total_amount, other_charges,
-      current_status, booking_date, itd_response
-    ) VALUES (
-      $1, $2, $3, $4,
-      $5, $6, $7, $8, $9, $10,
-      $11, $12, $13, $14, $15, $16,
-      $17, $18, $19,
-      $20, $21,
-      $22, $23, $24, $25,
-      $26, $27,
-      $28, $29,
-      $30, $31, $32::jsonb
-    )
-    RETURNING id`,
-    [
-      dbUserId,
-      awb,
-      senderRow.id,
-      recipientRow.id,
-      payload.shipper_name,
-      payload.shipper_company_name || null,
-      payload.shipper_contact_no,
-      payload.shipper_city,
-      payload.shipper_state || null,
-      payload.shipper_country || null,
-      payload.consignee_name,
-      payload.consignee_company_name || null,
-      payload.consignee_contact_no,
-      payload.consignee_city,
-      payload.consignee_state || null,
-      payload.consignee_country || null,
-      payload.api_service_code || null,
-      payload.product_code || null,
-      payload.product_code || null,
-      senderCountryCode,
-      recipientCountryCode,
-      parseWeightKg(payload),
-      parsePieces(payload),
-      parseDeclaredValue(payload),
-      payload.shipment_value_currency || "INR",
-      payload.shipment_invoice_no || null,
-      payload.shipment_content || null,
-      totalAmount,
-      remoteCharges,
-      "ENTRY",
-      bookingDate,
-      JSON.stringify(itdResponse),
-    ]
-  )) as { id: string } | null;
+  const shipmentRow = await insertShipmentAndReturnId({
+    user_id: dbUserId,
+    awb_number: awb,
+    sender_address_id: senderRow.id,
+    recipient_address_id: recipientRow.id,
+    sender_name: payload.shipper_name,
+    sender_company: payload.shipper_company_name || null,
+    sender_phone: payload.shipper_contact_no,
+    sender_city: payload.shipper_city,
+    sender_state: payload.shipper_state || null,
+    sender_country: payload.shipper_country || null,
+    consignee_name: payload.consignee_name,
+    consignee_company: payload.consignee_company_name || null,
+    consignee_phone: payload.consignee_contact_no,
+    consignee_city: payload.consignee_city,
+    consignee_state: payload.consignee_state || null,
+    consignee_country: payload.consignee_country || null,
+    service_name: payload.api_service_code || null,
+    service_code: payload.product_code || null,
+    product_code: payload.product_code || null,
+    origin_country: senderCountryCode,
+    destination_country: recipientCountryCode,
+    weight_kg: parseWeightKg(payload),
+    pieces: parsePieces(payload),
+    declared_value: parseDeclaredValue(payload),
+    currency: payload.shipment_value_currency || "INR",
+    invoice_number: payload.shipment_invoice_no || null,
+    contents_description: payload.shipment_content || null,
+    total_amount: totalAmount,
+    other_charges: remoteCharges,
+    current_status: "ENTRY",
+    booking_date: bookingDate,
+    itd_response: itdResponse,
+  });
 
   if (!shipmentRow?.id) {
     console.error("[persistShipment] shipment insert failed");
@@ -171,30 +140,22 @@ export async function persistShipmentAfterCreate(
 
   const notifBody = `Your shipment has been booked. AWB: ${awb}`;
 
-  await safeQuery(
-    `INSERT INTO notifications (user_id, type, title, body, data, shipment_id)
-     VALUES ($1, 'shipment_created', $2, $3, $4::jsonb, $5)`,
-    [
-      dbUserId,
-      "Shipment Booked",
-      notifBody,
-      JSON.stringify({ awb }),
-      shipmentRow.id,
-    ]
-  );
+  await insertShipmentCreatedNotification({
+    user_id: dbUserId,
+    title: "Shipment Booked",
+    body: notifBody,
+    data: { awb },
+    shipment_id: shipmentRow.id,
+  });
 
-  await safeQuery(
-    `INSERT INTO audit_log (user_id, action, entity_type, entity_id, metadata, ip_address)
-     VALUES ($1, 'shipment_created', 'shipment', $2, $3::jsonb, $4)`,
-    [
-      dbUserId,
-      awb,
-      JSON.stringify({
-        awb_number: awb,
-        docket_id: itdResponse.data.docket_id,
-        shipment_id: shipmentRow.id,
-      }),
-      ipAddress ?? null,
-    ]
-  );
+  await insertShipmentCreatedAuditLog({
+    user_id: dbUserId,
+    entity_id: awb,
+    metadata: {
+      awb_number: awb,
+      docket_id: itdResponse.data.docket_id,
+      shipment_id: shipmentRow.id,
+    },
+    ip_address: ipAddress ?? null,
+  });
 }

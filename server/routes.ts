@@ -1,5 +1,14 @@
 import type { Express, NextFunction, Request, Response } from "express";
-import { safeQuery, safeQueryOne } from "./appDb.js";
+import {
+  countUnreadNotifications,
+  findItdUserIdByCustomerId,
+  getItdUserProfileById,
+  insertLoginAuditLog,
+  listNotificationsByUserId,
+  listShipmentsByUserId,
+  markNotificationRead,
+  upsertItdUserAndReturnId,
+} from "./appDb.js";
 import type { Server } from "http";
 import fs from "fs";
 import path from "path";
@@ -59,10 +68,7 @@ async function ensureDbUser(
   }
 
   try {
-    const row = (await safeQueryOne(
-      "SELECT id FROM itd_users WHERE itd_customer_id = $1 LIMIT 1",
-      [req.session.user.id]
-    )) as { id: string } | null;
+    const row = await findItdUserIdByCustomerId(req.session.user.id);
 
     if (!row?.id) {
       console.error(
@@ -108,44 +114,23 @@ export async function registerRoutes(
       // Non-blocking DB sync — never affects login response
       void (async () => {
         try {
-          const dbRow = await safeQueryOne(
-            `INSERT INTO itd_users (
-        itd_customer_id, itd_customer_code, email,
-        full_name, username, role,
-        last_login_at, created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW(),NOW())
-      ON CONFLICT (itd_customer_id) DO UPDATE SET
-        itd_customer_code = EXCLUDED.itd_customer_code,
-        email = EXCLUDED.email,
-        full_name = EXCLUDED.full_name,
-        username = EXCLUDED.username,
-        role = EXCLUDED.role,
-        last_login_at = NOW(),
-        updated_at = NOW()
-      RETURNING id`,
-            [
-              user.id,
-              user.customerId,
-              user.email,
-              user.fullName,
-              user.username,
-              user.role,
-            ]
-          );
+          const dbRow = await upsertItdUserAndReturnId({
+            itd_customer_id: user.id,
+            itd_customer_code: user.customerId,
+            email: user.email,
+            full_name: user.fullName,
+            username: user.username,
+            role: user.role,
+          });
           if (dbRow?.id) {
-            void safeQuery(
-              `INSERT INTO audit_log
-          (user_id, action, metadata, ip_address)
-         VALUES ($1, 'login', $2, $3)`,
-              [
-                dbRow.id,
-                JSON.stringify({
-                  itd_customer_code: user.customerId,
-                  role: user.role,
-                }),
-                req.ip ?? null,
-              ]
-            );
+            void insertLoginAuditLog({
+              user_id: dbRow.id,
+              metadata: {
+                itd_customer_code: user.customerId,
+                role: user.role,
+              },
+              ip_address: req.ip ?? null,
+            });
           }
         } catch (e: any) {
           console.error("[login] DB sync error (non-fatal):", e.message);
@@ -204,10 +189,7 @@ export async function registerRoutes(
           error: "Profile not found",
         });
       }
-      const profile = await safeQueryOne(
-        "SELECT * FROM itd_users WHERE id = $1",
-        [req.session.dbUserId]
-      );
+      const profile = await getItdUserProfileById(req.session.dbUserId);
       if (!profile) {
         return res.status(404).json({
           error: "Profile not found",
@@ -227,11 +209,7 @@ export async function registerRoutes(
       if (!req.session.dbUserId) {
         return res.json([]);
       }
-      const rows = await safeQuery(
-        `SELECT awb_number, consignee_name, consignee_city, consignee_country, service_name, total_amount, currency, current_status, booking_date, created_at
-         FROM shipments WHERE user_id = $1 ORDER BY created_at DESC`,
-        [req.session.dbUserId]
-      );
+      const rows = await listShipmentsByUserId(req.session.dbUserId);
       return res.json(rows ?? []);
     }
   );
@@ -244,11 +222,8 @@ export async function registerRoutes(
       if (!req.session.dbUserId) {
         return res.json({ count: 0 });
       }
-      const row = (await safeQueryOne(
-        `SELECT COUNT(*)::int AS count FROM notifications WHERE user_id = $1 AND (is_read IS NOT TRUE)`,
-        [req.session.dbUserId]
-      )) as { count: number } | null;
-      return res.json({ count: row?.count ?? 0 });
+      const count = await countUnreadNotifications(req.session.dbUserId);
+      return res.json({ count: count ?? 0 });
     }
   );
 
@@ -260,10 +235,7 @@ export async function registerRoutes(
       if (!req.session.dbUserId) {
         return res.json([]);
       }
-      const rows = await safeQuery(
-        `SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC`,
-        [req.session.dbUserId]
-      );
+      const rows = await listNotificationsByUserId(req.session.dbUserId);
       return res.json(rows ?? []);
     }
   );
@@ -276,10 +248,7 @@ export async function registerRoutes(
       if (!req.session.dbUserId) {
         return res.status(404).json({ message: "Not found" });
       }
-      const rows = await safeQuery(
-        `UPDATE notifications SET is_read = true, read_at = NOW() WHERE id = $1 AND user_id = $2 RETURNING id`,
-        [req.params.id, req.session.dbUserId]
-      );
+      const rows = await markNotificationRead(req.params.id, req.session.dbUserId);
       if (rows === null) {
         return res.status(500).json({ message: "Database error" });
       }

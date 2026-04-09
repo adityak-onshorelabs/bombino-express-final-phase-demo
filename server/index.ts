@@ -66,11 +66,6 @@ const redisClient = createClient({
 });
 redisClient.connect().catch(console.error);
 
-console.log(
-  "DATABASE_URL host:",
-  new URL(process.env.DATABASE_URL || "").hostname,
-);
-
 const app = express();
 app.set('trust proxy', 1);
 const httpServer = createServer(app);

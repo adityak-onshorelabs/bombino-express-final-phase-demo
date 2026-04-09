@@ -13,3 +13,11 @@ export const supabase =
   supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 export const isSupabaseConfigured = () => !!supabase;
+
+export function assertSupabaseConfigured(): void {
+  if (!supabase) {
+    throw new Error(
+      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set for database operations"
+    );
+  }
+}
