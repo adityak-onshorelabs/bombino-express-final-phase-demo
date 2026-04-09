@@ -6,6 +6,7 @@ const appPool = new Pool(
     max: 5,
     connectionTimeoutMillis: 3000,
     idleTimeoutMillis: 10000,
+    ssl: { rejectUnauthorized: false },
   }),
 );
 
