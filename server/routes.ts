@@ -428,7 +428,12 @@ export async function registerRoutes(
     }
 
     try {
-      const token = await itdClient.getToken();
+      const token = req.session.itdToken;
+      if (!token) {
+        return res
+          .status(401)
+          .json({ message: "Session token missing. Please log in again." });
+      }
       const data = await itdClient.createShipment(payload, token);
       res.json(data);
       if (data.success && req.session.dbUserId) {
@@ -442,7 +447,9 @@ export async function registerRoutes(
     } catch (err) {
       console.error("[POST /api/shipments] createShipment failed:", err);
       const message = err instanceof Error ? err.message : "Shipment creation failed";
-      res.status(502).json({ message });
+      const tokenError =
+        message.includes("Session expired") || message.includes("AUTH TOKEN");
+      res.status(tokenError ? 401 : 502).json({ message });
     }
   });
 
