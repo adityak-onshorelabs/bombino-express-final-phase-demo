@@ -6,6 +6,7 @@ import { useMutation } from '@tanstack/react-query';
 import { BottomNav } from '@/components/BottomNav';
 import { CorridorRouteInfo } from '@/components/CorridorRouteInfo';
 import { KycUpload, type KycUploadResult } from '@/components/KycUpload';
+import { ShipmentContentSearch } from '@/components/ShipmentContentSearch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,6 +15,7 @@ import { useAppStore } from '@/lib/store';
 import { Shipment, TrackingEvent, lbToKg, inToCm } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
+import { getHsnCode } from '@/lib/hsnData';
 import { useToast } from '@/hooks/use-toast';
 
 interface FreeFormLineItem {
@@ -137,6 +139,7 @@ export default function CreateShipment() {
   const [dimH, setDimH] = useState('');
   const [shipmentValue, setShipmentValue] = useState('');
   const [shipmentContent, setShipmentContent] = useState('');
+  const [hsCode, setHsCode] = useState('');
 
   const [invoiceQty, setInvoiceQty] = useState('1');
   const [invoiceUnitWeight, setInvoiceUnitWeight] = useState('');
@@ -160,12 +163,6 @@ export default function CreateShipment() {
   const fieldBorderClass = (key: string) =>
     cn(
       'h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl',
-      fieldErrors[key] && 'border-2 border-primary'
-    );
-
-  const fieldBorderClassNoMt = (key: string) =>
-    cn(
-      'h-11 text-sm bg-muted/30 border-border rounded-xl',
       fieldErrors[key] && 'border-2 border-primary'
     );
 
@@ -428,10 +425,15 @@ export default function CreateShipment() {
       if (!weight || parseFloat(weight) <= 0) e.weight = true;
       if (!shipmentValue || parseFloat(shipmentValue) <= 0) e.shipmentValue = true;
       if (!shipmentContent.trim()) e.shipmentContent = true;
+      if (!dimL.trim()) e.dimL = true;
+      if (!dimW.trim()) e.dimW = true;
+      if (!dimH.trim()) e.dimH = true;
       if (Object.keys(e).length) {
         setFieldErrors(e);
         return;
       }
+      const trimmedContent = shipmentContent.trim();
+      setHsCode(trimmedContent ? (getHsnCode(trimmedContent) || '') : '');
     }
     if (currentStep < 4) setCurrentStep(currentStep + 1);
   };
@@ -478,6 +480,9 @@ export default function CreateShipment() {
     const rate = parseFloat(invoiceUnitRate) || 0;
     const total = (qty * rate).toFixed(2);
 
+    const contentTrimmed = shipmentContent.trim();
+    const lineHsCode = contentTrimmed ? (getHsnCode(contentTrimmed) || '') : '';
+
     const payload: CreateShipmentPayload = {
       product_code: productType,
       destination_code: 'US',
@@ -490,7 +495,7 @@ export default function CreateShipment() {
       // TODO: shipment_invoice_no hardcoded — update when invoice numbering is implemented
       shipment_invoice_no: 'TESTINV01',
       shipment_invoice_date: todayStr,
-      shipment_content: shipmentContent || 'GIFTS',
+      shipment_content: contentTrimmed || 'GIFTS',
       new_docket_free_form_invoice: '1',
       free_form_invoice_type_id: '1',
       free_form_currency: 'USD',
@@ -536,10 +541,8 @@ export default function CreateShipment() {
         no_of_packages: String(qty),
         box_no: '1',
         rate: String(rate),
-        // TODO: hscode hardcoded — update when HS code lookup is implemented
-        hscode: '456789',
-        // TODO: description hardcoded — update when item descriptions are configurable
-        description: 'GIFTS',
+        hscode: lineHsCode,
+        description: contentTrimmed || 'GIFTS',
         unit_of_measurement: 'PCS',
         unit_weight: invoiceUnitWeight || '0.00',
         igst_amount: '0.00',
@@ -901,6 +904,26 @@ export default function CreateShipment() {
         {currentStep === 3 && (
           <div className="space-y-4 animate-fade-in">
             <div className="bg-card rounded-xl border border-border p-4 shadow-sm">
+              <ShipmentContentSearch
+                value={shipmentContent}
+                onChange={(v) => {
+                  setShipmentContent(v);
+                  setHsCode('');
+                  clearFieldError('shipmentContent');
+                }}
+                onSelect={(desc, code) => {
+                  setShipmentContent(desc);
+                  setHsCode(code);
+                  clearFieldError('shipmentContent');
+                }}
+                error={!!fieldErrors.shipmentContent}
+              />
+              {fieldErrors.shipmentContent && (
+                <p className="text-xs text-red-600 mt-1">This field is required</p>
+              )}
+            </div>
+
+            <div className="bg-card rounded-xl border border-border p-4 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <Label className="text-sm font-semibold">Weight</Label>
                 <div className="flex bg-muted rounded-lg p-0.5">
@@ -962,7 +985,9 @@ export default function CreateShipment() {
 
             <div className="bg-card rounded-xl border border-border p-4 shadow-sm">
               <div className="flex items-center justify-between mb-3">
-                <Label className="text-sm font-semibold">Dimensions <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                <Label className="text-sm font-semibold">
+                  Dimensions <span className="text-red-400">*</span>
+                </Label>
                 <div className="flex bg-muted rounded-lg p-0.5">
                   <button
                     onClick={() => setDimUnit('in')}
@@ -987,15 +1012,51 @@ export default function CreateShipment() {
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <Label className="text-xs text-muted-foreground">L</Label>
-                  <Input type="number" value={dimL} onChange={(e) => setDimL(e.target.value)} placeholder="12" className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl" />
+                  <Input
+                    type="number"
+                    value={dimL}
+                    onChange={(e) => {
+                      setDimL(e.target.value);
+                      clearFieldError('dimL');
+                    }}
+                    placeholder="12"
+                    className={fieldBorderClass('dimL')}
+                  />
+                  {fieldErrors.dimL && (
+                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">W</Label>
-                  <Input type="number" value={dimW} onChange={(e) => setDimW(e.target.value)} placeholder="10" className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl" />
+                  <Input
+                    type="number"
+                    value={dimW}
+                    onChange={(e) => {
+                      setDimW(e.target.value);
+                      clearFieldError('dimW');
+                    }}
+                    placeholder="10"
+                    className={fieldBorderClass('dimW')}
+                  />
+                  {fieldErrors.dimW && (
+                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                  )}
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">H</Label>
-                  <Input type="number" value={dimH} onChange={(e) => setDimH(e.target.value)} placeholder="8" className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl" />
+                  <Input
+                    type="number"
+                    value={dimH}
+                    onChange={(e) => {
+                      setDimH(e.target.value);
+                      clearFieldError('dimH');
+                    }}
+                    placeholder="8"
+                    className={fieldBorderClass('dimH')}
+                  />
+                  {fieldErrors.dimH && (
+                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1030,24 +1091,6 @@ export default function CreateShipment() {
                 </div>
               </div>
               <p className="text-[10px] text-muted-foreground mt-1.5">Customs declared value for international shipping</p>
-            </div>
-
-            <div className="bg-card rounded-xl border border-border p-4 shadow-sm">
-              <Label className="text-sm font-semibold mb-3 block">Shipment Content</Label>
-              <Input
-                value={shipmentContent}
-                onChange={(e) => {
-                  setShipmentContent(e.target.value);
-                  clearFieldError('shipmentContent');
-                }}
-                placeholder="e.g. BOOKS, CLOTHES, ELECTRONICS"
-                className={fieldBorderClassNoMt('shipmentContent')}
-                data-testid="input-shipment-content"
-              />
-              {fieldErrors.shipmentContent && (
-                <p className="text-xs text-red-600 mt-1">This field is required</p>
-              )}
-              <p className="text-[10px] text-muted-foreground mt-1.5">Describe what you're shipping for customs</p>
             </div>
 
             {stepError && (
@@ -1097,10 +1140,11 @@ export default function CreateShipment() {
                     {apiServiceCode}
                   </span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">HS Code</span>
-                  {/* TODO: hscode hardcoded — update when HS code lookup is implemented */}
-                  <span className="font-medium text-foreground">456789</span>
+                <div className="flex justify-between text-sm gap-2">
+                  <span className="text-muted-foreground shrink-0">HS Code</span>
+                  <span className="font-medium text-foreground text-right text-xs break-all">
+                    {hsCode || '—'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1109,9 +1153,8 @@ export default function CreateShipment() {
               <Label className="text-sm font-semibold">Invoice Item</Label>
               <div>
                 <Label className="text-xs text-muted-foreground">Description</Label>
-                {/* TODO: description hardcoded — update when item descriptions are configurable */}
                 <div className="h-11 mt-1 px-3 flex items-center bg-muted/50 border border-border rounded-xl text-sm text-muted-foreground">
-                  GIFTS
+                  {shipmentContent.trim() || 'GIFTS'}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
