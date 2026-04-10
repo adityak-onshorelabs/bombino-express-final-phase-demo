@@ -383,7 +383,7 @@ export async function registerRoutes(
   // ── Support: AI chat ──────────────────────────────────────────────────────
 
   // POST /api/support/chat — guest and logged-in; validates body and returns { message }
-  app.post("/api/support/chat", async (req: Request, res: Response) => {
+  app.post("/api/support/chat", ensureDbUser, async (req: Request, res: Response) => {
     // #region agent log
     try {
       const debugLogPath = path.join(process.cwd(), ".cursor", "debug-643d35.log");
@@ -446,6 +446,7 @@ export async function registerRoutes(
     const context = {
       user: req.session.user ?? null,
       itdToken: req.session.itdToken ?? null,
+      dbUserId: req.session.dbUserId ?? null,
     };
 
     try {

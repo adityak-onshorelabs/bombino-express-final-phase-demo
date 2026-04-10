@@ -23,19 +23,19 @@ export interface SupportChatContext {
     id: string;
     email: string;
     fullName: string;
+    code: string;
   } | null;
   itdToken: string | null;
+  dbUserId: string | null;
 }
 
 // ─── Tool arguments (LLM → executor) ─────────────────────────────────────────
 
 export interface GetRatesArgs {
-  product_code: string;
-  destination_code: string;
-  actual_weight: string;
-  origin_code?: string;
-  booking_date?: string;
-  pcs?: string;
+  /** Origin country name or code; defaults to India in executor */
+  origin_country?: string;
+  destination_country: string;
+  weight_kg: string;
 }
 
 export interface GetTrackingSummaryArgs {

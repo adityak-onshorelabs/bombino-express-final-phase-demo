@@ -246,6 +246,58 @@ export async function listShipmentsByUserId(userId: string): Promise<any[] | nul
   return data ?? [];
 }
 
+/** Last 5 shipments for BIA support; plain text for AI. null on DB error. */
+export async function getRecentShipmentsByUserId(
+  userId: string
+): Promise<string | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("shipments")
+    .select(
+      "awb_number, consignee_name, consignee_city, consignee_country, current_status, booking_date, service_name"
+    )
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (error) {
+    logSupabaseError("getRecentShipmentsByUserId", error);
+    return null;
+  }
+
+  const rows = data ?? [];
+  if (rows.length === 0) {
+    return "No shipments found.";
+  }
+
+  const formatBooked = (d: string | null | undefined): string => {
+    if (!d) return "—";
+    try {
+      return new Date(d).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      });
+    } catch {
+      return "—";
+    }
+  };
+
+  return rows
+    .map((row: Record<string, unknown>) => {
+      const awb = String(row.awb_number ?? "—");
+      const city = String(row.consignee_city ?? "").trim();
+      const country = String(row.consignee_country ?? "").trim();
+      const to = [city, country].filter(Boolean).join(", ") || "—";
+      const status = String(row.current_status ?? "—");
+      const booked = formatBooked(row.booking_date as string | undefined);
+      const svc = String(row.service_name ?? "—");
+      return `AWB: ${awb} | To: ${to} | Status: ${status} | Booked: ${booked} | Service: ${svc}`;
+    })
+    .join("\n");
+}
+
 export async function countUnreadNotifications(userId: string): Promise<number | null> {
   const client = getSupabaseClient();
   if (!client) return null;

@@ -6,6 +6,7 @@
 import fs from "fs";
 import path from "path";
 import OpenAI from "openai";
+import { getRecentShipmentsByUserId } from "./appDb.js";
 import { itdClient } from "./itd";
 import type { ITDTrackingResult } from "./itd";
 import { guidance, escalation } from "./supportContent";
@@ -25,13 +26,11 @@ import {
 // ─── Fallback strings (never expose internal errors) ───────────────────────────
 
 const FALLBACK_RATES =
-  "I couldn't get rates for that request. Please check the weight and type (document or package), try the Rates page, or contact support.";
-const FALLBACK_RATES_INVALID_PRODUCT =
-  "I can only get rates for Document (DOC) or Package (PKG). Please specify which.";
-const FALLBACK_RATES_INVALID_DESTINATION =
-  "Rates are available for USA to India only. Use destination IN.";
+  "I couldn't get rates for that route right now. Please try the Rates page in the app or contact support.";
+const FALLBACK_RATES_NO_DESTINATION =
+  "Please tell me which country you're shipping to so I can quote a rate.";
 const FALLBACK_RATES_INVALID_WEIGHT =
-  "Please provide a valid weight in pounds (e.g. 2 or 5.5).";
+  "Please provide a valid parcel weight in kilograms (e.g. 2 or 2.5).";
 const FALLBACK_TRACKING =
   "I couldn't find tracking for that number. Please check the AWB or contact support.";
 const FALLBACK_TRACKING_NO_INPUT = "Please provide an AWB or tracking number.";
@@ -122,9 +121,81 @@ export function normalizeTrackingToSummaryString(
 
 // ─── Tool executors ──────────────────────────────────────────────────────────
 
-function parseAmount(val: string | number | undefined): number {
-  if (val === undefined || val === null) return 0;
-  return parseFloat(String(val).replace(/[^0-9.]/g, "")) || 0;
+const BOOKABLE_ORIGIN = "IN";
+const BOOKABLE_DESTINATION = "US";
+
+function formatInr(n: number): string {
+  return `₹${n.toLocaleString("en-IN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function num(v: unknown): number {
+  return typeof v === "number" && !Number.isNaN(v) ? v : Number(v) || 0;
+}
+
+/** Normalize country names/codes to ITD-style 2-letter codes (aligned with BIA rates flow). */
+function normalizeCountryToCode(input: string): string {
+  const raw = input.trim();
+  if (!raw) return "IN";
+  const s = raw.toLowerCase().replace(/\s+/g, " ");
+  const ALIAS: Record<string, string> = {
+    india: "IN",
+    usa: "US",
+    america: "US",
+    "united states": "US",
+    states: "US",
+    us: "US",
+    uk: "GB",
+    "united kingdom": "GB",
+    england: "GB",
+    britain: "GB",
+    uae: "AE",
+    dubai: "AE",
+    emirates: "AE",
+    canada: "CA",
+    australia: "AU",
+    singapore: "SG",
+    germany: "DE",
+    france: "FR",
+  };
+  if (ALIAS[s]) return ALIAS[s];
+  if (s.length === 2) return s.toUpperCase();
+  return raw.toUpperCase();
+}
+
+function normalizeRateRow(
+  raw: unknown
+): { id: string; code: string; total: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const id = r.id != null ? String(r.id) : "";
+  const code =
+    typeof r.code === "string"
+      ? r.code
+      : typeof r.internal_api_service_code === "string"
+        ? r.internal_api_service_code
+        : "";
+  if (!id && !code) return null;
+  return {
+    id: id || code,
+    code: code || id,
+    total: num(r.total),
+  };
+}
+
+function parseWeightKg(raw: string): number {
+  const s = raw.trim().toLowerCase();
+  if (!s) return Number.NaN;
+  if (/\b(half|0\.5)\b/.test(s) || s === "half") return 0.5;
+  const lbMatch = s.match(/^([\d.]+)\s*(lb|lbs|pound|pounds)\b/);
+  if (lbMatch) {
+    const lb = parseFloat(lbMatch[1]);
+    if (!Number.isNaN(lb) && lb > 0) return lb * 0.45359237;
+  }
+  const numPart = parseFloat(s.replace(/[^\d.]/g, ""));
+  return Number.isNaN(numPart) ? Number.NaN : numPart;
 }
 
 export async function executeGetRates(
@@ -132,70 +203,59 @@ export async function executeGetRates(
   _context: SupportChatContext
 ): Promise<string> {
   try {
-    const productCode = String(args.product_code ?? "").trim().toUpperCase();
-    const destCode = String(args.destination_code ?? "").trim().toUpperCase();
-    const weightStr = String(args.actual_weight ?? "").trim();
-
-    if (productCode !== "DOC" && productCode !== "PKG") {
-      return FALLBACK_RATES_INVALID_PRODUCT;
-    }
-    if (destCode !== "IN") {
-      return FALLBACK_RATES_INVALID_DESTINATION;
+    const destRaw = String(args.destination_country ?? "").trim();
+    if (!destRaw) {
+      return FALLBACK_RATES_NO_DESTINATION;
     }
 
-    const weight = parseFloat(weightStr);
-    if (Number.isNaN(weight) || weight <= 0) {
+    const kg = parseWeightKg(String(args.weight_kg ?? ""));
+    if (Number.isNaN(kg) || kg <= 0) {
       return FALLBACK_RATES_INVALID_WEIGHT;
     }
 
-    const bookingDate =
-      args.booking_date?.trim() ||
-      new Date().toISOString().split("T")[0];
-    const pcs = args.pcs?.trim() || "1";
+    const originCode = normalizeCountryToCode(
+      String(args.origin_country ?? "").trim() || "IN"
+    );
+    const destinationCode = normalizeCountryToCode(destRaw);
 
+    const bookingDate = new Date().toISOString().split("T")[0];
     const params = {
-      product_code: productCode,
-      destination_code: "IN",
+      product_code: "SPX",
+      destination_code: destinationCode,
       booking_date: bookingDate,
-      origin_code: "US",
-      pcs,
-      actual_weight: weight.toFixed(2),
+      origin_code: originCode,
+      pcs: "1",
+      actual_weight: kg.toFixed(2),
     };
 
     const data = (await itdClient.getRates(params)) as Record<string, unknown>;
-    const inner = (data?.data ?? data) as Record<string, unknown>;
-    let total = parseAmount(
-      (inner?.total_amount ?? data?.total_amount) as string | number
-    );
-    const base = parseAmount(
-      (inner?.base_rate ?? data?.base_rate) as string | number
-    );
-    const fuel = parseAmount(
-      (inner?.fuel_surcharge as string | number) ?? 0
-    );
-    const handling = parseAmount(
-      (inner?.handling_charges as string | number) ?? 0
-    );
-    const tax = parseAmount((inner?.tax as string | number) ?? 0);
+    const rawList: unknown[] = Array.isArray(data?.data)
+      ? (data.data as unknown[])
+      : [];
 
-    if (total <= 0 && (base > 0 || fuel > 0 || handling > 0 || tax > 0)) {
-      total = base + fuel + handling + tax;
+    const rows: { id: string; code: string; total: number }[] = [];
+    for (const item of rawList) {
+      const row = normalizeRateRow(item);
+      if (row && row.total > 0) rows.push(row);
     }
 
-    const productLabel = productCode === "DOC" ? "Document" : "Package";
-    if (total > 0) {
-      const breakdown: string[] = [];
-      if (base > 0) breakdown.push(`base $${base}`);
-      if (fuel > 0) breakdown.push(`fuel $${fuel}`);
-      if (handling > 0) breakdown.push(`handling $${handling}`);
-      if (tax > 0) breakdown.push(`tax $${tax}`);
-      const breakdownStr =
-        breakdown.length > 0
-          ? ` Breakdown: ${breakdown.join(", ")}.`
-          : "";
-      return `Rate for ${productLabel} to India: total $${total}.${breakdownStr} Weight: ${params.actual_weight} lb.`;
+    if (rows.length === 0) {
+      return FALLBACK_RATES;
     }
-    return FALLBACK_RATES;
+
+    rows.sort((a, b) => a.total - b.total);
+
+    const lines = rows.map((r, i) => {
+      const label = i === 0 ? `${r.code} (Best Value)` : r.code;
+      return `• ${label}: ${formatInr(r.total)}`;
+    });
+
+    const cta =
+      originCode === BOOKABLE_ORIGIN && destinationCode === BOOKABLE_DESTINATION
+        ? "\nTAP_CREATE_SHIPMENT"
+        : "\nTAP_CONTACT_US";
+
+    return `${lines.join("\n")}${cta}`;
   } catch {
     return FALLBACK_RATES;
   }
@@ -266,13 +326,31 @@ export function executeEscalateSupport(
   }
 }
 
+export async function executeGetUserShipments(
+  context: SupportChatContext
+): Promise<string> {
+  try {
+    if (!context.dbUserId) {
+      return "You need to be logged in to view your shipments. Please log in to the app and try again.";
+    }
+    const text = await getRecentShipmentsByUserId(context.dbUserId);
+    if (text === null) {
+      return "I couldn't load your shipments right now. Please try again in a moment or check the Orders section in the app.";
+    }
+    return text;
+  } catch {
+    return "I couldn't load your shipments right now. Please try again in a moment.";
+  }
+}
+
 // ─── Tool dispatcher ─────────────────────────────────────────────────────────
 
 export type ToolName =
   | "get_rates"
   | "get_tracking_summary"
   | "get_shipment_guidance"
-  | "escalate_support";
+  | "escalate_support"
+  | "get_user_shipments";
 
 export async function dispatchTool(
   toolName: string,
@@ -285,12 +363,10 @@ export async function dispatchTool(
     switch (toolName) {
       case "get_rates": {
         const a: GetRatesArgs = {
-          product_code: String(raw.product_code ?? ""),
-          destination_code: String(raw.destination_code ?? ""),
-          actual_weight: String(raw.actual_weight ?? ""),
-          origin_code: raw.origin_code != null ? String(raw.origin_code) : undefined,
-          booking_date: raw.booking_date != null ? String(raw.booking_date) : undefined,
-          pcs: raw.pcs != null ? String(raw.pcs) : undefined,
+          origin_country:
+            raw.origin_country != null ? String(raw.origin_country) : undefined,
+          destination_country: String(raw.destination_country ?? ""),
+          weight_kg: String(raw.weight_kg ?? ""),
         };
         return executeGetRates(a, context);
       }
@@ -312,6 +388,8 @@ export async function dispatchTool(
         };
         return executeEscalateSupport(a, context);
       }
+      case "get_user_shipments":
+        return executeGetUserShipments(context);
       default:
         return FALLBACK_DISPATCHER;
     }
@@ -396,12 +474,56 @@ const SUPPORT_SYSTEM_PROMPT = `You are the Bombino Express support assistant. Yo
 
 Rules:
 - You MUST use the provided tools for rates and tracking. Never invent or guess rates or tracking status.
-- For rate questions: use get_rates when the user wants a quote. The tool returns live rates only for the corridor it supports; use the tool's parameters as described. If the user asks for a rate for a route or corridor that the tool does not support, do not invent pricing. Say that live quoting support is currently limited for that route and offer to connect them to support via escalate_support.
 - For tracking questions: use get_tracking_summary with the user's AWB or tracking number.
 - For how to ship, documents, or booking steps: use get_shipment_guidance with the appropriate topic.
 - To send the user to human support: use escalate_support.
-- Reply in a short, friendly, professional way. Do not expose internal system details, API names, or secrets.
-- If the user's request is unclear or outside support (rates, tracking, shipping help, escalation), say so briefly and offer to help with what you can.`;
+- If the user's request is unclear or outside support (rates, tracking, shipping help, escalation), say so briefly and offer to help with what you can.
+
+RATES REQUESTS:
+When user asks about rates or shipping costs:
+- Ask ONLY these questions, at most one at a time (maximum 3 total): (1) Where are you shipping from? (2) Where are you shipping to? (3) How heavy is your parcel in kg?
+- Never ask about product type, service type, pieces count, or booking date.
+- Use get_rates only once you know origin, destination, and weight in kg (infer from natural language when possible).
+- Accept natural language for countries and weights — the tool normalizes them.
+- After the tool returns, present each service with its total in INR only (the tool lists them). The tool output ends with TAP_CREATE_SHIPMENT (India to US) or TAP_CONTACT_US (other corridors) — include that exact token on its own line in your reply so the app can show the right action later.
+
+SHIPMENT HISTORY:
+When user asks about their orders, packages, or deliveries without an AWB number, use get_user_shipments first, then offer to track specific AWBs with get_tracking_summary.
+
+RESPONSE STYLE:
+- Keep responses short and friendly.
+- Use the user's first name when known (from CURRENT USER CONTEXT).
+- Do not expose internal system details, API names, or secrets.`;
+
+function buildSystemPrompt(context: SupportChatContext): string {
+  const personalization = context.user
+    ? `
+
+CURRENT USER CONTEXT:
+
+Name: ${context.user.fullName}
+
+Email: ${context.user.email}
+
+Customer Code: ${context.user.code}
+
+Address the user by their first name.
+
+You already know who they are.
+
+Do not ask for their name or email.`
+    : `
+
+GUEST USER:
+
+The user is not logged in.
+
+For shipment history or personalized help,
+
+encourage them to log in to the app.`;
+
+  return SUPPORT_SYSTEM_PROMPT + personalization;
+}
 
 const SUPPORT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -409,18 +531,24 @@ const SUPPORT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "get_rates",
       description:
-        "Get a live shipping rate. Use for document or package rate queries. Returns rates only for the currently supported shipping corridor. Requires product_code (DOC or PKG), destination_code, and actual_weight in pounds. If the tool returns that the corridor is not supported, tell the user and offer escalate_support.",
+        "Get shipping rates. Call this when user asks about rates or shipping costs. Ask the user: where shipping FROM, where shipping TO, and weight in kg. Nothing else.",
       parameters: {
         type: "object",
         properties: {
-          product_code: { type: "string", enum: ["DOC", "PKG"], description: "Document or Package" },
-          destination_code: { type: "string", description: "Destination country code (e.g. IN). Tool enforces supported corridor." },
-          actual_weight: { type: "string", description: "Weight in pounds, e.g. 2 or 5.5" },
-          origin_code: { type: "string", description: "Optional; origin country code" },
-          booking_date: { type: "string", description: "Optional; YYYY-MM-DD" },
-          pcs: { type: "string", description: "Optional; number of pieces, default 1" },
+          origin_country: {
+            type: "string",
+            description: "Origin country name or code; default India",
+          },
+          destination_country: {
+            type: "string",
+            description: "Destination country name or code",
+          },
+          weight_kg: {
+            type: "string",
+            description: "Weight in kg as a number",
+          },
         },
-        required: ["product_code", "destination_code", "actual_weight"],
+        required: ["destination_country", "weight_kg"],
       },
     },
   },
@@ -468,6 +596,18 @@ const SUPPORT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_user_shipments",
+      description:
+        "Fetch the user's recent shipments. Use when user asks about their orders, deliveries, or shipment status without providing a specific AWB number.",
+      parameters: {
+        type: "object",
+        properties: {},
+      },
+    },
+  },
 ];
 
 export async function handleChat(
@@ -491,8 +631,9 @@ export async function handleChat(
     return FALLBACK_CHAT;
   }
 
+  const systemPrompt = buildSystemPrompt(context);
   const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: SUPPORT_SYSTEM_PROMPT },
+    { role: "system", content: systemPrompt },
     ...messages.map((m) =>
       m.role === "user"
         ? { role: "user" as const, content: m.content }
