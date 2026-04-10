@@ -3,10 +3,6 @@ import {
   ArrowLeft,
   Send,
   Loader2,
-  Package,
-  Calculator,
-  HelpCircle,
-  MessageCircle,
   Plus,
   Phone,
 } from "lucide-react";
@@ -18,16 +14,8 @@ import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { parseAssistantMessage } from "@/lib/supportMessage";
 import { useAppStore } from "@/lib/store";
-import biaOrbGif from "@assets/bia-orb.gif";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
-
-const QUICK_PROMPTS = [
-  { label: "Track a shipment", icon: Package },
-  { label: "Get shipping rates", icon: Calculator },
-  { label: "How do I ship?", icon: HelpCircle },
-  { label: "Contact support", icon: MessageCircle },
-] as const;
 
 const SUGGESTIONS = [
   "Track my shipment 📦",
@@ -212,11 +200,6 @@ export default function Support() {
     sendUserText(text);
   };
 
-  const handleQuickPrompt = (prompt: string) => {
-    if (loading) return;
-    sendUserText(prompt);
-  };
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -231,6 +214,26 @@ export default function Support() {
       className="flex flex-col min-h-screen safe-top safe-bottom relative overflow-hidden"
       data-testid="screen-support"
     >
+      <style>{`
+        @keyframes biaPulse {
+          0%, 100% {
+            transform: scale(1);
+            opacity: 1;
+          }
+          50% {
+            transform: scale(1.06);
+            opacity: 0.85;
+          }
+        }
+        @keyframes biaShimmer {
+          0% {
+            background-position: 200% center;
+          }
+          100% {
+            background-position: -200% center;
+          }
+        }
+      `}</style>
       <BiaBackground />
 
       {/* Minimal top: back + BIA + tagline */}
@@ -287,13 +290,46 @@ export default function Support() {
             <>
               {/* AI empty-state centerpiece */}
               <div className="flex flex-col items-center justify-center min-h-[40vh] text-center">
-                <img
-                  src={biaOrbGif}
-                  alt=""
-                  className="w-[150px] h-auto max-w-[160px] mb-8 flex-shrink-0 object-contain"
-                  loading="eager"
-                  decoding="async"
-                />
+                <div className="relative flex items-center justify-center w-[140px] h-[140px] mb-6">
+                  <div
+                    className="absolute inset-0 rounded-full animate-pulse"
+                    style={{
+                      background:
+                        "radial-gradient(circle, rgba(198,40,40,0.15) 0%, transparent 70%)",
+                      transform: "scale(1.4)",
+                    }}
+                  />
+                  <div
+                    className="absolute inset-0 rounded-full"
+                    style={{
+                      background:
+                        "radial-gradient(circle, rgba(198,40,40,0.25) 0%, rgba(183,28,28,0.1) 50%, transparent 70%)",
+                      animation: "biaPulse 3s ease-in-out infinite",
+                    }}
+                  />
+                  <div
+                    className="relative w-[80px] h-[80px] rounded-full"
+                    style={{
+                      background:
+                        "radial-gradient(circle at 35% 35%, #FF5252 0%, #C62828 40%, #7f0000 100%)",
+                      boxShadow:
+                        "0 0 20px rgba(198,40,40,0.6), 0 0 40px rgba(198,40,40,0.3), 0 0 80px rgba(198,40,40,0.15), inset 0 2px 4px rgba(255,255,255,0.2)",
+                      animation: "biaPulse 3s ease-in-out infinite",
+                    }}
+                  />
+                  <div
+                    className="absolute rounded-full"
+                    style={{
+                      width: "20px",
+                      height: "14px",
+                      top: "38px",
+                      left: "46px",
+                      background:
+                        "radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 100%)",
+                      transform: "rotate(-30deg)",
+                    }}
+                  />
+                </div>
                 <h2 className="text-xl font-semibold text-white mb-3">
                   Ask BIA
                 </h2>
@@ -334,28 +370,6 @@ export default function Support() {
                   </button>
                 </div>
               )}
-              {/* Quick prompt chips */}
-              <div className="flex flex-wrap justify-center gap-2 px-2 mt-2">
-                {QUICK_PROMPTS.map(({ label, icon: Icon }) => (
-                  <button
-                    key={label}
-                    type="button"
-                    disabled={loading}
-                    onClick={() => handleQuickPrompt(label)}
-                    className={cn(
-                      "rounded-full pl-4 pr-5 py-2 text-xs font-medium transition-all duration-200",
-                      "bg-white/[0.07] text-white/90 border border-white/[0.06]",
-                      "hover:bg-white/[0.11] hover:border-white/[0.08] hover:shadow-[0_0_24px_rgba(255,255,255,.08)]",
-                      "active:scale-[0.98]",
-                      "disabled:opacity-50 disabled:pointer-events-none",
-                      "inline-flex items-center gap-2.5"
-                    )}
-                  >
-                    <Icon className="w-4 h-4 text-white/75 shrink-0" strokeWidth={2.25} />
-                    {label}
-                  </button>
-                ))}
-              </div>
             </>
           ) : (
             <div className="space-y-4">
@@ -452,7 +466,7 @@ export default function Support() {
               {loading && (
                 <div className="flex justify-start animate-bia-message-in">
                   <div
-                    className="rounded-2xl rounded-bl-md px-4 py-3 text-sm flex items-center gap-1.5 backdrop-blur-[8px]"
+                    className="rounded-2xl rounded-bl-md px-4 py-3 text-sm flex flex-col items-start backdrop-blur-[8px]"
                     style={{
                       background: "rgba(255,255,255,0.04)",
                       border: "1px solid rgba(255,255,255,0.12)",
@@ -463,6 +477,20 @@ export default function Support() {
                       <span className="bia-typing-dot w-1.5 h-1.5 rounded-full bg-white/80" />
                       <span className="bia-typing-dot w-1.5 h-1.5 rounded-full bg-white/80" />
                     </span>
+                    <p
+                      className="text-xs mt-2 font-medium"
+                      style={{
+                        background:
+                          "linear-gradient(90deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.7) 40%, rgba(255,255,255,0.9) 50%, rgba(255,255,255,0.7) 60%, rgba(255,255,255,0.2) 100%)",
+                        backgroundSize: "200% auto",
+                        WebkitBackgroundClip: "text",
+                        WebkitTextFillColor: "transparent",
+                        backgroundClip: "text",
+                        animation: "biaShimmer 2s linear infinite",
+                      }}
+                    >
+                      BIA is thinking...
+                    </p>
                   </div>
                 </div>
               )}
