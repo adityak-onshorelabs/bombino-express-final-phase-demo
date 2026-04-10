@@ -217,7 +217,7 @@ const steps = [
 
 export default function CreateShipment() {
   const [, setLocation] = useLocation();
-  const { isLoggedIn, user, addShipment, addNotification } = useAppStore();
+  const { isLoggedIn, user, addShipment, addNotification, logout } = useAppStore();
   const [currentStep, setCurrentStep] = useState(1);
   const [newAWB, setNewAWB] = useState('');
   const [submitError, setSubmitError] = useState('');
@@ -385,7 +385,26 @@ export default function CreateShipment() {
       setNewAWB(awb);
     },
     onError: (err) => {
-      const msg = err instanceof Error ? err.message.replace(/^\d+:\s*/, '') : 'Shipment creation failed';
+      const message = err instanceof Error ? err.message : 'Shipment creation failed';
+
+      // Detect 401 — token expired
+      if (err instanceof Error && /^401:/.test(err.message)) {
+        void fetch('/api/auth/logout', {
+          method: 'POST',
+          credentials: 'include',
+        });
+        logout();
+        toast({
+          title: 'Session Expired',
+          description: 'Please log in again to continue.',
+          variant: 'destructive',
+        });
+        setLocation('/login');
+        return;
+      }
+
+      // All other errors — existing behavior
+      const msg = message.replace(/^\d+:\s*/, '');
       setSubmitError(msg);
     },
   });
