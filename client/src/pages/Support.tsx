@@ -11,6 +11,7 @@ import {
   Phone,
 } from "lucide-react";
 import { useLocation } from "wouter";
+import { BiaBackground } from "@/components/ui/bia-background";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,12 @@ const QUICK_PROMPTS = [
   { label: "Get shipping rates", icon: Calculator },
   { label: "How do I ship?", icon: HelpCircle },
   { label: "Contact support", icon: MessageCircle },
+] as const;
+
+const SUGGESTIONS = [
+  "Track my shipment 📦",
+  "Get shipping rates ✈️",
+  "Help with my order 🙋",
 ] as const;
 
 const GENERIC_ERROR =
@@ -47,6 +54,7 @@ function parseSessionMessages(raw: unknown): ChatMessage[] {
 export default function Support() {
   const [, setLocation] = useLocation();
   const isLoggedIn = useAppStore((s) => s.isLoggedIn);
+  const logout = useAppStore((s) => s.logout);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -54,6 +62,10 @@ export default function Support() {
   const [error, setError] = useState<string | null>(null);
   const [restoredNotice, setRestoredNotice] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastSentMessagesRef = useRef<ChatMessage[]>([]);
+  const sessionRedirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
 
   const scrollToBottom = () => {
     scrollRef.current?.scrollTo({
@@ -65,6 +77,14 @@ export default function Support() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, loading]);
+
+  useEffect(() => {
+    return () => {
+      if (sessionRedirectTimeoutRef.current !== null) {
+        clearTimeout(sessionRedirectTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -108,6 +128,11 @@ export default function Support() {
   }, [isLoggedIn]);
 
   const sendMessages = async (nextMessages: ChatMessage[]) => {
+    lastSentMessagesRef.current = nextMessages;
+    if (sessionRedirectTimeoutRef.current !== null) {
+      clearTimeout(sessionRedirectTimeoutRef.current);
+      sessionRedirectTimeoutRef.current = null;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -130,11 +155,38 @@ export default function Support() {
         ...prev,
         { role: "assistant", content: text },
       ]);
-    } catch {
-      setError(GENERIC_ERROR);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const lower = msg.toLowerCase();
+      if (msg.includes("401")) {
+        setError("Your session expired. Please log in again.");
+        sessionRedirectTimeoutRef.current = setTimeout(() => {
+          sessionRedirectTimeoutRef.current = null;
+          logout();
+          setLocation("/login");
+        }, 2000);
+      } else if (
+        lower.includes("fetch") ||
+        lower.includes("network") ||
+        lower.includes("failed to fetch")
+      ) {
+        setError(
+          "Connection lost. Please check your internet and try again."
+        );
+      } else {
+        setError("Something went wrong. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const sendUserText = (text: string) => {
+    const userMessage: ChatMessage = { role: "user", content: text };
+    const nextMessages = [...messages, userMessage];
+    setMessages(nextMessages);
+    setInput("");
+    void sendMessages(nextMessages);
   };
 
   const handleNewChat = async () => {
@@ -157,19 +209,12 @@ export default function Support() {
   const handleSend = () => {
     const text = input.trim();
     if (!text || loading) return;
-    const userMessage: ChatMessage = { role: "user", content: text };
-    const nextMessages = [...messages, userMessage];
-    setMessages(nextMessages);
-    setInput("");
-    sendMessages(nextMessages);
+    sendUserText(text);
   };
 
   const handleQuickPrompt = (prompt: string) => {
     if (loading) return;
-    const userMessage: ChatMessage = { role: "user", content: prompt };
-    const nextMessages = [...messages, userMessage];
-    setMessages(nextMessages);
-    sendMessages(nextMessages);
+    sendUserText(prompt);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -186,46 +231,7 @@ export default function Support() {
       className="flex flex-col min-h-screen safe-top safe-bottom relative overflow-hidden"
       data-testid="screen-support"
     >
-      {/* Dark AI background: gradient + grid + glow + specks */}
-      <div
-        className="absolute inset-0 -z-10"
-        aria-hidden
-      >
-        <div className="absolute inset-0 bg-gradient-to-b from-[#1a1b1e] via-[#151618] to-[#0f1012]" />
-        <div
-          className="absolute inset-0 opacity-[0.03]"
-          style={{
-            backgroundImage: `
-              linear-gradient(rgba(255,255,255,.08) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(255,255,255,.08) 1px, transparent 1px)
-            `,
-            backgroundSize: "24px 24px",
-          }}
-        />
-        <div
-          className="absolute inset-0 flex items-center justify-center pointer-events-none"
-          aria-hidden
-        >
-          <div
-            className="w-[min(85vw,440px)] h-[min(85vw,440px)] rounded-full opacity-[0.07] blur-[100px]"
-            style={{
-              background: "radial-gradient(circle, rgba(198,40,40,.4) 0%, transparent 70%)",
-            }}
-          />
-        </div>
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          {[...Array(12)].map((_, i) => (
-            <span
-              key={i}
-              className="absolute w-0.5 h-0.5 rounded-full bg-white opacity-[0.10]"
-              style={{
-                left: `${15 + (i * 7) % 70}%`,
-                top: `${10 + (i * 11) % 80}%`,
-              }}
-            />
-          ))}
-        </div>
-      </div>
+      <BiaBackground />
 
       {/* Minimal top: back + BIA + tagline */}
       <div className="shrink-0 px-4 pt-4 pb-2 max-w-md mx-auto w-full">
@@ -295,6 +301,39 @@ export default function Support() {
                   Track shipments, get rates, or resolve shipping questions faster.
                 </p>
               </div>
+              <div className="flex flex-wrap justify-center gap-2 mt-4 mb-6 px-2">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => sendUserText(s)}
+                    className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 bg-white/[0.04] hover:bg-white/[0.08] transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+              {!isLoggedIn && (
+                <div
+                  className="mx-4 mb-4 rounded-xl p-3 flex items-center justify-between gap-3"
+                  style={{
+                    background: "rgba(198,40,40,0.08)",
+                    border: "1px solid rgba(198,40,40,0.2)",
+                  }}
+                >
+                  <p className="text-xs text-white/60">
+                    Log in for personalised support and shipment tracking
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setLocation("/login")}
+                    className="text-xs font-medium shrink-0 text-[#EF5350]"
+                  >
+                    Log in →
+                  </button>
+                </div>
+              )}
               {/* Quick prompt chips */}
               <div className="flex flex-wrap justify-center gap-2 px-2 mt-2">
                 {QUICK_PROMPTS.map(({ label, icon: Icon }) => (
@@ -440,7 +479,13 @@ export default function Support() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setError(null)}
+              onClick={() => {
+                if (lastSentMessagesRef.current.length > 0) {
+                  void sendMessages(lastSentMessagesRef.current);
+                } else {
+                  setError(null);
+                }
+              }}
               className="shrink-0 border-white/20 text-white hover:bg-white/10"
             >
               Retry

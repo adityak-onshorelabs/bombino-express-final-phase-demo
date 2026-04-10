@@ -8,6 +8,7 @@ import {
   getItdUserTokenAndSecretsById,
   getOrCreateSupportSession,
   insertLoginAuditLog,
+  resolveSupportSession,
   listAddressesByUserIdAndType,
   listNotificationsByUserId,
   listShipmentsByUserId,
@@ -489,6 +490,26 @@ export async function registerRoutes(
           stored,
           titleCandidate
         );
+
+        const lastUserMsg =
+          chatMessages
+            .filter((m) => m.role === "user")
+            .at(-1)
+            ?.content?.toLowerCase() ?? "";
+        const isThankyou = [
+          "thank you",
+          "thanks",
+          "bye",
+          "goodbye",
+          "perfect",
+          "great",
+        ].some((phrase) => lastUserMsg.includes(phrase));
+        const hasContactCta = message
+          .toLowerCase()
+          .includes("tap_contact_us");
+        if (isThankyou && !hasContactCta && activeSessionId) {
+          void resolveSupportSession(activeSessionId);
+        }
       }
 
       res.json({
