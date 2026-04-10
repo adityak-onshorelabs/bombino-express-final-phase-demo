@@ -16,6 +16,7 @@ export interface ChatRequest {
 
 export interface ChatResponse {
   message: string;
+  sessionId?: string | null;
 }
 
 export interface SupportChatContext {
@@ -27,6 +28,7 @@ export interface SupportChatContext {
   } | null;
   itdToken: string | null;
   dbUserId: string | null;
+  sessionId: string | null;
 }
 
 // ─── Tool arguments (LLM → executor) ─────────────────────────────────────────

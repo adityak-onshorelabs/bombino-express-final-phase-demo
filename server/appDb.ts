@@ -1,5 +1,6 @@
 import type { CreateShipmentResponse } from "./itd.js";
 import { supabase } from "./supabaseClient.js";
+import type { ChatMessage } from "./supportTypes.js";
 
 type Json = Record<string, unknown> | unknown[] | null;
 
@@ -296,6 +297,199 @@ export async function getRecentShipmentsByUserId(
       return `AWB: ${awb} | To: ${to} | Status: ${status} | Booked: ${booked} | Service: ${svc}`;
     })
     .join("\n");
+}
+
+// ─── BIA support_sessions ───────────────────────────────────────────────────
+
+function parseMessagesJson(raw: unknown): ChatMessage[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ChatMessage[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const m = item as Record<string, unknown>;
+    const role = m.role;
+    const content = m.content;
+    if (role !== "user" && role !== "assistant") continue;
+    if (typeof content !== "string") continue;
+    out.push({ role, content });
+  }
+  return out;
+}
+
+export function generateSessionTitle(firstUserMessage: string): string {
+  const t = firstUserMessage.trim().replace(/\s+/g, " ");
+  if (!t) return "Support chat";
+  if (t.length <= 50) return t;
+  const slice = t.slice(0, 50);
+  const lastSpace = slice.lastIndexOf(" ");
+  if (lastSpace >= 20) return slice.slice(0, lastSpace).trimEnd();
+  return slice.trimEnd();
+}
+
+export async function getOrCreateSupportSession(userId: string): Promise<{
+  id: string;
+  messages: ChatMessage[];
+  title: string | null;
+} | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data: existing, error: findError } = await client
+    .from("support_sessions")
+    .select("id, messages, title")
+    .eq("user_id", userId)
+    .eq("resolved", false)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (findError) {
+    logSupabaseError("getOrCreateSupportSession_select", findError);
+    return null;
+  }
+
+  if (existing?.id) {
+    return {
+      id: String(existing.id),
+      messages: parseMessagesJson(existing.messages),
+      title: existing.title != null ? String(existing.title) : null,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const { data: inserted, error: insertError } = await client
+    .from("support_sessions")
+    .insert({
+      user_id: userId,
+      messages: [],
+      resolved: false,
+      escalated: false,
+      session_started_at: now,
+      updated_at: now,
+    })
+    .select("id")
+    .single();
+
+  if (insertError) {
+    logSupabaseError("getOrCreateSupportSession_insert", insertError);
+    return null;
+  }
+
+  return {
+    id: String(inserted.id),
+    messages: [],
+    title: null,
+  };
+}
+
+export async function updateSupportSessionMessages(
+  sessionId: string,
+  messages: ChatMessage[],
+  title?: string
+): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+
+  const now = new Date().toISOString();
+
+  const { error: msgErr } = await client
+    .from("support_sessions")
+    .update({ messages, updated_at: now })
+    .eq("id", sessionId);
+
+  if (msgErr) {
+    logSupabaseError("updateSupportSessionMessages_messages", msgErr);
+    return;
+  }
+
+  if (title !== undefined && title.length > 0) {
+    const { data: row, error: selErr } = await client
+      .from("support_sessions")
+      .select("title")
+      .eq("id", sessionId)
+      .maybeSingle();
+
+    if (selErr) {
+      logSupabaseError("updateSupportSessionMessages_select_title", selErr);
+      return;
+    }
+
+    if (row?.title == null || String(row.title).trim() === "") {
+      const { error: titleErr } = await client
+        .from("support_sessions")
+        .update({ title, updated_at: new Date().toISOString() })
+        .eq("id", sessionId);
+
+      if (titleErr) {
+        logSupabaseError("updateSupportSessionMessages_title", titleErr);
+      }
+    }
+  }
+}
+
+export async function resolveSupportSession(sessionId: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const now = new Date().toISOString();
+  const { error } = await client
+    .from("support_sessions")
+    .update({
+      resolved: true,
+      session_ended_at: now,
+      updated_at: now,
+    })
+    .eq("id", sessionId);
+
+  if (error) {
+    logSupabaseError("resolveSupportSession", error);
+    return false;
+  }
+  return true;
+}
+
+export async function createNewSupportSession(
+  userId: string
+): Promise<{ id: string } | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const now = new Date().toISOString();
+
+  const { error: resolveErr } = await client
+    .from("support_sessions")
+    .update({
+      resolved: true,
+      session_ended_at: now,
+      updated_at: now,
+    })
+    .eq("user_id", userId)
+    .eq("resolved", false);
+
+  if (resolveErr) {
+    logSupabaseError("createNewSupportSession_resolve_open", resolveErr);
+    return null;
+  }
+
+  const { data: inserted, error: insertError } = await client
+    .from("support_sessions")
+    .insert({
+      user_id: userId,
+      messages: [],
+      resolved: false,
+      escalated: false,
+      session_started_at: now,
+      updated_at: now,
+    })
+    .select("id")
+    .single();
+
+  if (insertError) {
+    logSupabaseError("createNewSupportSession_insert", insertError);
+    return null;
+  }
+
+  return { id: String(inserted.id) };
 }
 
 export async function countUnreadNotifications(userId: string): Promise<number | null> {

@@ -1,14 +1,18 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import {
   countUnreadNotifications,
+  createNewSupportSession,
   findItdUserIdByCustomerId,
+  generateSessionTitle,
   getItdUserProfileById,
   getItdUserTokenAndSecretsById,
+  getOrCreateSupportSession,
   insertLoginAuditLog,
   listAddressesByUserIdAndType,
   listNotificationsByUserId,
   listShipmentsByUserId,
   markNotificationRead,
+  updateSupportSessionMessages,
   upsertItdUserAndReturnId,
 } from "./appDb.js";
 import { decryptPassword, encryptPassword } from "./crypto.js";
@@ -402,8 +406,12 @@ export async function registerRoutes(
       );
     } catch (_) {}
     // #endregion
-    const body = req.body as { messages?: unknown };
+    const body = req.body as { messages?: unknown; sessionId?: unknown };
     const messages = body?.messages;
+    const bodySessionId =
+      typeof body?.sessionId === "string" && body.sessionId.trim() !== ""
+        ? body.sessionId.trim()
+        : null;
 
     if (!Array.isArray(messages)) {
       res.status(400).json({ message: "messages must be an array" });
@@ -443,15 +451,50 @@ export async function registerRoutes(
       content: String(m.content),
     }));
 
+    const dbUserId = req.session.dbUserId ?? null;
+    const isLoggedIn = !!req.session.user && !!dbUserId;
+
+    let activeSessionId: string | null = null;
+    if (isLoggedIn && dbUserId) {
+      if (bodySessionId) {
+        activeSessionId = bodySessionId;
+      } else {
+        const row = await getOrCreateSupportSession(dbUserId);
+        activeSessionId = row?.id ?? null;
+      }
+    }
+
     const context = {
       user: req.session.user ?? null,
       itdToken: req.session.itdToken ?? null,
-      dbUserId: req.session.dbUserId ?? null,
+      dbUserId,
+      sessionId: activeSessionId,
     };
 
     try {
       const message = await handleChat(chatMessages, context);
-      res.json({ message });
+      const stored: ChatMessage[] = [
+        ...chatMessages,
+        { role: "assistant" as const, content: message },
+      ];
+
+      if (isLoggedIn && activeSessionId) {
+        const firstUser = chatMessages.find((m) => m.role === "user");
+        const titleCandidate =
+          firstUser !== undefined
+            ? generateSessionTitle(firstUser.content)
+            : undefined;
+        void updateSupportSessionMessages(
+          activeSessionId,
+          stored,
+          titleCandidate
+        );
+      }
+
+      res.json({
+        message,
+        sessionId: isLoggedIn ? activeSessionId : null,
+      });
     } catch {
       res.status(500).json({
         message:
@@ -459,6 +502,62 @@ export async function registerRoutes(
       });
     }
   });
+
+  // GET /api/support/session — logged-in: active session + messages
+  app.get(
+    "/api/support/session",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const dbUserId = req.session.dbUserId ?? null;
+      if (!dbUserId) {
+        res.json({
+          sessionId: null,
+          messages: [] as ChatMessage[],
+          title: null as string | null,
+        });
+        return;
+      }
+
+      const row = await getOrCreateSupportSession(dbUserId);
+      if (!row) {
+        res.json({
+          sessionId: null,
+          messages: [] as ChatMessage[],
+          title: null as string | null,
+        });
+        return;
+      }
+
+      res.json({
+        sessionId: row.id,
+        messages: row.messages,
+        title: row.title,
+      });
+    }
+  );
+
+  // POST /api/support/new-session — start fresh conversation
+  app.post(
+    "/api/support/new-session",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const dbUserId = req.session.dbUserId ?? null;
+      if (!dbUserId) {
+        res.status(400).json({ message: "Profile not synced yet" });
+        return;
+      }
+
+      const created = await createNewSupportSession(dbUserId);
+      if (!created) {
+        res.status(503).json({ message: "Could not create a new session" });
+        return;
+      }
+
+      res.json({ sessionId: created.id });
+    }
+  );
 
   // ── ITD: Create Shipment ──────────────────────────────────────────────────
 

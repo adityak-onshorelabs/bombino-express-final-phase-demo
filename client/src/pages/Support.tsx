@@ -7,12 +7,14 @@ import {
   Calculator,
   HelpCircle,
   MessageCircle,
+  Plus,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
+import { useAppStore } from "@/lib/store";
 import biaOrbGif from "@assets/bia-orb.gif";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -27,12 +29,28 @@ const QUICK_PROMPTS = [
 const GENERIC_ERROR =
   "Something went wrong. Please try again or contact support from the app menu.";
 
+function parseSessionMessages(raw: unknown): ChatMessage[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ChatMessage[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const m = item as Record<string, unknown>;
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    if (typeof m.content !== "string") continue;
+    out.push({ role: m.role, content: m.content });
+  }
+  return out;
+}
+
 export default function Support() {
   const [, setLocation] = useLocation();
+  const isLoggedIn = useAppStore((s) => s.isLoggedIn);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [restoredNotice, setRestoredNotice] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -46,18 +64,66 @@ export default function Support() {
     scrollToBottom();
   }, [messages, loading]);
 
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setSessionId(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/support/session", {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          sessionId?: string | null;
+          messages?: unknown;
+        };
+        if (cancelled) return;
+        const restored = parseSessionMessages(data.messages);
+        if (restored.length > 0) {
+          setMessages(restored);
+          if (typeof data.sessionId === "string") {
+            setSessionId(data.sessionId);
+          }
+          setRestoredNotice(true);
+          window.setTimeout(() => {
+            if (!cancelled) setRestoredNotice(false);
+          }, 3000);
+        } else if (typeof data.sessionId === "string") {
+          setSessionId(data.sessionId);
+        }
+      } catch {
+        /* ignore restore errors */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn]);
+
   const sendMessages = async (nextMessages: ChatMessage[]) => {
     setLoading(true);
     setError(null);
     try {
       const res = await apiRequest("POST", "/api/support/chat", {
         messages: nextMessages,
+        sessionId: isLoggedIn ? sessionId : null,
       });
-      const data = (await res.json()) as { message?: string };
+      const data = (await res.json()) as {
+        message?: string;
+        sessionId?: string | null;
+      };
       const text =
         typeof data?.message === "string"
           ? data.message
           : GENERIC_ERROR;
+      if (typeof data.sessionId === "string") {
+        setSessionId(data.sessionId);
+      }
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: text },
@@ -66,6 +132,23 @@ export default function Support() {
       setError(GENERIC_ERROR);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleNewChat = async () => {
+    if (!isLoggedIn || loading) return;
+    setError(null);
+    try {
+      const res = await apiRequest("POST", "/api/support/new-session", {});
+      const data = (await res.json()) as { sessionId?: string };
+      if (typeof data.sessionId === "string") {
+        setSessionId(data.sessionId);
+      }
+      setMessages([]);
+      setInput("");
+      setRestoredNotice(false);
+    } catch {
+      setError(GENERIC_ERROR);
     }
   };
 
@@ -153,7 +236,7 @@ export default function Support() {
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div>
+          <div className="flex-1 min-w-0">
             <h1 className="font-semibold text-lg text-white tracking-tight">
               BIA
             </h1>
@@ -161,7 +244,29 @@ export default function Support() {
               Tracking, rates, and shipping help
             </p>
           </div>
+          {isLoggedIn && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => void handleNewChat()}
+              disabled={loading}
+              className="shrink-0 h-8 px-2 text-xs text-white/70 hover:text-white hover:bg-white/10 border border-white/10"
+              aria-label="New chat"
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" aria-hidden />
+              New chat
+            </Button>
+          )}
         </div>
+        {restoredNotice && (
+          <p
+            className="text-[11px] text-emerald-400/90 mt-2 text-center"
+            role="status"
+          >
+            Conversation restored
+          </p>
+        )}
       </div>
 
       {/* Scrollable content: empty state or messages — transparent so dark AI background stays visible */}
