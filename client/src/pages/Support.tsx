@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { parseAssistantMessage } from "@/lib/supportMessage";
 import { useAppStore } from "@/lib/store";
-import biaOrb from "@/assets/bia-orb.png";
+import biaOrbGif from "@/assets/bia-orb.gif";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -216,49 +216,6 @@ export default function Support() {
       data-testid="screen-support"
     >
       <style>{`
-        @keyframes biaFloat {
-          0%, 100% {
-            transform: translateY(0px);
-          }
-          50% {
-            transform: translateY(-12px);
-          }
-        }
-
-        @keyframes biaBreathe {
-          0%, 100% {
-            transform: scale(1);
-            filter: brightness(1.1) saturate(1.2);
-          }
-          50% {
-            transform: scale(1.08);
-            filter: brightness(1.3) saturate(1.4);
-          }
-        }
-
-        @keyframes biaGlowPulse {
-          0%, 100% {
-            opacity: 0.6;
-            transform: scale(1);
-          }
-          50% {
-            opacity: 1;
-            transform: scale(1.15);
-          }
-        }
-
-        @keyframes biaShimmerSweep {
-          0% {
-            background-position: -100% -100%;
-          }
-          50% {
-            background-position: 200% 200%;
-          }
-          100% {
-            background-position: -100% -100%;
-          }
-        }
-
         @keyframes biaShimmer {
           0% {
             background-position: 200% center;
@@ -324,60 +281,11 @@ export default function Support() {
             <>
               {/* AI empty-state centerpiece */}
               <div className="flex flex-col items-center justify-center min-h-[40vh] text-center">
-                <div className="relative flex items-center justify-center w-[200px] h-[200px] mb-2">
-                  <div
-                    className="absolute inset-0 rounded-full"
-                    style={{
-                      background:
-                        "radial-gradient(circle, rgba(198,40,40,0.2) 0%, transparent 70%)",
-                      animation: "biaGlowPulse 4s ease-in-out infinite",
-                    }}
-                  />
-                  <div
-                    style={{
-                      animation: "biaFloat 6s ease-in-out infinite",
-                    }}
-                  >
-                    <img
-                      src={biaOrb}
-                      alt="BIA"
-                      style={{
-                        width: "160px",
-                        height: "160px",
-                        objectFit: "contain",
-                        mixBlendMode: "screen",
-                        animation: "biaBreathe 4s ease-in-out infinite",
-                        filter: "brightness(1.1) saturate(1.2)",
-                        display: "block",
-                      }}
-                    />
-                  </div>
-                  <div
-                    className="absolute inset-0 flex items-center justify-center pointer-events-none"
-                    aria-hidden
-                  >
-                    <div
-                      className="relative rounded-full overflow-hidden"
-                      style={{
-                        width: "160px",
-                        height: "160px",
-                        mixBlendMode: "overlay",
-                        animation: "biaFloat 6s ease-in-out infinite",
-                      }}
-                    >
-                      <div
-                        style={{
-                          position: "absolute",
-                          inset: 0,
-                          background:
-                            "linear-gradient(135deg, transparent 30%, rgba(255,255,255,0.15) 50%, transparent 70%)",
-                          backgroundSize: "200% 200%",
-                          animation: "biaShimmerSweep 3s ease-in-out infinite",
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
+                <img
+                  src={biaOrbGif}
+                  alt="BIA"
+                  className="w-[160px] h-auto object-contain mb-6"
+                />
                 <h2 className="text-xl font-semibold text-white mb-3">
                   Ask BIA
                 </h2>
