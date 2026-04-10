@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useLocation, Link } from 'wouter';
 import { Search, ArrowRight, BadgeDollarSign, Send, Phone, Bell, ChevronRight } from 'lucide-react';
 import { Header } from '@/components/Header';
@@ -25,6 +25,34 @@ function homeStatusLabel(status: string | null): string {
   return status;
 }
 
+
+function HomeShipmentsSkeleton() {
+  return (
+    <div className="bg-white rounded-xl border border-[rgba(198,40,40,0.08)] p-4 animate-pulse">
+      <div className="flex justify-between items-start">
+        <div className="space-y-2">
+          <div className="h-4 w-32 bg-gray-100 rounded-md" />
+          <div className="h-3 w-20 bg-gray-100 rounded-md" />
+        </div>
+        <div className="h-5 w-14 bg-gray-100 rounded-full" />
+      </div>
+    </div>
+  );
+}
+
+function HomeNotificationsSkeleton() {
+  return (
+    <div className="bg-white rounded-xl border border-[rgba(198,40,40,0.08)] p-4 animate-pulse">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 bg-gray-100 rounded-full shrink-0" />
+        <div className="space-y-2 flex-1">
+          <div className="h-4 w-36 bg-gray-100 rounded-md" />
+          <div className="h-3 w-48 bg-gray-100 rounded-md" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function WhyBombinoSection() {
   return (
@@ -70,7 +98,7 @@ export default function Home() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user } = useAppStore();
 
-  const [shipmentsLoading, setShipmentsLoading] = useState(false);
+  const [shipmentsLoading, setShipmentsLoading] = useState(isLoggedIn);
   const [shipmentsError, setShipmentsError] = useState(false);
   const [apiShipments, setApiShipments] = useState<ShipmentHistoryItem[]>([]);
 
@@ -83,6 +111,7 @@ export default function Home() {
       setApiNotifications([]);
       setShipmentsError(false);
       setNotificationsError(false);
+      setShipmentsLoading(false);
       return;
     }
     setShipmentsLoading(true);
@@ -108,6 +137,14 @@ export default function Home() {
     }
 
     setShipmentsLoading(false);
+  }, [isLoggedIn]);
+
+  useLayoutEffect(() => {
+    if (isLoggedIn) {
+      setShipmentsLoading(true);
+    } else {
+      setShipmentsLoading(false);
+    }
   }, [isLoggedIn]);
 
   useEffect(() => {
@@ -249,59 +286,79 @@ export default function Home() {
         )}
 
         {/* Logged-in: My Shipments */}
-        {isLoggedIn && !shipmentsError && !shipmentsLoading && userShipments.length > 0 && (
+        {isLoggedIn && !shipmentsError && (
           <div>
             <div className="flex items-center justify-between mb-3">
-              <div className="section-header-accent">My Shipments</div>
+              <h2 className="text-sm font-medium text-foreground">My Shipments</h2>
               <Link href="/orders" className="text-xs text-primary font-medium flex items-center gap-0.5 hover:underline">
                 View all <ChevronRight className="w-3 h-3" />
               </Link>
             </div>
             <div className="space-y-2">
-              {userShipments.map((shipment) => (
-                <Link
-                  key={shipment.awb_number + shipment.created_at}
-                  href={`/shipment/${encodeURIComponent(shipment.awb_number)}`}
-                  className="block card-accent hover:border-primary/25 active:scale-[0.99] transition-all"
-                  data-testid={`shipment-card-${shipment.awb_number}`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-semibold tabular-nums tracking-[0.02em] text-foreground">
-                      {shipment.awb_number}
-                    </span>
-                    <StatusBadge status={homeStatusLabel(shipment.current_status)} />
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>
-                      {[shipment.consignee_city, shipment.consignee_country].filter(Boolean).join(', ') || '—'}
-                    </span>
-                    <span>
-                      {shipment.total_amount != null && String(shipment.total_amount) !== ''
-                        ? `${(shipment.currency ?? 'INR').toUpperCase() === 'INR' ? '₹' : ''}${Number(shipment.total_amount).toLocaleString()}`
-                        : '—'}
-                    </span>
-                  </div>
-                </Link>
-              ))}
+              {shipmentsLoading && (
+                <>
+                  <HomeShipmentsSkeleton />
+                  <HomeShipmentsSkeleton />
+                </>
+              )}
+              {!shipmentsLoading &&
+                userShipments.length > 0 &&
+                userShipments.map((shipment) => (
+                  <Link
+                    key={shipment.awb_number + shipment.created_at}
+                    href={`/shipment/${encodeURIComponent(shipment.awb_number)}`}
+                    className="block card-accent hover:border-primary/25 active:scale-[0.99] transition-all"
+                    data-testid={`shipment-card-${shipment.awb_number}`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-semibold tabular-nums tracking-[0.02em] text-foreground">
+                        {shipment.awb_number}
+                      </span>
+                      <StatusBadge status={homeStatusLabel(shipment.current_status)} />
+                    </div>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>
+                        {[shipment.consignee_city, shipment.consignee_country].filter(Boolean).join(', ') || '—'}
+                      </span>
+                      <span>
+                        {shipment.total_amount != null && String(shipment.total_amount) !== ''
+                          ? `${(shipment.currency ?? 'INR').toUpperCase() === 'INR' ? '₹' : ''}${Number(shipment.total_amount).toLocaleString()}`
+                          : '—'}
+                      </span>
+                    </div>
+                  </Link>
+                ))}
+              {!shipmentsLoading && apiShipments.length === 0 && (
+                <div className="card-elevated flex items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
+                  No shipments yet
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {/* Logged-in: Recent Updates */}
-        {isLoggedIn && !notificationsError && userNotifications.length > 0 && (
+        {isLoggedIn && !notificationsError && (
           <div>
             <div className="flex items-center justify-between mb-3">
-              <div className="section-header-accent">Recent Updates</div>
+              <h2 className="text-sm font-medium text-foreground">Recent Updates</h2>
               <Link href="/notifications" className="text-xs text-primary font-medium flex items-center gap-0.5 hover:underline">
                 View all <ChevronRight className="w-3 h-3" />
               </Link>
             </div>
             <div className="space-y-2">
-              {userNotifications.map((notif) => {
-                return (
+              {shipmentsLoading && (
+                <>
+                  <HomeNotificationsSkeleton />
+                  <HomeNotificationsSkeleton />
+                </>
+              )}
+              {!shipmentsLoading &&
+                userNotifications.length > 0 &&
+                userNotifications.map((notif) => (
                   <div
                     key={notif.id}
-                    className="flex items-start gap-3 p-4 card-elevated"
+                    className="flex items-start gap-3 card-accent"
                     data-testid={`notification-${notif.id}`}
                   >
                     <div className="rounded-full bg-primary/8 p-2 flex items-center justify-center flex-shrink-0">
@@ -312,27 +369,13 @@ export default function Home() {
                       <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{notif.body ?? ''}</p>
                     </div>
                   </div>
-                );
-              })}
+                ))}
+              {!shipmentsLoading && apiNotifications.length === 0 && (
+                <div className="card-elevated flex items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
+                  No recent updates
+                </div>
+              )}
             </div>
-          </div>
-        )}
-
-        {/* Logged-in: Empty State */}
-        {isLoggedIn && !shipmentsError && !shipmentsLoading && apiShipments.length === 0 && (
-          <div className="text-center py-8">
-            <div className="w-14 h-14 bg-gradient-to-br from-primary/10 to-primary/5 rounded-full flex items-center justify-center mx-auto mb-3">
-              <Send className="w-6 h-6 text-primary" />
-            </div>
-            <p className="font-medium text-foreground text-sm mb-1">No shipments yet</p>
-            <p className="text-xs text-muted-foreground mb-4">Create your first shipment to get started</p>
-            <Button
-              onClick={() => setLocation('/create')}
-              size="sm"
-              className="bg-primary hover:bg-primary/90 text-sm h-10 px-5 rounded-xl shadow-md"
-            >
-              Create Shipment
-            </Button>
           </div>
         )}
 
