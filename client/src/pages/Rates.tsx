@@ -1,15 +1,18 @@
 import type { CSSProperties } from 'react';
 import { useLayoutEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ChevronDown, Loader2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronDown, Info, Loader2, AlertTriangle, Phone } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useMutation } from '@tanstack/react-query';
-import { CorridorRouteInfo } from '@/components/CorridorRouteInfo';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
 import { SideMenu } from '@/components/SideMenu';
 import { Button } from '@/components/ui/button';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import whatsAppLogo from '@/assets/WhatsApp.svg.png';
+import { COUNTRY_LIST, COUNTRY_MAP, isBookableCorridor } from '@/lib/countryData';
 import { lbToKg, kgToLb } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
@@ -125,6 +128,60 @@ function itemizedChargesEmpty(service: ITDRateRow): boolean {
   return !d || Object.keys(d).length === 0;
 }
 
+/** Title-case ALL CAPS country names from ITD list for display. */
+function formatCountryDisplay(raw: string): string {
+  return raw.toLowerCase().replace(/(^|[\s,]+)([a-z])/g, (_m, sep: string, letter: string) => sep + letter.toUpperCase());
+}
+
+interface CountryComboboxProps {
+  value: string;
+  onValueChange: (code: string) => void;
+}
+
+function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
+  const [open, setOpen] = useState(false);
+  const displayName = formatCountryDisplay(COUNTRY_MAP[value] ?? value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full h-11 justify-between font-normal text-sm bg-muted/30 border-border rounded-xl px-3"
+        >
+          <span className="truncate text-left">{displayName}</span>
+          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]" align="start">
+        <Command>
+          <CommandInput placeholder="Search country…" className="h-11" />
+          <CommandList>
+            <CommandEmpty>No country found.</CommandEmpty>
+            <CommandGroup>
+              {COUNTRY_LIST.map((c) => (
+                <CommandItem
+                  key={c.code}
+                  value={`${c.name} ${c.code}`}
+                  onSelect={() => {
+                    onValueChange(c.code);
+                    setOpen(false);
+                  }}
+                >
+                  {formatCountryDisplay(c.name)}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export default function Rates() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [, setLocation] = useLocation();
@@ -138,6 +195,27 @@ export default function Rates() {
   const [apiError, setApiError] = useState('');
   const [expandedById, setExpandedById] = useState<Record<string, boolean>>({});
   const [selectedRate, setSelectedRate] = useState<ITDRateRow | null>(null);
+
+  const [selectedOrigin, setSelectedOrigin] = useState('IN');
+  const [selectedDestination, setSelectedDestination] = useState('US');
+
+  const clearRatesOnCorridorChange = (): void => {
+    setRateResults(null);
+    setShipmentMeta(null);
+    setSelectedRate(null);
+    setApiError('');
+    setExpandedById({});
+  };
+
+  const handleOriginChange = (code: string): void => {
+    setSelectedOrigin(code);
+    clearRatesOnCorridorChange();
+  };
+
+  const handleDestinationChange = (code: string): void => {
+    setSelectedDestination(code);
+    clearRatesOnCorridorChange();
+  };
 
   const displayRates = useMemo(() => {
     if (!rateResults?.length) return [];
@@ -192,9 +270,9 @@ export default function Rates() {
 
     rateMutation.mutate({
       product_code: 'SPX',
-      destination_code: 'US',
+      destination_code: selectedDestination,
       booking_date: new Date().toISOString().split('T')[0],
-      origin_code: 'IN',
+      origin_code: selectedOrigin,
       pcs: String(parseInt(pieces) || 1),
       actual_weight: String(weightKg.toFixed(2)),
     });
@@ -219,6 +297,9 @@ export default function Rates() {
     const weightKgLabel = `${shipmentMeta.weightKg} kg`;
     const piecesLabel =
       shipmentMeta.pieces === 1 ? '1 piece' : `${shipmentMeta.pieces} pieces`;
+
+    const bookable = isBookableCorridor(selectedOrigin, selectedDestination);
+    const corridorLabel = `${formatCountryDisplay(COUNTRY_MAP[selectedOrigin] ?? selectedOrigin)} → ${formatCountryDisplay(COUNTRY_MAP[selectedDestination] ?? selectedDestination)}`;
 
     return (
       <div
@@ -246,11 +327,8 @@ export default function Rates() {
             <span className="inline-flex items-center rounded-full bg-white border-[0.5px] border-[var(--color-border-tertiary)] px-3 py-[5px] text-[12px] text-foreground">
               {piecesLabel}
             </span>
-            <span className="inline-flex flex-col justify-center rounded-full bg-white border-[0.5px] border-[var(--color-border-tertiary)] px-3 py-[5px] min-w-[10rem]">
-              <span className="text-[12px] font-medium leading-tight">India → United States</span>
-              <span className="text-[10px] text-muted-foreground leading-tight mt-0.5">
-                More corridors coming soon
-              </span>
+            <span className="inline-flex flex-col justify-center rounded-full bg-white border-[0.5px] border-[var(--color-border-tertiary)] px-3 py-[5px] min-w-[10rem] max-w-full">
+              <span className="text-[12px] font-medium leading-tight break-words">{corridorLabel}</span>
             </span>
           </div>
 
@@ -261,6 +339,38 @@ export default function Rates() {
         </header>
 
         <main className="px-4 max-w-md mx-auto pb-2">
+          {!bookable ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+              <div className="flex gap-3">
+                <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-amber-950">Online booking not available</p>
+                  <p className="text-xs text-amber-800/90 mt-1 leading-snug">
+                    For this corridor, please contact us to create your shipment.
+                  </p>
+                  <div className="flex gap-2 mt-3">
+                    <a
+                      href="https://api.whatsapp.com/send?phone=917045999553"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 flex items-center justify-center gap-2 h-10 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 active:scale-[0.98] transition-colors"
+                    >
+                      <img src={whatsAppLogo} alt="" className="w-4 h-4 object-contain" />
+                      WhatsApp
+                    </a>
+                    <a
+                      href="tel:+912266400000"
+                      className="flex-1 flex items-center justify-center gap-2 h-10 rounded-lg border border-amber-300 bg-white text-amber-950 text-xs font-medium hover:bg-amber-100/80 active:scale-[0.98] transition-colors"
+                    >
+                      <Phone className="w-4 h-4" aria-hidden />
+                      Call
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex flex-col gap-[10px]">
             {displayRates.map((service, idx) => {
               const isBest = idx === 0;
@@ -398,14 +508,16 @@ export default function Rates() {
                         </span>
                       </div>
 
-                      <button
-                        type="button"
-                        className="mt-[10px] w-full h-10 rounded-[10px] text-[13px] font-medium text-white transition-opacity hover:opacity-95 active:opacity-90"
-                        style={{ backgroundColor: BOMBINO_RED }}
-                        onClick={() => handleBookRate(service)}
-                      >
-                        Book this rate
-                      </button>
+                      {bookable ? (
+                        <button
+                          type="button"
+                          className="mt-[10px] w-full h-10 rounded-[10px] text-[13px] font-medium text-white transition-opacity hover:opacity-95 active:opacity-90"
+                          style={{ backgroundColor: BOMBINO_RED }}
+                          onClick={() => handleBookRate(service)}
+                        >
+                          Book this rate
+                        </button>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -436,7 +548,22 @@ export default function Rates() {
 
       <main className="px-4 py-5 max-w-md mx-auto">
         <h1 className="text-lg font-semibold text-foreground mb-1">Get Rates</h1>
-        <CorridorRouteInfo className="mb-5" />
+
+        <div className="mb-5 space-y-3">
+          <div className="flex items-end gap-2">
+            <div className="flex-1 min-w-0">
+              <Label className="text-[10px] text-muted-foreground mb-1 block">From</Label>
+              <CountryCombobox value={selectedOrigin} onValueChange={handleOriginChange} />
+            </div>
+            <div className="flex shrink-0 pb-[10px] text-muted-foreground" aria-hidden>
+              <ArrowRight className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <Label className="text-[10px] text-muted-foreground mb-1 block">To</Label>
+              <CountryCombobox value={selectedDestination} onValueChange={handleDestinationChange} />
+            </div>
+          </div>
+        </div>
 
         <div className="space-y-4">
           <div className="bg-card rounded-xl border border-border p-4 shadow-sm">
