@@ -15,6 +15,9 @@ import {
   markNotificationRead,
   updateSupportSessionMessages,
   upsertItdUserAndReturnId,
+  upsertTrackingEvents,
+  updateShipmentTrackingStatus,
+  getLastKnownTracking,
 } from "./appDb.js";
 import { decryptPassword, encryptPassword } from "./crypto.js";
 import { refreshItdTokenIfNeeded } from "./itdTokenRefresh.js";
@@ -316,10 +319,36 @@ export async function registerRoutes(
           user ? req.session.itdToken : undefined,
           user ? user.code : "superadmin"
         );
-        res.json(data);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Tracking failed";
-        res.status(502).json({ message });
+        const first = data[0];
+        const events = first?.docket_events ?? [];
+        const latestStatus =
+          events.length > 0
+            ? String((events[events.length - 1] as { event_state?: string }).event_state ?? "")
+                .trim() || "INTRANSIT"
+            : "INTRANSIT";
+        const trackedAt = new Date().toISOString();
+        void upsertTrackingEvents(trackingNo, events);
+        void updateShipmentTrackingStatus(trackingNo, latestStatus, trackedAt);
+        res.json({
+          results: data,
+          fromCache: false as const,
+          lastTrackedAt: trackedAt,
+        });
+      } catch (_err) {
+        const lastKnown = await getLastKnownTracking(trackingNo);
+        if (lastKnown) {
+          res.status(200).json({
+            fromCache: true as const,
+            lastTrackedAt: lastKnown.lastTrackedAt,
+            currentStatus: lastKnown.currentStatus,
+            message:
+              "Tracking service temporarily unavailable. Showing last known status.",
+          });
+          return;
+        }
+        res.status(502).json({
+          message: "Tracking unavailable. Please try again later.",
+        });
       }
     }
   );

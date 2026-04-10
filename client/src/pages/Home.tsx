@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
+import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
 
 interface HomeNotificationRow {
   id: string;
@@ -18,13 +19,6 @@ interface HomeNotificationRow {
   type: string | null;
   created_at: string;
 }
-
-function homeStatusLabel(status: string | null): string {
-  if (!status) return 'Unknown';
-  if (status === 'ENTRY') return 'Entry';
-  return status;
-}
-
 
 function HomeShipmentsSkeleton() {
   return (
@@ -180,7 +174,7 @@ export default function Home() {
           data-testid="zone-hero"
         >
           <div className="relative z-10">
-            <h1 className="text-lg font-semibold text-foreground mb-1">Track your shipment</h1>
+            <h1 className="text-lg font-semibold text-foreground mb-1">Track Any Order</h1>
             <p className="text-sm text-muted-foreground mb-4">Enter AWB number to get real-time status</p>
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -314,7 +308,18 @@ export default function Home() {
                       <span className="text-sm font-semibold tabular-nums tracking-[0.02em] text-foreground">
                         {shipment.awb_number}
                       </span>
-                      <StatusBadge status={homeStatusLabel(shipment.current_status)} />
+                      <StatusBadge
+                        status={
+                          shipment.current_status != null && shipment.current_status.trim() !== ''
+                            ? getStatusLabel(shipment.current_status)
+                            : 'Unknown'
+                        }
+                        tone={
+                          shipment.current_status != null && shipment.current_status.trim() !== ''
+                            ? getStatusColor(shipment.current_status)
+                            : 'gray'
+                        }
+                      />
                     </div>
                     <div className="flex items-center justify-between text-xs text-muted-foreground">
                       <span>

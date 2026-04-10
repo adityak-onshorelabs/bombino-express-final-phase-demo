@@ -672,3 +672,112 @@ export async function insertShipmentCreatedAuditLog(input: {
   }
   return true;
 }
+
+export async function upsertTrackingEvents(awbNumber: string, events: unknown[]): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client || !Array.isArray(events) || events.length === 0) {
+    return;
+  }
+
+  const rows: {
+    awb_number: string;
+    event_at: string;
+    event_type: string | null;
+    event_description: string | null;
+    event_location: string | null;
+    raw_event: Json;
+  }[] = [];
+
+  for (const ev of events) {
+    if (!ev || typeof ev !== "object") continue;
+    const e = ev as Record<string, unknown>;
+    const eventAt = typeof e.event_at === "string" ? e.event_at.trim() : "";
+    if (!eventAt) continue;
+    rows.push({
+      awb_number: awbNumber,
+      event_at: eventAt,
+      event_type: typeof e.event_type === "string" ? e.event_type : null,
+      event_description: typeof e.event_description === "string" ? e.event_description : null,
+      event_location: typeof e.event_location === "string" ? e.event_location : null,
+      raw_event: ev as Json,
+    });
+  }
+
+  if (rows.length === 0) return;
+
+  try {
+    const { error } = await client.from("tracking_events").upsert(rows, {
+      onConflict: "awb_number,event_at",
+      ignoreDuplicates: true,
+    });
+    if (error) {
+      logSupabaseError("upsertTrackingEvents", error);
+    }
+  } catch (err) {
+    console.error("[appDb] upsertTrackingEvents failed:", err);
+  }
+}
+
+export async function updateShipmentTrackingStatus(
+  awbNumber: string,
+  currentStatus: string,
+  lastTrackedAt: string
+): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+
+  try {
+    const { error } = await client
+      .from("shipments")
+      .update({
+        current_status: currentStatus,
+        last_tracked_at: lastTrackedAt,
+      })
+      .eq("awb_number", awbNumber);
+
+    if (error) {
+      logSupabaseError("updateShipmentTrackingStatus", error);
+    }
+  } catch (err) {
+    console.error("[appDb] updateShipmentTrackingStatus failed:", err);
+  }
+}
+
+export type LastKnownTrackingRow = {
+  currentStatus: string;
+  lastTrackedAt: string;
+};
+
+export async function getLastKnownTracking(awbNumber: string): Promise<LastKnownTrackingRow | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  try {
+    const { data, error } = await client
+      .from("shipments")
+      .select("current_status, last_tracked_at")
+      .eq("awb_number", awbNumber)
+      .maybeSingle();
+
+    if (error) {
+      logSupabaseError("getLastKnownTracking", error);
+      return null;
+    }
+    if (!data) return null;
+
+    const lastTrackedAt =
+      data.last_tracked_at != null ? String(data.last_tracked_at) : "";
+    if (!lastTrackedAt) return null;
+
+    return {
+      currentStatus:
+        data.current_status != null && String(data.current_status).trim() !== ""
+          ? String(data.current_status)
+          : "INTRANSIT",
+      lastTrackedAt,
+    };
+  } catch (err) {
+    console.error("[appDb] getLastKnownTracking failed:", err);
+    return null;
+  }
+}

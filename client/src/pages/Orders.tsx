@@ -1,15 +1,17 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useLocation } from 'wouter';
-import { Package, Copy, Send } from 'lucide-react';
+import { Package, Copy, Send, Search, ArrowRight } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
 import { SideMenu } from '@/components/SideMenu';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAppStore } from '@/lib/store';
 import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
+import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
 import { useToast } from '@/hooks/use-toast';
 
 function formatBookingDate(value: string | null): string {
@@ -19,18 +21,13 @@ function formatBookingDate(value: string | null): string {
   return format(d, 'dd MMM yyyy');
 }
 
-function statusLabelForBadge(status: string | null): string {
-  if (!status) return 'Unknown';
-  if (status === 'ENTRY') return 'Entry';
-  return status;
-}
-
 export default function Orders() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [, setLocation] = useLocation();
   const { isLoggedIn } = useAppStore();
   const { toast } = useToast();
 
+  const [trackingInput, setTrackingInput] = useState('');
   const [items, setItems] = useState<ShipmentHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -78,12 +75,51 @@ export default function Orders() {
     return `${cur} ${n.toLocaleString()}`;
   };
 
+  const submitTrack = () => {
+    const t = trackingInput.trim();
+    if (t) {
+      setLocation(`/shipment/${encodeURIComponent(t)}`);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background pb-20" data-testid="screen-orders">
       <Header onMenuClick={() => setMenuOpen(true)} />
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 
       <main className="px-4 py-5 max-w-md mx-auto">
+        <div
+          className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/8 via-primary/4 to-transparent border border-primary/10 p-5 shadow-[0_8px_32px_rgba(198,40,40,0.10)] mb-6"
+          data-testid="zone-orders-track"
+        >
+          <div className="relative z-10">
+            <h2 className="text-lg font-semibold text-foreground mb-1">Track Your Shipment</h2>
+            <p className="text-sm text-muted-foreground mb-4">Enter AWB number to get real-time status</p>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  value={trackingInput}
+                  onChange={(e) => setTrackingInput(e.target.value)}
+                  placeholder="e.g. BMB123456789"
+                  className="h-12 pl-10 text-sm bg-white border-border rounded-xl shadow-sm"
+                  onKeyDown={(e) => e.key === 'Enter' && submitTrack()}
+                  data-testid="input-tracking-orders"
+                />
+              </div>
+              <Button
+                type="button"
+                onClick={submitTrack}
+                className="h-12 px-5 bg-primary hover:bg-primary/90 rounded-xl shadow-lg shadow-primary/25 active:scale-[0.97] transition-all font-semibold"
+                data-testid="button-track-orders"
+              >
+                Track
+                <ArrowRight className="w-4 h-4 ml-1" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
         <h1 className="text-lg font-semibold text-foreground mb-1">My Shipments</h1>
         <p className="text-sm text-muted-foreground mb-5">
           Track your outgoing and incoming shipments
@@ -149,7 +185,19 @@ export default function Orders() {
                         <Copy className="w-4 h-4 text-muted-foreground" />
                       </button>
                     </div>
-                    <StatusBadge status={statusLabelForBadge(row.current_status)} className="shrink-0" />
+                    <StatusBadge
+                      status={
+                        row.current_status != null && row.current_status.trim() !== ''
+                          ? getStatusLabel(row.current_status)
+                          : 'Unknown'
+                      }
+                      tone={
+                        row.current_status != null && row.current_status.trim() !== ''
+                          ? getStatusColor(row.current_status)
+                          : 'gray'
+                      }
+                      className="shrink-0"
+                    />
                   </div>
                   <p className="text-sm text-gray-500 truncate">
                     {row.consignee_name ?? '—'}

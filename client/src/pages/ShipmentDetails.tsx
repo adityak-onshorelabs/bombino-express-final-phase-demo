@@ -1,15 +1,28 @@
 import { useState } from 'react';
 import { useRoute, useLocation } from 'wouter';
-import { ArrowLeft, Copy, Check, Plane, Download, Phone, AlertTriangle, Loader2 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import {
+  ArrowLeft,
+  Copy,
+  Check,
+  Plane,
+  Download,
+  Phone,
+  AlertTriangle,
+  Loader2,
+  RefreshCw,
+} from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { formatDistanceToNow } from 'date-fns';
 import { BottomNav } from '@/components/BottomNav';
 import { StatusBadge } from '@/components/StatusBadge';
 import { TrackingTimeline } from '@/components/TrackingTimeline';
 import type { TrackingEvent } from '@/lib/mockData';
+import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
+import { cn } from '@/lib/utils';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 
 interface DocketEvent {
-  id: string;
+  id?: string;
   event_at: string;
   event_description: string;
   event_remark: string;
@@ -25,6 +38,19 @@ interface ITDTrackingResult {
   docket_info: [string, string][];
   docket_events: DocketEvent[];
 }
+
+export type TrackingResponse =
+  | {
+      results: ITDTrackingResult[];
+      fromCache: false;
+      lastTrackedAt: string;
+    }
+  | {
+      fromCache: true;
+      lastTrackedAt: string;
+      currentStatus: string;
+      message: string;
+    };
 
 function getDocketValue(docketInfo: [string, string][], label: string): string {
   const entry = docketInfo.find(([key]) => key.trim() === label);
@@ -55,29 +81,81 @@ function mapEvents(docketEvents: DocketEvent[]): TrackingEvent[] {
   }));
 }
 
+function isTrackingResponse(body: unknown): body is TrackingResponse {
+  if (!body || typeof body !== 'object') return false;
+  const o = body as Record<string, unknown>;
+  if (o.fromCache === true) {
+    return (
+      typeof o.lastTrackedAt === 'string' &&
+      typeof o.currentStatus === 'string' &&
+      typeof o.message === 'string'
+    );
+  }
+  if (o.fromCache === false) {
+    return Array.isArray(o.results) && typeof o.lastTrackedAt === 'string';
+  }
+  return false;
+}
+
 export default function ShipmentDetails() {
   const [, params] = useRoute('/shipment/:awb');
   const [, setLocation] = useLocation();
   const [copied, setCopied] = useState(false);
+  const queryClient = useQueryClient();
 
-  const awb = params?.awb || '';
+  const awb = params?.awb ? decodeURIComponent(params.awb) : '';
 
-  const { data, isLoading, error } = useQuery<ITDTrackingResult[]>({
+  const { data, isLoading, isFetching, error } = useQuery<TrackingResponse>({
     queryKey: ['/api/track', awb],
-    queryFn: () =>
-      fetch(`/api/track/${awb}`, { credentials: 'include' }).then((r) => {
-        if (!r.ok) throw new Error(`${r.status}: ${r.statusText}`);
-        return r.json();
-      }),
+    queryFn: async () => {
+      const res = await fetch(`/api/track/${encodeURIComponent(awb)}`, {
+        credentials: 'include',
+      });
+      const body: unknown = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg =
+          typeof body === 'object' &&
+          body !== null &&
+          'message' in body &&
+          typeof (body as { message: unknown }).message === 'string'
+            ? (body as { message: string }).message
+            : res.statusText;
+        throw new Error(`${res.status}: ${msg}`);
+      }
+      if (!isTrackingResponse(body)) {
+        throw new Error('Invalid tracking response');
+      }
+      return body;
+    },
     enabled: !!awb,
     retry: false,
   });
 
   const copyAWB = () => {
-    navigator.clipboard.writeText(awb);
+    void navigator.clipboard.writeText(awb);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const invalidateTrack = () => {
+    void queryClient.invalidateQueries({ queryKey: ['/api/track', awb] });
+  };
+
+  const headerRefresh = (
+    <button
+      type="button"
+      onClick={() => invalidateTrack()}
+      disabled={isFetching}
+      className="ml-auto p-2 rounded-full hover:bg-black/5 transition-colors disabled:opacity-50"
+      aria-label="Refresh tracking"
+      data-testid="button-refresh-tracking"
+    >
+      <RefreshCw
+        size={18}
+        className={cn('text-gray-600', isFetching && 'animate-spin')}
+      />
+    </button>
+  );
 
   if (isLoading) {
     return (
@@ -85,12 +163,14 @@ export default function ShipmentDetails() {
         <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
           <div className="flex items-center h-14 px-4 max-w-md mx-auto">
             <button
+              type="button"
               onClick={() => window.history.back()}
               className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1 className="ml-2 font-semibold text-sm">Shipment Details</h1>
+            <h1 className="ml-2 font-semibold text-sm flex-1">Shipment Details</h1>
+            {headerRefresh}
           </div>
         </header>
         <main className="flex items-center justify-center py-24">
@@ -101,18 +181,20 @@ export default function ShipmentDetails() {
     );
   }
 
-  if (error || !data || data.length === 0 || data[0].errors) {
+  if (error || !data) {
     return (
       <div className="min-h-screen bg-background pb-20" data-testid="screen-shipment-not-found">
         <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
           <div className="flex items-center h-14 px-4 max-w-md mx-auto">
             <button
+              type="button"
               onClick={() => setLocation('/receive')}
               className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1 className="ml-2 font-semibold text-sm">Shipment Details</h1>
+            <h1 className="ml-2 font-semibold text-sm flex-1">Shipment Details</h1>
+            {awb ? headerRefresh : null}
           </div>
         </header>
         <main className="px-4 py-12 max-w-md mx-auto text-center">
@@ -130,11 +212,143 @@ export default function ShipmentDetails() {
     );
   }
 
-  const result = data[0];
-  const info = result.docket_info ?? [];
-  const events = mapEvents(result.docket_events ?? []);
+  if (data.fromCache) {
+    const rawState = data.currentStatus;
+    return (
+      <div className="min-h-screen bg-background pb-44" data-testid="screen-shipment-cached">
+        <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
+          <div className="flex items-center h-14 px-4 max-w-md mx-auto">
+            <button
+              type="button"
+              onClick={() => window.history.back()}
+              className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
+              data-testid="button-back"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <h1 className="ml-2 font-semibold text-sm flex-1">Shipment Details</h1>
+            {headerRefresh}
+          </div>
+        </header>
 
-  const currentStatus = getDocketValue(info, 'Status') || 'In Transit';
+        <main className="max-w-md mx-auto">
+          <div className="mx-4 mt-4 rounded-xl p-4 border border-amber-200 bg-amber-50">
+            <p className="text-sm font-medium text-amber-800">Tracking temporarily unavailable</p>
+            <p className="text-sm text-amber-700 mt-1">
+              Last known status: {getStatusLabel(rawState)} · updated{' '}
+              {formatDistanceToNow(new Date(data.lastTrackedAt), { addSuffix: true })}
+            </p>
+            <p className="text-xs text-amber-600 mt-1">{data.message}</p>
+            <p className="text-xs text-amber-600 mt-1">Please check back later</p>
+          </div>
+
+          <div className="px-4 py-5">
+            <div className="bg-card rounded-2xl border border-border p-4 mb-4 shadow-sm">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-lg">{awb}</span>
+                    <button
+                      type="button"
+                      onClick={copyAWB}
+                      className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+                      data-testid="button-copy-awb"
+                    >
+                      {copied ? (
+                        <Check className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <Copy className="w-4 h-4 text-muted-foreground" />
+                      )}
+                    </button>
+                  </div>
+                  <StatusBadge
+                    status={getStatusLabel(rawState)}
+                    tone={getStatusColor(rawState)}
+                    className="mt-2"
+                  />
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-amber-700 text-center">
+              Last updated{' '}
+              {formatDistanceToNow(new Date(data.lastTrackedAt), { addSuffix: true })}{' '}
+              ·{' '}
+              <button
+                type="button"
+                onClick={() => invalidateTrack()}
+                className="text-primary font-medium"
+              >
+                Refresh
+              </button>
+            </p>
+          </div>
+        </main>
+
+        <div className="fixed bottom-16 left-0 right-0 z-40 bg-white border-t border-border p-4 safe-bottom">
+          <div className="flex justify-end gap-2 max-w-md mx-auto">
+            <a
+              href="https://api.whatsapp.com/send?phone=917045999553"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-11 h-11 bg-green-50 border border-green-200 rounded-xl flex items-center justify-center hover:bg-green-100 transition-colors"
+              data-testid="button-whatsapp"
+            >
+              <img src={whatsAppLogo} alt="WhatsApp" className="w-5 h-5 object-contain" />
+            </a>
+            <a
+              href="tel:+912266400000"
+              className="w-11 h-11 bg-primary/10 border border-primary/20 rounded-xl flex items-center justify-center hover:bg-primary/20 transition-colors"
+              data-testid="button-call"
+            >
+              <Phone className="w-5 h-5 text-primary" />
+            </a>
+          </div>
+        </div>
+        <BottomNav />
+      </div>
+    );
+  }
+
+  const trackingData = data.results[0];
+  if (!trackingData || data.results.length === 0 || trackingData.errors) {
+    return (
+      <div className="min-h-screen bg-background pb-20" data-testid="screen-shipment-not-found">
+        <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
+          <div className="flex items-center h-14 px-4 max-w-md mx-auto">
+            <button
+              type="button"
+              onClick={() => setLocation('/receive')}
+              className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <h1 className="ml-2 font-semibold text-sm flex-1">Shipment Details</h1>
+            {headerRefresh}
+          </div>
+        </header>
+        <main className="px-4 py-12 max-w-md mx-auto text-center">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertTriangle className="w-8 h-8 text-red-500" />
+          </div>
+          <h2 className="text-lg font-semibold text-foreground mb-2">Shipment Not Found</h2>
+          <p className="text-sm text-muted-foreground mb-6">AWB: {awb}</p>
+          <p className="text-sm text-muted-foreground">No tracking data available</p>
+        </main>
+        <BottomNav />
+      </div>
+    );
+  }
+
+  const result = trackingData;
+  const info = result.docket_info ?? [];
+  const docketEvents = result.docket_events ?? [];
+  const events = mapEvents(docketEvents);
+  const lastEv = docketEvents.length > 0 ? docketEvents[docketEvents.length - 1] : undefined;
+  const rawStateForBadge =
+    (lastEv?.event_state?.trim() || getDocketValue(info, 'Status') || 'INTRANSIT').trim() ||
+    'INTRANSIT';
+
+  const currentStatus = getDocketValue(info, 'Status') || getStatusLabel(rawStateForBadge);
   const fromCountry = getDocketValue(info, 'Origin');
   const toCountry = getDocketValue(info, 'Destination');
   const fromCity = getDocketValue(info, 'Shipper City');
@@ -175,13 +389,15 @@ export default function ShipmentDetails() {
       <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
         <div className="flex items-center h-14 px-4 max-w-md mx-auto">
           <button
+            type="button"
             onClick={() => window.history.back()}
             className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
             data-testid="button-back"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <h1 className="ml-2 font-semibold text-sm">Shipment Details</h1>
+          <h1 className="ml-2 font-semibold text-sm flex-1">Shipment Details</h1>
+          {headerRefresh}
         </div>
       </header>
 
@@ -192,6 +408,7 @@ export default function ShipmentDetails() {
               <div className="flex items-center gap-2">
                 <span className="font-bold text-lg">{awb}</span>
                 <button
+                  type="button"
                   onClick={copyAWB}
                   className="p-1.5 rounded-lg hover:bg-muted transition-colors"
                   data-testid="button-copy-awb"
@@ -203,7 +420,11 @@ export default function ShipmentDetails() {
                   )}
                 </button>
               </div>
-              <StatusBadge status={currentStatus} className="mt-2" />
+              <StatusBadge
+                status={getStatusLabel(rawStateForBadge)}
+                tone={getStatusColor(rawStateForBadge)}
+                className="mt-2"
+              />
             </div>
           </div>
         </div>
@@ -252,7 +473,30 @@ export default function ShipmentDetails() {
           <div className="bg-card rounded-xl border border-border p-4 mb-4 shadow-sm">
             <h2 className="font-semibold text-sm text-foreground mb-3">Tracking History</h2>
             <TrackingTimeline events={events} currentStatus={currentStatus} />
+            <p className="text-xs text-muted-foreground text-center mt-3">
+              Last updated {formatDistanceToNow(new Date(data.lastTrackedAt), { addSuffix: true })} ·{' '}
+              <button
+                type="button"
+                onClick={() => invalidateTrack()}
+                className="text-primary font-medium"
+              >
+                Refresh
+              </button>
+            </p>
           </div>
+        )}
+
+        {events.length === 0 && (
+          <p className="text-xs text-muted-foreground text-center mb-4">
+            Last updated {formatDistanceToNow(new Date(data.lastTrackedAt), { addSuffix: true })} ·{' '}
+            <button
+              type="button"
+              onClick={() => invalidateTrack()}
+              className="text-primary font-medium"
+            >
+              Refresh
+            </button>
+          </p>
         )}
 
         <div className="bg-card rounded-2xl border border-border p-4 mb-4 shadow-sm">
