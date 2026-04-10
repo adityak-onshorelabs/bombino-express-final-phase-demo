@@ -141,29 +141,32 @@ export default function Notifications() {
                 notif.type === 'exception' ||
                 notif.type === 'customs_hold' ||
                 (notif.title ?? '').toLowerCase().includes('hold');
+              const isShipmentCreated = notif.type === 'shipment_created';
               return (
                 <button
                   key={notif.id}
                   type="button"
                   onClick={() => void handleNotificationClick(notif)}
                   className={cn(
-                    'w-full text-left flex items-start gap-3 p-4 rounded-2xl border transition-all card-elevated',
-                    unread ? 'bg-primary/5 border-primary/20' : 'bg-card border-border'
+                    'w-full text-left flex items-start gap-3 p-4 rounded-2xl border transition-all',
+                    unread
+                      ? 'bg-primary/[0.08] border-primary/25 border-l-4 border-l-primary shadow-[0_2px_12px_rgba(198,40,40,0.08),0_1px_3px_rgba(0,0,0,0.05)]'
+                      : 'card-elevated'
                   )}
                   data-testid={`notification-item-${notif.id}`}
                 >
                   <div
                     className={cn(
                       'w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0',
-                      isWarn
-                        ? 'bg-gradient-to-br from-amber-100 to-amber-50'
-                        : 'bg-gradient-to-br from-blue-100 to-blue-50'
+                      isShipmentCreated
+                        ? 'bg-primary/8 text-primary'
+                        : 'bg-gray-100 text-gray-500'
                     )}
                   >
-                    {isWarn ? (
-                      <AlertTriangle className="w-5 h-5 text-amber-600" />
+                    {isWarn && !isShipmentCreated ? (
+                      <AlertTriangle className="w-5 h-5" />
                     ) : (
-                      <Info className="w-5 h-5 text-blue-600" />
+                      <Info className="w-5 h-5" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">

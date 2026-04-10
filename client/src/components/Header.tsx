@@ -40,7 +40,7 @@ export function Header({ onMenuClick }: HeaderProps) {
   }, [isLoggedIn]);
 
   return (
-    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm safe-top border-b border-border shadow-sm">
+    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm safe-top border-b border-[rgba(198,40,40,0.08)] shadow-[0_1px_8px_rgba(0,0,0,0.06)]">
       <div className="flex items-center justify-between h-14 px-4 max-w-md mx-auto">
         <button
           onClick={onMenuClick}

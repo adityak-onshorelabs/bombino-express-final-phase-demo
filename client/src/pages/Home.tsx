@@ -139,7 +139,7 @@ export default function Home() {
 
         {/* ZONE 1: Hero - Track Shipment (Primary Action) */}
         <div 
-          className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/8 via-primary/4 to-transparent border border-primary/10 p-5 shadow-[0_8px_24px_rgba(198,40,40,0.08)]"
+          className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/8 via-primary/4 to-transparent border border-primary/10 p-5 shadow-[0_8px_32px_rgba(198,40,40,0.10)]"
           data-testid="zone-hero"
         >
           <div className="relative z-10">
@@ -173,10 +173,10 @@ export default function Home() {
         <div className="flex gap-3" data-testid="zone-actions">
           <Link
             href="/rates"
-            className="flex-1 flex items-center gap-3 p-4 bg-white rounded-xl border border-border shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-amber-200/80 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
+            className="flex-1 flex items-center gap-3 p-4 card-elevated active:scale-[0.98] transition-transform"
             data-testid="button-get-rates"
           >
-            <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center flex-shrink-0 border border-amber-100/80">
+            <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center flex-shrink-0">
               <BadgeDollarSign className="w-5 h-5 text-amber-600" />
             </div>
             <div>
@@ -187,10 +187,10 @@ export default function Home() {
 
           <Link
             href="/create"
-            className="flex-1 flex items-center gap-3 p-4 bg-white rounded-xl border border-border shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-primary/20 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
+            className="flex-1 flex items-center gap-3 p-4 card-elevated active:scale-[0.98] transition-transform"
             data-testid="button-ship"
           >
-            <div className="w-10 h-10 rounded-xl bg-primary/5 flex items-center justify-center flex-shrink-0 border border-primary/10">
+            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
               <Send className="w-5 h-5 text-primary" />
             </div>
             <div>
@@ -252,7 +252,7 @@ export default function Home() {
         {isLoggedIn && !shipmentsError && !shipmentsLoading && userShipments.length > 0 && (
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-medium text-foreground">My Shipments</h2>
+              <div className="section-header-accent">My Shipments</div>
               <Link href="/orders" className="text-xs text-primary font-medium flex items-center gap-0.5 hover:underline">
                 View all <ChevronRight className="w-3 h-3" />
               </Link>
@@ -262,11 +262,13 @@ export default function Home() {
                 <Link
                   key={shipment.awb_number + shipment.created_at}
                   href={`/shipment/${encodeURIComponent(shipment.awb_number)}`}
-                  className="block bg-white rounded-xl border border-border p-4 hover:border-primary/20 hover:shadow-sm active:scale-[0.99] transition-all"
+                  className="block card-accent hover:border-primary/25 active:scale-[0.99] transition-all"
                   data-testid={`shipment-card-${shipment.awb_number}`}
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="font-medium text-sm">{shipment.awb_number}</span>
+                    <span className="text-sm font-semibold tabular-nums tracking-[0.02em] text-foreground">
+                      {shipment.awb_number}
+                    </span>
                     <StatusBadge status={homeStatusLabel(shipment.current_status)} />
                   </div>
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -289,26 +291,21 @@ export default function Home() {
         {isLoggedIn && !notificationsError && userNotifications.length > 0 && (
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-medium text-foreground">Recent Updates</h2>
+              <div className="section-header-accent">Recent Updates</div>
               <Link href="/notifications" className="text-xs text-primary font-medium flex items-center gap-0.5 hover:underline">
                 View all <ChevronRight className="w-3 h-3" />
               </Link>
             </div>
             <div className="space-y-2">
               {userNotifications.map((notif) => {
-                const isWarn = notif.type === 'exception' || notif.type === 'customs_hold';
                 return (
                   <div
                     key={notif.id}
-                    className="flex items-start gap-3 p-3.5 bg-white rounded-xl border border-border"
+                    className="flex items-start gap-3 p-4 card-elevated"
                     data-testid={`notification-${notif.id}`}
                   >
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                        isWarn ? 'bg-amber-100' : 'bg-blue-100'
-                      }`}
-                    >
-                      <Bell className={`w-4 h-4 ${isWarn ? 'text-amber-600' : 'text-blue-600'}`} />
+                    <div className="rounded-full bg-primary/8 p-2 flex items-center justify-center flex-shrink-0">
+                      <Bell className="w-4 h-4 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm text-foreground">{notif.title ?? ''}</p>

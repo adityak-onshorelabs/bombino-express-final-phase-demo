@@ -36,7 +36,7 @@
 }
 
 :root {
-  --background: 247 247 249;
+  --background: 249 246 245;
   --foreground: 17 24 39;
   --card: 255 255 255;
   --card-foreground: 17 24 39;
@@ -52,8 +52,8 @@
   --accent-foreground: 153 27 27;
   --destructive: 239 68 68;
   --destructive-foreground: 255 255 255;
-  --border: 229 231 235;
-  --input: 229 231 235;
+  --border: 230 220 218;
+  --input: 230 220 218;
   --ring: 198 40 40;
   --radius: 0.75rem;
 }
@@ -289,6 +289,18 @@ body {
   transform: scale(1.03);
 }
 
+@keyframes fabAuraPulse {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+}
+
 /* FAB aura: blurred sparkle halo behind button */
 .fab-aura {
   position: absolute;
@@ -307,6 +319,20 @@ body {
   filter: blur(8px);
   animation: fab-aura-rotate 12s linear infinite;
   pointer-events: none;
+}
+
+/* Pulsing ring layer: scale/opacity only so it stacks with parent rotate */
+.fab-aura::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow:
+    0 0 18px rgba(198, 40, 40, 0.22),
+    0 0 32px rgba(198, 40, 40, 0.12);
+  opacity: 0.45;
+  pointer-events: none;
+  animation: fabAuraPulse 3s ease-in-out infinite;
 }
 
 /* FAB shimmer: diagonal sweep every 4s, 800ms sweep, fade in/out */
@@ -440,15 +466,61 @@ body {
 }
 
 .card-elevated {
-  @apply bg-card rounded-2xl border border-border shadow-[0_6px_20px_rgba(0,0,0,0.06)] transition-shadow;
+  @apply rounded-2xl border;
+  border-color: rgba(198, 40, 40, 0.08);
+  background: linear-gradient(135deg, #ffffff 0%, #fef9f9 100%);
+  box-shadow:
+    0 2px 12px rgba(198, 40, 40, 0.06),
+    0 1px 3px rgba(0, 0, 0, 0.04);
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
 }
 
-.card-elevated:hover {
-  @apply shadow-[0_8px_24px_rgba(0,0,0,0.08)];
-}
-
+.card-elevated:hover,
 .card-elevated:active {
-  @apply shadow-[0_4px_16px_rgba(0,0,0,0.06)];
+  box-shadow:
+    0 4px 20px rgba(198, 40, 40, 0.1),
+    0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.card-accent {
+  @apply rounded-2xl border;
+  border-color: rgba(198, 40, 40, 0.08);
+  border-left: 3px solid #c62828;
+  background: linear-gradient(135deg, #ffffff 0%, #fef9f9 100%);
+  box-shadow:
+    0 2px 12px rgba(198, 40, 40, 0.06),
+    0 1px 3px rgba(0, 0, 0, 0.04);
+  transition:
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+  padding: 1rem 1rem 1rem 13px;
+}
+
+.card-accent:hover,
+.card-accent:active {
+  box-shadow:
+    0 4px 20px rgba(198, 40, 40, 0.1),
+    0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.section-header-accent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgb(var(--foreground));
+}
+
+.section-header-accent::before {
+  content: '';
+  width: 3px;
+  height: 16px;
+  flex-shrink: 0;
+  background: #c62828;
+  border-radius: 2px;
 }
 
 .icon-container {

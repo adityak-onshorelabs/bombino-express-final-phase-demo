@@ -11,7 +11,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAppStore } from '@/lib/store';
 import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
 import { useToast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
 
 function formatBookingDate(value: string | null): string {
   if (!value) return '—';
@@ -135,12 +134,12 @@ export default function Orders() {
                   key={`${awb}-${row.created_at}`}
                   type="button"
                   onClick={() => setLocation(`/shipment/${encodeURIComponent(awb)}`)}
-                  className="w-full text-left bg-white rounded-xl border border-border p-4 hover:border-primary/25 hover:shadow-sm active:scale-[0.99] transition-all"
+                  className="w-full text-left card-accent hover:border-primary/25 active:scale-[0.99] transition-all"
                   data-testid={`order-card-${awb}`}
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="font-bold text-sm text-foreground truncate">{awb}</span>
+                      <span className="font-semibold tabular-nums text-sm text-foreground truncate">{awb}</span>
                       <button
                         type="button"
                         onClick={(e) => copyAwb(e, awb)}
@@ -152,20 +151,20 @@ export default function Orders() {
                     </div>
                     <StatusBadge status={statusLabelForBadge(row.current_status)} className="shrink-0" />
                   </div>
-                  <p className="text-sm text-foreground font-medium truncate">
+                  <p className="text-sm text-gray-500 truncate">
                     {row.consignee_name ?? '—'}
                     {row.consignee_city ? (
-                      <span className="text-muted-foreground font-normal">
+                      <>
                         {' '}
                         · {row.consignee_city}
-                      </span>
+                      </>
                     ) : null}
                   </p>
                   <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
                     <span className="truncate">{row.service_name ?? '—'}</span>
                     {amountStr ? <span className="tabular-nums shrink-0 ml-2">{amountStr}</span> : null}
                   </div>
-                  <p className={cn('text-[11px] text-muted-foreground mt-2')}>
+                  <p className="text-xs text-gray-400 mt-2">
                     Booked {formatBookingDate(row.booking_date)}
                   </p>
                 </button>

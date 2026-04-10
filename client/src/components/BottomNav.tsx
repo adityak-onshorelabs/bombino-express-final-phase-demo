@@ -41,7 +41,10 @@ export function BottomNav() {
                 {label}
               </span>
               {isActive && (
-                <span className="absolute bottom-1.5 w-6 h-0.5 bg-white/60 rounded-full" />
+                <span
+                  className="absolute top-0 left-1/2 -translate-x-1/2 w-5 h-0.5 bg-white rounded-full"
+                  aria-hidden
+                />
               )}
             </Link>
           );
