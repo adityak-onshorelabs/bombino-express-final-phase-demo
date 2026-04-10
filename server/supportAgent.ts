@@ -320,9 +320,9 @@ export function executeEscalateSupport(
   _context: SupportChatContext
 ): string {
   try {
-    return escalation ?? FALLBACK_ESCALATION;
+    return `${escalation ?? FALLBACK_ESCALATION}\nTAP_CONTACT_US`;
   } catch {
-    return FALLBACK_ESCALATION;
+    return `${FALLBACK_ESCALATION}\nTAP_CONTACT_US`;
   }
 }
 
@@ -477,6 +477,7 @@ Rules:
 - For tracking questions: use get_tracking_summary with the user's AWB or tracking number.
 - For how to ship, documents, or booking steps: use get_shipment_guidance with the appropriate topic.
 - To send the user to human support: use escalate_support.
+- After using escalate_support tool, your final reply to the user MUST end with TAP_CONTACT_US on its own line.
 - If the user's request is unclear or outside support (rates, tracking, shipping help, escalation), say so briefly and offer to help with what you can.
 
 RATES REQUESTS:

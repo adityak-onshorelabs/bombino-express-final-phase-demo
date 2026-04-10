@@ -8,12 +8,14 @@ import {
   HelpCircle,
   MessageCircle,
   Plus,
+  Phone,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
+import { parseAssistantMessage } from "@/lib/supportMessage";
 import { useAppStore } from "@/lib/store";
 import biaOrbGif from "@assets/bia-orb.gif";
 
@@ -318,38 +320,96 @@ export default function Support() {
             </>
           ) : (
             <div className="space-y-4">
-              {messages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    "flex",
-                    i === messages.length - 1 && "animate-bia-message-in",
-                    msg.role === "user" ? "justify-end" : "justify-start"
-                  )}
-                >
+              {messages.map((msg, i) => {
+                const isUser = msg.role === "user";
+                if (isUser) {
+                  return (
+                    <div
+                      key={i}
+                      className={cn(
+                        "flex justify-end",
+                        i === messages.length - 1 && "animate-bia-message-in"
+                      )}
+                    >
+                      <div
+                        className="max-w-[85%] rounded-2xl px-4 py-3 text-sm rounded-br-md"
+                        style={{
+                          background: "rgba(255,60,45,0.18)",
+                          border: "1px solid rgba(255,60,45,0.35)",
+                        }}
+                      >
+                        <p className="whitespace-pre-wrap break-words text-white/95">
+                          {msg.content}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+
+                const parsed = parseAssistantMessage(msg.content);
+                return (
                   <div
+                    key={i}
                     className={cn(
-                      "max-w-[85%] rounded-2xl px-4 py-3 text-sm",
-                      msg.role === "user"
-                        ? "rounded-br-md"
-                        : "rounded-bl-md backdrop-blur-[8px]"
+                      "flex justify-start",
+                      i === messages.length - 1 && "animate-bia-message-in"
                     )}
-                    style={
-                      msg.role === "user"
-                        ? {
-                            background: "rgba(255,60,45,0.18)",
-                            border: "1px solid rgba(255,60,45,0.35)",
-                          }
-                        : {
-                            background: "rgba(255,255,255,0.04)",
-                            border: "1px solid rgba(255,255,255,0.12)",
-                          }
-                    }
                   >
-                    <p className="whitespace-pre-wrap break-words text-white/95">{msg.content}</p>
+                    <div className="flex flex-col gap-2 max-w-[85%]">
+                      <div
+                        className="rounded-2xl px-4 py-3 text-sm rounded-bl-md backdrop-blur-[8px]"
+                        style={{
+                          background: "rgba(255,255,255,0.04)",
+                          border: "1px solid rgba(255,255,255,0.12)",
+                        }}
+                      >
+                        <p className="whitespace-pre-wrap break-words text-white/95">
+                          {parsed.text}
+                        </p>
+                      </div>
+                      {parsed.cta === "create_shipment" &&
+                        (isLoggedIn ? (
+                          <button
+                            type="button"
+                            onClick={() => setLocation("/create")}
+                            className="w-full rounded-xl py-3 px-4 text-sm font-semibold text-white flex items-center justify-center gap-2"
+                            style={{ background: "#C62828" }}
+                          >
+                            🚀 Create Shipment Now
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setLocation("/login")}
+                            className="w-full rounded-xl py-2 px-4 text-sm text-white/70 underline text-center"
+                          >
+                            Log in to create a shipment
+                          </button>
+                        ))}
+                      {parsed.cta === "contact_us" && (
+                        <div className="flex gap-2">
+                          <a
+                            href="https://api.whatsapp.com/send?phone=917045999553"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-sm font-medium text-white"
+                            style={{ background: "#25D366" }}
+                          >
+                            WhatsApp Us
+                          </a>
+                          <a
+                            href="tel:+912266400000"
+                            className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-sm font-medium border border-amber-400/40 text-amber-100/90 bg-amber-500/10"
+                          >
+                            <Phone className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                            Call Us
+                          </a>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {loading && (
                 <div className="flex justify-start animate-bia-message-in">
                   <div
