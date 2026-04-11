@@ -88,7 +88,7 @@ export default function Notifications() {
   };
 
   return (
-    <div className="min-h-screen bg-background" data-testid="screen-notifications">
+    <div className="min-h-[100dvh] bg-background" data-testid="screen-notifications">
       <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-border shadow-sm safe-top">
         <div className="flex items-center h-14 px-4 max-w-md mx-auto">
           <button

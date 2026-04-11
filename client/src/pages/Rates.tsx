@@ -303,7 +303,7 @@ export default function Rates() {
 
     return (
       <div
-        className="min-h-screen pb-20 bg-[var(--color-background-secondary)]"
+        className="min-h-[100dvh] pb-nav bg-[var(--color-background-secondary)]"
         style={ratesResultsShellStyle}
         data-testid="screen-rates-results"
       >
@@ -542,7 +542,7 @@ export default function Rates() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-20" data-testid="screen-rates">
+    <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-rates">
       <Header onMenuClick={() => setMenuOpen(true)} />
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 

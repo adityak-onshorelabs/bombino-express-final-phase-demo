@@ -464,7 +464,7 @@ export default function CreateShipment() {
 
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen bg-background pb-20" data-testid="screen-create-login-required">
+      <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create-login-required">
         <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
           <div className="flex items-center h-14 px-4 max-w-md mx-auto">
             <button
@@ -514,7 +514,7 @@ export default function CreateShipment() {
     };
 
     return (
-      <div className="min-h-screen bg-background pb-20" data-testid="screen-create-success">
+      <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create-success">
         <main className="px-4 py-12 max-w-md mx-auto text-center">
           <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-5 animate-scale-in">
             <Check className="w-10 h-10 text-[#D32F2F]" strokeWidth={2.5} />
@@ -762,7 +762,7 @@ export default function CreateShipment() {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20" data-testid="screen-create">
+    <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create">
       <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
         <div className="flex items-center h-14 px-4 max-w-md mx-auto">
           <button

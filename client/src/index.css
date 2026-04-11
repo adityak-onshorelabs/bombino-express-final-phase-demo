@@ -56,6 +56,8 @@
   --input: 230 220 218;
   --ring: 198 40 40;
   --radius: 0.75rem;
+  /* BottomNav: h-16 row + safe-area inset (see .pb-nav, ShipmentDetails strip offset). */
+  --nav-stack: calc(4rem + env(safe-area-inset-bottom, 0px));
 }
 
 @theme inline {
@@ -100,11 +102,20 @@ body {
 }
 
 .safe-top {
-  padding-top: env(safe-area-inset-top);
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 .safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.pb-nav {
+  padding-bottom: var(--nav-stack);
+}
+
+/* ShipmentDetails: scroll clearance above BottomNav + fixed WhatsApp/Call strip (keep in sync with strip layout). */
+.pb-nav-strip {
+  padding-bottom: calc(var(--nav-stack) + 5rem);
 }
 
 @keyframes fade-in {

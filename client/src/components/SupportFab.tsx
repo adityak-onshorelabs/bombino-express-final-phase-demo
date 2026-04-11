@@ -4,7 +4,8 @@ import { Link } from "wouter";
 import { Sparkles } from "lucide-react";
 
 const FAB_SIZE = 64;
-const DEFAULT_BOTTOM_PX = 48; // FAB bottom edge from viewport bottom (matches calc(4rem - 16px))
+/** FAB bottom offset from viewport bottom — ~BottomNav row (4rem) + typical home-indicator inset. */
+const DEFAULT_BOTTOM_PX = 88;
 const DRAG_THRESHOLD_PX = 10;
 const MARGIN_EDGE = 8;
 

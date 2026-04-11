@@ -43,7 +43,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-background safe-top safe-bottom" data-testid="screen-login">
+    <div className="min-h-[100dvh] bg-background safe-top safe-bottom" data-testid="screen-login">
       <header className="sticky top-0 z-50 bg-white border-b border-border">
         <div className="flex items-center h-14 px-4">
           <button

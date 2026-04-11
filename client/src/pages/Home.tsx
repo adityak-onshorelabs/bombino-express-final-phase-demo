@@ -155,7 +155,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20" data-testid="screen-home">
+    <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-home">
       <Header onMenuClick={() => setMenuOpen(true)} />
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 

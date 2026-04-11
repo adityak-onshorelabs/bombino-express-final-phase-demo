@@ -49,7 +49,7 @@ export default function Profile() {
 
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen bg-background pb-20" data-testid="screen-profile-login-required">
+      <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-profile-login-required">
         <header className="sticky top-0 z-50 bg-white border-b border-border safe-top">
           <div className="flex items-center h-14 px-4 max-w-md mx-auto">
             <button
@@ -106,7 +106,7 @@ export default function Profile() {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20" data-testid="screen-profile">
+    <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-profile">
       <header className="sticky top-0 z-50 bg-white border-b border-border safe-top">
         <div className="flex items-center h-14 px-4 max-w-md mx-auto">
           <button
@@ -136,36 +136,36 @@ export default function Profile() {
             <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
               <Mail className="w-4 h-4 text-muted-foreground" />
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-[10px] text-muted-foreground">Email</p>
-              <p className="font-medium text-sm">{displayEmail}</p>
+              <p className="font-medium text-sm truncate">{displayEmail}</p>
             </div>
           </div>
           <div className="flex items-center gap-3 p-4">
             <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
               <Phone className="w-4 h-4 text-muted-foreground" />
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-[10px] text-muted-foreground">Phone</p>
-              <p className="font-medium text-sm">{displayPhone}</p>
+              <p className="font-medium text-sm truncate">{displayPhone}</p>
             </div>
           </div>
           <div className="flex items-center gap-3 p-4">
             <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
               <UserCircle className="w-4 h-4 text-muted-foreground" />
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-[10px] text-muted-foreground">Username</p>
-              <p className="font-medium text-sm">{displayUsername}</p>
+              <p className="font-medium text-sm truncate">{displayUsername}</p>
             </div>
           </div>
           <div className="flex items-center gap-3 p-4">
             <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
               <Shield className="w-4 h-4 text-muted-foreground" />
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-[10px] text-muted-foreground">Role</p>
-              <p className="font-medium text-sm">{displayRole}</p>
+              <p className="font-medium text-sm truncate">{displayRole}</p>
             </div>
           </div>
           {memberSince ? (
@@ -173,9 +173,9 @@ export default function Profile() {
               <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
                 <Calendar className="w-4 h-4 text-muted-foreground" />
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <p className="text-[10px] text-muted-foreground">Member since</p>
-                <p className="font-medium text-sm">{memberSince}</p>
+                <p className="font-medium text-sm truncate">{memberSince}</p>
               </div>
             </div>
           ) : null}

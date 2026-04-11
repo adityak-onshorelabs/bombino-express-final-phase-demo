@@ -69,7 +69,7 @@ export default function Onboarding() {
         </button>
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center px-8">
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center justify-center px-8">
         <div
           className={cn(
             'w-32 h-32 rounded-full flex items-center justify-center mb-8 bg-gradient-to-br transition-all duration-200',

@@ -83,7 +83,7 @@ export default function Orders() {
   };
 
   return (
-    <div className="min-h-screen bg-background pb-20" data-testid="screen-orders">
+    <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-orders">
       <Header onMenuClick={() => setMenuOpen(true)} />
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 

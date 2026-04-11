@@ -20,7 +20,7 @@ export default function Splash() {
   }, [hasSeenOnboarding, setLocation]);
 
   return (
-    <div className="fixed inset-0 bg-white flex flex-col items-center justify-center" data-testid="screen-splash">
+    <div className="fixed inset-0 bg-white flex flex-col items-center justify-center safe-top safe-bottom" data-testid="screen-splash">
       <div className="animate-scale-in flex flex-col items-center">
         <img 
           src={bombinoLogo} 
@@ -29,7 +29,10 @@ export default function Splash() {
           data-testid="img-splash-logo"
         />
       </div>
-      <div className="absolute bottom-12 flex flex-col items-center animate-fade-in" style={{ animationDelay: '400ms' }}>
+      <div
+        className="absolute flex flex-col items-center animate-fade-in"
+        style={{ animationDelay: '400ms', bottom: 'calc(3rem + env(safe-area-inset-bottom, 0px))' }}
+      >
         <div className="flex gap-1">
           <span className="w-2 h-2 rounded-full bg-primary animate-pulse" style={{ animationDelay: '0ms' }} />
           <span className="w-2 h-2 rounded-full bg-primary/60 animate-pulse" style={{ animationDelay: '150ms' }} />

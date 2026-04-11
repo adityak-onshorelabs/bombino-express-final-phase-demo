@@ -159,7 +159,7 @@ export default function ShipmentDetails() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background pb-20" data-testid="screen-shipment-loading">
+      <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-shipment-loading">
         <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
           <div className="flex items-center h-14 px-4 max-w-md mx-auto">
             <button
@@ -183,7 +183,7 @@ export default function ShipmentDetails() {
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-background pb-20" data-testid="screen-shipment-not-found">
+      <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-shipment-not-found">
         <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
           <div className="flex items-center h-14 px-4 max-w-md mx-auto">
             <button
@@ -215,7 +215,7 @@ export default function ShipmentDetails() {
   if (data.fromCache) {
     const rawState = data.currentStatus;
     return (
-      <div className="min-h-screen bg-background pb-44" data-testid="screen-shipment-cached">
+      <div className="min-h-[100dvh] bg-background pb-nav-strip" data-testid="screen-shipment-cached">
         <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
           <div className="flex items-center h-14 px-4 max-w-md mx-auto">
             <button
@@ -284,7 +284,7 @@ export default function ShipmentDetails() {
           </div>
         </main>
 
-        <div className="fixed bottom-16 left-0 right-0 z-40 bg-white border-t border-border p-4 safe-bottom">
+        <div className="fixed left-0 right-0 z-40 bg-white border-t border-border p-4 safe-bottom bottom-[var(--nav-stack)]">
           <div className="flex justify-end gap-2 max-w-md mx-auto">
             <a
               href="https://api.whatsapp.com/send?phone=917045999553"
@@ -312,7 +312,7 @@ export default function ShipmentDetails() {
   const trackingData = data.results[0];
   if (!trackingData || data.results.length === 0 || trackingData.errors) {
     return (
-      <div className="min-h-screen bg-background pb-20" data-testid="screen-shipment-not-found">
+      <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-shipment-not-found">
         <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
           <div className="flex items-center h-14 px-4 max-w-md mx-auto">
             <button
@@ -385,7 +385,7 @@ export default function ShipmentDetails() {
   ].filter((field) => field.value);
 
   return (
-    <div className="min-h-screen bg-background pb-44" data-testid="screen-shipment-details">
+    <div className="min-h-[100dvh] bg-background pb-nav-strip" data-testid="screen-shipment-details">
       <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
         <div className="flex items-center h-14 px-4 max-w-md mx-auto">
           <button
@@ -530,7 +530,7 @@ export default function ShipmentDetails() {
         </div>
       </main>
 
-      <div className="fixed bottom-16 left-0 right-0 z-40 bg-white border-t border-border p-4 safe-bottom">
+      <div className="fixed left-0 right-0 z-40 bg-white border-t border-border p-4 safe-bottom bottom-[var(--nav-stack)]">
         <div className="flex justify-end gap-2 max-w-md mx-auto">
           <a
             href="https://api.whatsapp.com/send?phone=917045999553"
@@ -552,7 +552,7 @@ export default function ShipmentDetails() {
       </div>
       <button
         type="button"
-        className="fixed right-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-40 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-[0_8px_24px_rgba(0,0,0,0.2)]"
+        className="fixed right-4 bottom-[calc(var(--nav-stack)+5.5rem)] z-40 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-[0_8px_24px_rgba(0,0,0,0.2)]"
         onClick={() => alert('Label download not available')}
         data-testid="button-download-label"
       >
