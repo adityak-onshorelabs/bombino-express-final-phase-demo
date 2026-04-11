@@ -4,10 +4,27 @@ import { Link } from "wouter";
 import { Sparkles } from "lucide-react";
 
 const FAB_SIZE = 64;
-/** FAB bottom offset from viewport bottom — ~BottomNav row (4rem) + typical home-indicator inset. */
-const DEFAULT_BOTTOM_PX = 88;
+/** BottomNav tap row (matches `h-16` / 4rem). */
+const NAV_BAR_HEIGHT_PX = 64;
+/** `right: 1rem` — margin from viewport right edge. */
+const FAB_MARGIN_FROM_RIGHT_PX = 16;
+/** Gap between FAB bottom and top of nav stack (1rem above nav bar). */
+const FAB_GAP_ABOVE_NAV_STACK_PX = 16;
 const DRAG_THRESHOLD_PX = 10;
 const MARGIN_EDGE = 8;
+
+function getSafeAreaInsetBottomPx(): number {
+  if (typeof document === "undefined") return 0;
+  const probe = document.createElement("div");
+  probe.setAttribute(
+    "style",
+    "position:fixed;bottom:0;left:0;width:0;height:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none"
+  );
+  document.documentElement.appendChild(probe);
+  const h = probe.offsetHeight;
+  document.documentElement.removeChild(probe);
+  return h;
+}
 
 // Session-only in-memory store: survives route changes, cleared on full page refresh
 // Stored as top-left (left, top) in viewport px so dragged mode uses one coordinate system
@@ -21,9 +38,12 @@ function setStoredFabPosition(pos: { left: number; top: number } | null): void {
 
 function getDefaultTopLeft(): { left: number; top: number } {
   if (typeof window === "undefined") return { left: 0, top: 0 };
+  const safeBottom = getSafeAreaInsetBottomPx();
+  const bottomOffsetPx =
+    NAV_BAR_HEIGHT_PX + safeBottom + FAB_GAP_ABOVE_NAV_STACK_PX;
   return {
-    left: window.innerWidth / 2 - FAB_SIZE / 2,
-    top: window.innerHeight - DEFAULT_BOTTOM_PX - FAB_SIZE,
+    left: window.innerWidth - FAB_SIZE - FAB_MARGIN_FROM_RIGHT_PX,
+    top: window.innerHeight - bottomOffsetPx - FAB_SIZE,
   };
 }
 
@@ -140,7 +160,12 @@ export function SupportFab() {
         transform: "none",
         touchAction: "none",
       }
-    : { bottom: `${DEFAULT_BOTTOM_PX}px`, touchAction: "none" };
+    : {
+        left: "auto",
+        right: "1rem",
+        bottom: "calc(4rem + env(safe-area-inset-bottom, 0px) + 1rem)",
+        touchAction: "none",
+      };
 
   const fabContent = (
     <div

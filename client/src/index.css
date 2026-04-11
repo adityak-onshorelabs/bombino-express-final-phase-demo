@@ -208,10 +208,10 @@ body {
 @keyframes fab-float {
   0%,
   100% {
-    transform: translate(-50%, 0);
+    transform: translateY(0);
   }
   50% {
-    transform: translate(-50%, -3px);
+    transform: translateY(-3px);
   }
 }
 
@@ -277,7 +277,8 @@ body {
 /* FAB wrapper: position + float animation. touch-action: none so drag is not consumed as scroll. */
 .fab-wrapper {
   position: fixed;
-  left: 50%;
+  left: auto;
+  right: 1rem;
   z-index: 51;
   width: 4rem;
   height: 4rem;
