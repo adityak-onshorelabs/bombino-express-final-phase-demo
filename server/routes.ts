@@ -30,6 +30,7 @@ import { z } from "zod";
 import { itdClient } from "./itd";
 import type { CreateShipmentPayload, RateParams } from "./itd";
 import { handleChat } from "./supportAgent";
+import { supportChatRateLimit } from "./supportRateLimit.js";
 import type { ChatMessage } from "./supportTypes";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import {
@@ -417,7 +418,11 @@ export async function registerRoutes(
   // ── Support: AI chat ──────────────────────────────────────────────────────
 
   // POST /api/support/chat — guest and logged-in; validates body and returns { message }
-  app.post("/api/support/chat", ensureDbUser, async (req: Request, res: Response) => {
+  app.post(
+    "/api/support/chat",
+    ensureDbUser,
+    supportChatRateLimit,
+    async (req: Request, res: Response) => {
     // #region agent log
     try {
       const debugLogPath = path.join(process.cwd(), ".cursor", "debug-643d35.log");

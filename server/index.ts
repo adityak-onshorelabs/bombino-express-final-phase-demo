@@ -55,16 +55,11 @@ function debugLog(payload: Record<string, unknown>) {
 // #endregion
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
-import { createClient } from "redis";
 import { RedisStore } from "connect-redis";
+import redisClient from "./redisClient.js";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-
-const redisClient = createClient({
-  url: process.env.REDIS_URL || "redis://localhost:6379",
-});
-redisClient.connect().catch(console.error);
 
 const app = express();
 app.set('trust proxy', 1);
