@@ -212,7 +212,7 @@ export default function Support() {
 
   return (
     <div
-      className="flex flex-col min-h-screen safe-top safe-bottom relative overflow-hidden"
+      className="flex h-[100dvh] flex-col overflow-hidden safe-top safe-bottom relative"
       data-testid="screen-support"
     >
       <style>{`
@@ -228,7 +228,7 @@ export default function Support() {
       <BiaBackground />
 
       {/* Minimal top: back + BIA + tagline */}
-      <div className="shrink-0 px-4 pt-4 pb-2 max-w-md mx-auto w-full">
+      <div className="flex-shrink-0 px-4 pt-4 pb-2 max-w-md mx-auto w-full">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -274,7 +274,7 @@ export default function Support() {
       {/* Scrollable content: empty state or messages — transparent so dark AI background stays visible */}
       <div
         ref={scrollRef}
-        className="flex-1 min-h-0 overflow-y-auto px-4 max-w-md mx-auto w-full bg-transparent"
+        className="min-h-0 flex-1 overflow-y-auto px-4 max-w-md mx-auto w-full bg-transparent"
       >
         <div className="py-4 pb-40 bg-transparent">
           {isEmpty ? (
@@ -479,7 +479,7 @@ export default function Support() {
       )}
 
       {/* Floating input dock + disclaimer */}
-      <div className="shrink-0 px-4 pb-20 pt-4 max-w-md mx-auto w-full">
+      <div className="flex-shrink-0 px-4 pb-20 pt-4 max-w-md mx-auto w-full">
         <div
           className={cn(
             "rounded-2xl p-2 flex gap-2 items-end",
