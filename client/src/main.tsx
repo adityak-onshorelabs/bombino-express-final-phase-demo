@@ -14,4 +14,31 @@ if (window.visualViewport) {
 window.addEventListener("resize", setVh);
 setVh();
 
+let focusScrollTimeout: ReturnType<typeof setTimeout> | null = null;
+
+document.addEventListener("focusin", (e) => {
+  const target = e.target;
+  if (!(target instanceof HTMLElement)) return;
+
+  const tag = target.tagName;
+  const isInput =
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    target.isContentEditable;
+
+  if (!isInput) return;
+
+  if (focusScrollTimeout !== null) {
+    clearTimeout(focusScrollTimeout);
+  }
+
+  focusScrollTimeout = setTimeout(() => {
+    focusScrollTimeout = null;
+    target.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, 400);
+});
+
 createRoot(document.getElementById("root")!).render(<App />);
