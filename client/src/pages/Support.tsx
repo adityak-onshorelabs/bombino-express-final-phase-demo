@@ -64,6 +64,7 @@ export default function Support() {
   };
 
   useEffect(() => {
+    if (messages.length === 0) return;
     scrollToBottom();
   }, [messages, loading]);
 
@@ -479,7 +480,7 @@ export default function Support() {
       )}
 
       {/* Floating input dock + disclaimer */}
-      <div className="flex-shrink-0 px-4 pb-20 pt-4 max-w-md mx-auto w-full">
+      <div className="flex-shrink-0 px-4 pb-4 pt-4 max-w-md mx-auto w-full">
         <div
           className={cn(
             "rounded-2xl p-2 flex gap-2 items-end",
