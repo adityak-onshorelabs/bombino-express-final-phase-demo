@@ -213,7 +213,7 @@ export default function Support() {
 
   return (
     <div
-      className="flex h-[100dvh] flex-col overflow-hidden safe-top safe-bottom relative"
+      className="flex h-viewport flex-col overflow-hidden safe-top safe-bottom relative"
       data-testid="screen-support"
     >
       <style>{`

@@ -109,6 +109,10 @@ body {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+.h-viewport {
+  height: var(--vh, 100dvh);
+}
+
 .pb-nav {
   padding-bottom: var(--nav-stack);
 }
