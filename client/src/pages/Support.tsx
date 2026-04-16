@@ -254,7 +254,7 @@ export default function Support() {
               size="sm"
               onClick={() => void handleNewChat()}
               disabled={loading}
-              className="shrink-0 h-8 px-2 text-xs text-white/70 hover:text-white hover:bg-white/10 border border-white/10"
+              className="shrink-0 h-8 px-2 text-xs text-[#FBAD1F]/80 hover:text-white hover:bg-white/10 border border-[#FBAD1F]/30"
               aria-label="New chat"
             >
               <Plus className="w-3.5 h-3.5 mr-1" aria-hidden />
@@ -301,7 +301,7 @@ export default function Support() {
                     type="button"
                     disabled={loading}
                     onClick={() => sendUserText(s)}
-                    className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 bg-white/[0.04] hover:bg-white/[0.08] transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                    className="rounded-full border border-[#FBAD1F]/30 px-4 py-2 text-sm text-white/70 bg-white/[0.04] hover:bg-white/[0.08] transition-colors disabled:opacity-50 disabled:pointer-events-none"
                   >
                     {s}
                   </button>
@@ -344,8 +344,8 @@ export default function Support() {
                       <div
                         className="max-w-[85%] rounded-2xl px-4 py-3 text-sm rounded-br-md"
                         style={{
-                          background: "rgba(20,86,124,0.18)",
-                          border: "1px solid rgba(20,86,124,0.35)",
+                          background: "rgba(251,173,31,0.15)",
+                          border: "1px solid rgba(251,173,31,0.4)",
                         }}
                       >
                         <p className="whitespace-pre-wrap break-words text-white/95">
@@ -509,8 +509,8 @@ export default function Support() {
             disabled={!input.trim() || loading}
             className={cn(
               "shrink-0 h-10 w-10 rounded-full text-white border-0 transition-all duration-200",
-              "bg-[#14567C] hover:bg-[#0F3F5C] active:scale-95",
-              "shadow-[0_0_20px_rgba(20,86,124,0.35),inset_0_0_0_1px_rgba(255,255,255,.08)]"
+              "bg-[#FBAD1F] hover:bg-[#ECB954] active:scale-95",
+              "shadow-[0_0_20px_rgba(251,173,31,0.35),inset_0_0_0_1px_rgba(255,255,255,.08)]"
             )}
             aria-label="Send"
           >

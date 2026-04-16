@@ -284,7 +284,7 @@ export default function Home() {
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-medium text-foreground">My Shipments</h2>
-              <Link href="/orders" className="text-xs text-primary font-medium flex items-center gap-0.5 hover:underline">
+              <Link href="/orders" className="text-xs text-[#FBAD1F] font-medium flex items-center gap-0.5 hover:underline">
                 View all <ChevronRight className="w-3 h-3" />
               </Link>
             </div>
@@ -347,7 +347,7 @@ export default function Home() {
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-medium text-foreground">Recent Updates</h2>
-              <Link href="/notifications" className="text-xs text-primary font-medium flex items-center gap-0.5 hover:underline">
+              <Link href="/notifications" className="text-xs text-[#FBAD1F] font-medium flex items-center gap-0.5 hover:underline">
                 View all <ChevronRight className="w-3 h-3" />
               </Link>
             </div>
