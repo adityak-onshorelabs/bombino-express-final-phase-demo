@@ -8,13 +8,13 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { BiaBackground } from "@/components/ui/bia-background";
+import { BiaOrb } from "@/components/ui/bia-orb";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { parseAssistantMessage } from "@/lib/supportMessage";
 import { useAppStore } from "@/lib/store";
-import biaOrbGif from "@/assets/bia-orb.gif";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -282,11 +282,9 @@ export default function Support() {
             <>
               {/* AI empty-state centerpiece */}
               <div className="flex flex-col items-center justify-center min-h-[40vh] text-center">
-                <img
-                  src={biaOrbGif}
-                  alt="BIA"
-                  className="w-[160px] h-auto object-contain mb-6"
-                />
+                <div className="w-[200px] h-[200px] mb-2">
+                  <BiaOrb />
+                </div>
                 <h2 className="text-xl font-semibold text-white mb-3">
                   Ask BIA
                 </h2>
