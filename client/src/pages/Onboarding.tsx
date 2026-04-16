@@ -4,7 +4,7 @@ import { ChevronRight, MapPin, Package, Headphones } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import bombinoLogo from '@assets/image_1768167970562.png';
+import bombinoLogo from '@/assets/bombino-logo.png';
 
 const slides = [
   {

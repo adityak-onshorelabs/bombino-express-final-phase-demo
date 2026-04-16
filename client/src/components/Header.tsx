@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Menu, Bell } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
-import bombinoLogo from '@/assets/image_1768167970562.png';
+import bombinoLogo from '@/assets/bombino-logo.png';
 
 interface HeaderProps {
   onMenuClick?: () => void;

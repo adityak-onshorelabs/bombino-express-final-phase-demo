@@ -13,7 +13,7 @@ import {
 import { useLocation } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
-import bombinoLogo from '@/assets/image_1768167970562.png';
+import bombinoLogo from '@/assets/bombino-logo.png';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { BottomNav } from '@/components/BottomNav';
 

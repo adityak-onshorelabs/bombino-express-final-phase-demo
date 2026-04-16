@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useAppStore } from '@/lib/store';
-import bombinoLogo from '@assets/image_1768167970562.png';
+import bombinoLogo from '@/assets/bombino-logo.png';
 
 export default function Splash() {
   const [, setLocation] = useLocation();

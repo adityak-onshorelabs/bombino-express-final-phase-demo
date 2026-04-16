@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAppStore, type AuthUser } from '@/lib/store';
 import { apiRequest } from '@/lib/queryClient';
-import bombinoLogo from '@/assets/image_1768167970562.png';
+import bombinoLogo from '@/assets/bombino-logo.png';
 
 export default function Login() {
   const [, setLocation] = useLocation();

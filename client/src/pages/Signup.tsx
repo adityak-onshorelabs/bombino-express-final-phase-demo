@@ -1,6 +1,6 @@
 import { ArrowLeft, Mail, MessageCircle } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
-import bombinoLogo from '@/assets/image_1768167970562.png';
+import bombinoLogo from '@/assets/bombino-logo.png';
 
 export default function Signup() {
   const [, setLocation] = useLocation();
