@@ -2,7 +2,7 @@ import { X, User, LogOut, LogIn, HelpCircle, Phone } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { apiRequest } from '@/lib/queryClient';
-import bombinoLogo from '@/assets/image_1768167970562.png';
+import bombinoLogo from '@/assets/bombino-logo.png';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 
 interface SideMenuProps {
