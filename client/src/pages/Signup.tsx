@@ -25,7 +25,7 @@ export default function Signup() {
           <img
             src={bombinoLogo}
             alt="Bombino Express"
-            className="h-24 w-auto mb-6 max-w-[200px] object-contain"
+            className="h-auto w-[200px] mb-6 object-contain"
           />
           <h2 className="text-xl font-semibold text-foreground text-center">
             Get Started with Bombino Express

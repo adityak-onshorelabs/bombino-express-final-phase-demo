@@ -59,7 +59,7 @@ export default function Onboarding() {
   return (
     <div className="fixed inset-0 bg-white flex flex-col safe-top safe-bottom" data-testid="screen-onboarding">
       <div className="flex items-center justify-between p-4">
-        <img src={bombinoLogo} alt="Bombino Express" className="h-10 w-auto" />
+        <img src={bombinoLogo} alt="Bombino Express" className="h-auto w-[140px] object-contain" />
         <button
           onClick={handleSkip}
           className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-lg hover:bg-muted active:scale-95"

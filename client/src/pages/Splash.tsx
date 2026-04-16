@@ -25,7 +25,7 @@ export default function Splash() {
         <img 
           src={bombinoLogo} 
           alt="Bombino Express - Bringing the world closer" 
-          className="w-64 h-auto object-contain"
+          className="w-[280px] h-auto object-contain"
           data-testid="img-splash-logo"
         />
       </div>

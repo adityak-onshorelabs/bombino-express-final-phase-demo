@@ -54,7 +54,7 @@ export function Header({ onMenuClick }: HeaderProps) {
           <img
             src={bombinoLogo}
             alt="Bombino Express"
-            className="h-8 w-auto max-h-8 object-contain object-center"
+            className="h-8 w-auto max-w-[160px] object-contain object-center"
             data-testid="img-logo"
           />
         </Link>

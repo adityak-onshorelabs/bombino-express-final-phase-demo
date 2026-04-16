@@ -59,7 +59,7 @@ export default function Login() {
 
       <main className="px-6 py-8">
         <div className="flex flex-col items-center mb-12">
-          <img src={bombinoLogo} alt="Bombino Express" className="h-24 w-auto mb-6 max-w-[200px] object-contain" />
+          <img src={bombinoLogo} alt="Bombino Express" className="h-auto w-[200px] mb-6 object-contain" />
           <h2 className="text-xl font-semibold text-foreground">Sign In</h2>
           <p className="text-sm text-muted-foreground mt-1">Bringing the world closer</p>
         </div>
