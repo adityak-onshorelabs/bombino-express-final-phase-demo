@@ -139,7 +139,7 @@ interface ITDRateResponse {
   data?: ITDRateRow[];
 }
 
-const BOMBINO_RED = '#b91c1c';
+const BOMBINO_BLUE = '#14567C';
 const BEST_GREEN = '#166534';
 const BEST_BADGE_BG = '#dcfce7';
 
@@ -291,7 +291,7 @@ export default function CreateShipment() {
       spread: 70,
       origin: { x: 0.5, y: 0.5 },
       startVelocity: 40,
-      colors: ['#D32F2F', '#ffffff'],
+      colors: ['#14567C', '#ffffff'],
     });
   }, [newAWB]);
 
@@ -517,7 +517,7 @@ export default function CreateShipment() {
       <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create-success">
         <main className="px-4 py-12 max-w-md mx-auto text-center">
           <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-5 animate-scale-in">
-            <Check className="w-10 h-10 text-[#D32F2F]" strokeWidth={2.5} />
+            <Check className="w-10 h-10 text-[#14567C]" strokeWidth={2.5} />
           </div>
           <h2 className="text-2xl font-bold text-foreground mb-2">Shipment Booked!</h2>
           <p className="text-sm text-muted-foreground mb-6">
@@ -1483,7 +1483,7 @@ export default function CreateShipment() {
                             <div className="flex items-center gap-3 px-4 pt-[14px] pb-3">
                               <div
                                 className="w-[34px] h-[34px] shrink-0 rounded-[10px] flex items-center justify-center text-[13px] font-medium text-white"
-                                style={{ backgroundColor: isBest ? BEST_GREEN : BOMBINO_RED }}
+                                style={{ backgroundColor: isBest ? BEST_GREEN : BOMBINO_BLUE }}
                               >
                                 {letter}
                               </div>
@@ -1508,7 +1508,7 @@ export default function CreateShipment() {
                               <div className="shrink-0 text-right pr-6">
                                 <p
                                   className="text-[20px] font-medium tabular-nums"
-                                  style={{ color: BOMBINO_RED }}
+                                  style={{ color: BOMBINO_BLUE }}
                                 >
                                   {formatInr(service.total)}
                                 </p>
@@ -1602,7 +1602,7 @@ export default function CreateShipment() {
                                   <span className="text-[11px] text-muted-foreground">Total payable</span>
                                   <span
                                     className="text-[13px] font-medium tabular-nums"
-                                    style={{ color: BOMBINO_RED }}
+                                    style={{ color: BOMBINO_BLUE }}
                                   >
                                     {formatInr(service.total)}
                                   </span>

@@ -64,7 +64,7 @@ function formatInr(n: number): string {
   return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
-const BOMBINO_RED = '#b91c1c';
+const BOMBINO_BLUE = '#14567C';
 const BEST_GREEN = '#166534';
 const BEST_BADGE_BG = '#dcfce7';
 
@@ -399,7 +399,7 @@ export default function Rates() {
                   <div className="flex items-center gap-3 px-4 pt-[14px] pb-3">
                     <div
                       className="w-[34px] h-[34px] shrink-0 rounded-[10px] flex items-center justify-center text-[13px] font-medium text-white"
-                      style={{ backgroundColor: isBest ? BEST_GREEN : BOMBINO_RED }}
+                      style={{ backgroundColor: isBest ? BEST_GREEN : BOMBINO_BLUE }}
                     >
                       {letter}
                     </div>
@@ -420,7 +420,7 @@ export default function Rates() {
                       </div>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="text-[20px] font-medium tabular-nums" style={{ color: BOMBINO_RED }}>
+                      <p className="text-[20px] font-medium tabular-nums" style={{ color: BOMBINO_BLUE }}>
                         {formatInr(service.total)}
                       </p>
                       <p className="text-[10px] text-muted-foreground">incl. GST</p>
@@ -502,7 +502,7 @@ export default function Rates() {
                         <span className="text-[11px] text-muted-foreground">Total payable</span>
                         <span
                           className="text-[13px] font-medium tabular-nums"
-                          style={{ color: BOMBINO_RED }}
+                          style={{ color: BOMBINO_BLUE }}
                         >
                           {formatInr(service.total)}
                         </span>
@@ -512,7 +512,7 @@ export default function Rates() {
                         <button
                           type="button"
                           className="mt-[10px] w-full h-10 rounded-[10px] text-[13px] font-medium text-white transition-opacity hover:opacity-95 active:opacity-90"
-                          style={{ backgroundColor: BOMBINO_RED }}
+                          style={{ backgroundColor: BOMBINO_BLUE }}
                           onClick={() => handleBookRate(service)}
                         >
                           Book this rate

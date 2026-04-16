@@ -311,8 +311,8 @@ export default function Support() {
                 <div
                   className="mx-4 mb-4 rounded-xl p-3 flex items-center justify-between gap-3"
                   style={{
-                    background: "rgba(198,40,40,0.08)",
-                    border: "1px solid rgba(198,40,40,0.2)",
+                    background: "rgba(20,86,124,0.08)",
+                    border: "1px solid rgba(20,86,124,0.2)",
                   }}
                 >
                   <p className="text-xs text-white/60">
@@ -321,7 +321,7 @@ export default function Support() {
                   <button
                     type="button"
                     onClick={() => setLocation("/login")}
-                    className="text-xs font-medium shrink-0 text-[#EF5350]"
+                    className="text-xs font-medium shrink-0 text-[#FBAD1F]"
                   >
                     Log in →
                   </button>
@@ -344,8 +344,8 @@ export default function Support() {
                       <div
                         className="max-w-[85%] rounded-2xl px-4 py-3 text-sm rounded-br-md"
                         style={{
-                          background: "rgba(255,60,45,0.18)",
-                          border: "1px solid rgba(255,60,45,0.35)",
+                          background: "rgba(20,86,124,0.18)",
+                          border: "1px solid rgba(20,86,124,0.35)",
                         }}
                       >
                         <p className="whitespace-pre-wrap break-words text-white/95">
@@ -383,7 +383,7 @@ export default function Support() {
                             type="button"
                             onClick={() => setLocation("/create")}
                             className="w-full rounded-xl py-3 px-4 text-sm font-semibold text-white flex items-center justify-center gap-2"
-                            style={{ background: "#C62828" }}
+                            style={{ background: "#14567C" }}
                           >
                             🚀 Create Shipment Now
                           </button>
@@ -509,8 +509,8 @@ export default function Support() {
             disabled={!input.trim() || loading}
             className={cn(
               "shrink-0 h-10 w-10 rounded-full text-white border-0 transition-all duration-200",
-              "bg-[#D32F2F] hover:bg-[#C62828] active:scale-95",
-              "shadow-[0_0_20px_rgba(211,47,47,.35),inset_0_0_0_1px_rgba(255,255,255,.08)]"
+              "bg-[#14567C] hover:bg-[#0F3F5C] active:scale-95",
+              "shadow-[0_0_20px_rgba(20,86,124,0.35),inset_0_0_0_1px_rgba(255,255,255,.08)]"
             )}
             aria-label="Send"
           >
