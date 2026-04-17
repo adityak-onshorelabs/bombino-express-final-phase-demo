@@ -74,6 +74,13 @@ export default function Signup() {
             Sign in
           </Link>
         </p>
+
+        <p className="text-center text-xs text-muted-foreground mt-4">
+          By continuing you agree to our{' '}
+          <a href="/privacy" className="text-primary underline hover:text-primary/80">
+            Privacy Policy
+          </a>
+        </p>
       </main>
     </div>
   );

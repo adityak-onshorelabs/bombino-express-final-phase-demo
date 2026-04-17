@@ -16,6 +16,7 @@ import Orders from "@/pages/Orders";
 import Notifications from "@/pages/Notifications";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
+import Privacy from "@/pages/Privacy";
 import Profile from "@/pages/Profile";
 import Support from "@/pages/Support";
 import NotFound from "@/pages/not-found";
@@ -35,6 +36,7 @@ function Router() {
       <Route path="/notifications" component={Notifications} />
       <Route path="/login" component={Login} />
       <Route path="/signup" component={Signup} />
+      <Route path="/privacy" component={Privacy} />
       <Route path="/profile" component={Profile} />
       <Route path="/help" component={Support} />
       <Route component={NotFound} />

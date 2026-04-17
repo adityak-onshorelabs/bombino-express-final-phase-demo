@@ -124,6 +124,13 @@ export default function Login() {
             )}
           </Button>
         </div>
+
+        <p className="text-center text-xs text-muted-foreground mt-6">
+          By signing in you agree to our{' '}
+          <a href="/privacy" className="text-primary underline hover:text-primary/80">
+            Privacy Policy
+          </a>
+        </p>
       </main>
     </div>
   );
