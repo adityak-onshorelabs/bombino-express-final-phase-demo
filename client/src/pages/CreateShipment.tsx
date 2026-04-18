@@ -24,6 +24,11 @@ import { CorridorRouteInfo } from '@/components/CorridorRouteInfo';
 import { AddressPicker, type SavedAddress } from '@/components/AddressPicker';
 import { KycUpload, type KycUploadResult } from '@/components/KycUpload';
 import { ShipmentContentSearch } from '@/components/ShipmentContentSearch';
+import {
+  DimensionPresetSheet,
+  DIMENSION_PRESETS,
+  type PresetId,
+} from '@/components/DimensionPresetSheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -258,6 +263,8 @@ export default function CreateShipment() {
   const [invoiceUnitRate, setInvoiceUnitRate] = useState('');
   const [productType, setProductType] = useState('');
   const [showProductTypeInfo, setShowProductTypeInfo] = useState(false);
+  const [showPresetSheet, setShowPresetSheet] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState<PresetId | null>(null);
 
   const [rateResults, setRateResults] = useState<ITDRateRow[] | null>(null);
   const [selectedService, setSelectedService] = useState<ITDRateRow | null>(null);
@@ -297,6 +304,16 @@ export default function CreateShipment() {
       colors: ['#14567C', '#ffffff'],
     });
   }, [newAWB]);
+
+  useEffect(() => {
+    if (!selectedPreset) return;
+    const preset = DIMENSION_PRESETS.find((p) => p.id === selectedPreset);
+    if (!preset) return;
+    const vals = dimUnit === 'cm' ? preset.cm : preset.in;
+    setDimL(vals.l);
+    setDimW(vals.w);
+    setDimH(vals.h);
+  }, [dimUnit, selectedPreset]);
 
   const createMutation = useMutation({
     mutationFn: (payload: CreateShipmentPayload) =>
@@ -1249,6 +1266,46 @@ export default function CreateShipment() {
                   </button>
                 </div>
               </div>
+              <div className="mt-3 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setShowPresetSheet(true)}
+                  className="w-full py-2 px-3 border border-dashed border-[#14567C] rounded-xl bg-blue-50/40 text-[#14567C] text-xs font-medium flex items-center justify-center gap-2 hover:bg-blue-50 transition-colors"
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden
+                  >
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                  </svg>
+                  Choose preset size
+                </button>
+                {selectedPreset && (
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <span className="flex items-center gap-1 bg-blue-50 border border-[#14567C]/20 rounded-full px-3 py-1 text-xs text-[#14567C] font-medium">
+                      {DIMENSION_PRESETS.find((p) => p.id === selectedPreset)?.label}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedPreset(null);
+                          setDimL('');
+                          setDimW('');
+                          setDimH('');
+                        }}
+                        className="ml-1 text-[#14567C]/60 hover:text-[#14567C]"
+                        aria-label="Clear preset"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  </div>
+                )}
+              </div>
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <Label className="text-xs text-muted-foreground">L</Label>
@@ -1791,6 +1848,22 @@ export default function CreateShipment() {
           </div>
         </div>
       )}
+
+      <DimensionPresetSheet
+        open={showPresetSheet}
+        onClose={() => setShowPresetSheet(false)}
+        selectedPreset={selectedPreset}
+        onSelectPreset={(id, l, w, h) => {
+          setSelectedPreset(id);
+          setDimL(l);
+          setDimW(w);
+          setDimH(h);
+          if (l) clearFieldError('dimL');
+          if (w) clearFieldError('dimW');
+          if (h) clearFieldError('dimH');
+        }}
+        dimUnit={dimUnit}
+      />
     </div>
   );
 }
