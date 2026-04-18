@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useLocation } from 'wouter';
-import { Package, Copy, Send, Search, ArrowRight } from 'lucide-react';
+import { Package, Copy, Send, Search, ArrowRight, Download } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
@@ -82,6 +82,24 @@ export default function Orders() {
     }
   };
 
+  const handleDownloadCSV = async () => {
+    try {
+      const res = await fetch('/api/shipments/download-csv', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'bombino-shipments-' + new Date().toISOString().split('T')[0] + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('CSV download failed:', err);
+    }
+  };
+
   return (
     <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-orders">
       <Header onMenuClick={() => setMenuOpen(true)} />
@@ -120,7 +138,19 @@ export default function Orders() {
           </div>
         </div>
 
-        <h1 className="text-lg font-semibold text-foreground mb-1">My Shipments</h1>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <h1 className="text-lg font-semibold text-foreground">My Shipments</h1>
+          {isLoggedIn ? (
+            <button
+              type="button"
+              onClick={handleDownloadCSV}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border rounded-lg px-3 py-1.5"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Export CSV
+            </button>
+          ) : null}
+        </div>
         <p className="text-sm text-muted-foreground mb-5">
           Track your outgoing and incoming shipments
         </p>

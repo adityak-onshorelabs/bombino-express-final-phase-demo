@@ -235,7 +235,7 @@ export async function listShipmentsByUserId(userId: string): Promise<any[] | nul
   const { data, error } = await client
     .from("shipments")
     .select(
-      "awb_number, consignee_name, consignee_city, consignee_country, service_name, total_amount, currency, current_status, booking_date, created_at"
+      "awb_number, consignee_name, consignee_city, consignee_country, service_name, total_amount, currency, current_status, booking_date, created_at, consignee_phone, origin_city, shipment_content, weight, dimensions, declared_value"
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });

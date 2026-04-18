@@ -243,6 +243,9 @@ export default function Support() {
             <h1 className="font-semibold text-lg text-white tracking-tight">
               BIA
             </h1>
+            <p className="text-[10px] text-white/40 tracking-wide uppercase mt-0.5">
+              Bombino Intelligence Assistant
+            </p>
             <p className="text-xs text-white/50">
               Tracking, rates, and shipping help
             </p>
@@ -285,9 +288,12 @@ export default function Support() {
                 <div className="w-[200px] h-[200px] mb-2">
                   <BiaOrb />
                 </div>
-                <h2 className="text-xl font-semibold text-white mb-3">
+                <h2 className="text-xl font-semibold text-white mb-1">
                   Ask BIA
                 </h2>
+                <p className="text-xs text-white/40 mb-3">
+                  Bombino Intelligence Assistant
+                </p>
                 <p className="text-sm text-white/60 max-w-[260px] leading-relaxed mb-10">
                   Track shipments, get rates, or resolve shipping questions faster.
                 </p>

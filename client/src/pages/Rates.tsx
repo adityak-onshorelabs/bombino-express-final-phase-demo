@@ -525,8 +525,8 @@ export default function Rates() {
             })}
           </div>
 
-          <p className="text-[10px] text-muted-foreground text-center mt-6">
-            Estimated only. Final charges may vary.
+          <p className="text-[10px] text-muted-foreground text-center mt-6 px-4 leading-relaxed">
+            Rates are indicative and subject to change based on actual shipment weight and dimensions at the time of pickup. Final charges may vary.
           </p>
         </main>
 

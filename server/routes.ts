@@ -240,6 +240,87 @@ export async function registerRoutes(
   );
 
   app.get(
+    "/api/shipments/download-csv",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      const rows = await listShipmentsByUserId(req.session.dbUserId);
+      if (!rows) {
+        return res.status(500).json({ error: "Failed to fetch shipments" });
+      }
+
+      const headers = [
+        "AWB Number",
+        "Booking Date",
+        "Service Type",
+        "Origin City",
+        "Destination City",
+        "Destination Country",
+        "Consignee Name",
+        "Consignee Phone",
+        "Shipment Content",
+        "Weight",
+        "Dimensions",
+        "Declared Value",
+        "Currency",
+        "Current Status",
+        "Last Updated",
+      ];
+
+      const escape = (val: unknown) => {
+        if (val === null || val === undefined) return "";
+        const str = String(val);
+        if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+          return '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+      };
+
+      const csvRows = [
+        headers.join(","),
+        ...rows.map((r) =>
+          [
+            escape(r.awb_number),
+            escape(
+              r.booking_date
+                ? new Date(r.booking_date).toLocaleDateString("en-IN")
+                : r.created_at
+                  ? new Date(r.created_at).toLocaleDateString("en-IN")
+                  : ""
+            ),
+            escape(r.service_name),
+            escape(r.origin_city),
+            escape(r.consignee_city),
+            escape(r.consignee_country),
+            escape(r.consignee_name),
+            escape(r.consignee_phone),
+            escape(r.shipment_content),
+            escape(r.weight),
+            escape(r.dimensions),
+            escape(r.declared_value),
+            escape(r.currency),
+            escape(r.current_status),
+            escape(
+              r.created_at ? new Date(r.created_at).toLocaleDateString("en-IN") : ""
+            ),
+          ].join(",")
+        ),
+      ];
+
+      const csv = csvRows.join("\n");
+      const filename =
+        "bombino-shipments-" + new Date().toISOString().split("T")[0] + ".csv";
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", 'attachment; filename="' + filename + '"');
+      return res.send(csv);
+    }
+  );
+
+  app.get(
     "/api/addresses",
     requireUser,
     ensureDbUser,

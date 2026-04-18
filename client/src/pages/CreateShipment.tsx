@@ -14,6 +14,8 @@ import {
   Copy,
   Zap,
   ChevronDown,
+  Info,
+  X,
 } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useMutation } from '@tanstack/react-query';
@@ -255,6 +257,7 @@ export default function CreateShipment() {
   const [invoiceUnitWeight, setInvoiceUnitWeight] = useState('');
   const [invoiceUnitRate, setInvoiceUnitRate] = useState('');
   const [productType, setProductType] = useState('');
+  const [showProductTypeInfo, setShowProductTypeInfo] = useState(false);
 
   const [rateResults, setRateResults] = useState<ITDRateRow[] | null>(null);
   const [selectedService, setSelectedService] = useState<ITDRateRow | null>(null);
@@ -1358,7 +1361,17 @@ export default function CreateShipment() {
               <Label className="text-sm font-semibold mb-3 block">Service Details</Label>
               <div className="space-y-2">
                 <div className="space-y-1">
-                  <span className="text-sm text-muted-foreground">Product Type</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm text-muted-foreground">Product Type</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowProductTypeInfo(true)}
+                      className="text-muted-foreground hover:text-primary transition-colors"
+                      aria-label="Product type information"
+                    >
+                      <Info className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                   <Select
                     value={productType || undefined}
                     onValueChange={(v) => {
@@ -1373,10 +1386,10 @@ export default function CreateShipment() {
                       <SelectValue placeholder="Select product type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="COMMERCIAL">COMMERCIAL</SelectItem>
+                      <SelectItem value="DOX">Documents</SelectItem>
+                      <SelectItem value="SPX">Package</SelectItem>
+                      <SelectItem value="COMMERCIAL">Commercial</SelectItem>
                       <SelectItem value="CSB V">CSB V</SelectItem>
-                      <SelectItem value="DOX">DOX</SelectItem>
-                      <SelectItem value="SPX">SPX</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1729,6 +1742,55 @@ export default function CreateShipment() {
       </main>
 
       <BottomNav />
+
+      {showProductTypeInfo && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={() => setShowProductTypeInfo(false)}
+        >
+          <div
+            className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-base text-gray-900">Product Types</h3>
+              <button
+                type="button"
+                onClick={() => setShowProductTypeInfo(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <p className="font-medium text-sm text-gray-900 mb-0.5">Documents (DOX)</p>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Standard industry code for shipments containing only paper — no commercial value, no duties.
+                </p>
+              </div>
+              <div>
+                <p className="font-medium text-sm text-gray-900 mb-0.5">Package (SPX)</p>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Small Parcel Express — usually containing physical goods that aren't just paper.
+                </p>
+              </div>
+              <div>
+                <p className="font-medium text-sm text-gray-900 mb-0.5">Commercial</p>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Goods meant for sale or trade. Requires a formal invoice and duty assessment.
+                </p>
+              </div>
+              <div>
+                <p className="font-medium text-sm text-gray-900 mb-0.5">CSB V</p>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Courier Shipping Bill V — a simplified export process for low-value goods usually under ₹5,00,000 sent via courier.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
