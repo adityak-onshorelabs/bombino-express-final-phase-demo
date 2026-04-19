@@ -1786,12 +1786,14 @@ export default function CreateShipment() {
                       : '—'}
                   </span>
                 </div>
-                <div className="flex justify-between text-sm gap-2">
-                  <span className="text-muted-foreground shrink-0">HS Code</span>
-                  <span className="font-medium text-foreground text-right text-xs break-all">
-                    {hsCode || '—'}
-                  </span>
-                </div>
+                {productType !== 'CSB V' && (
+                  <div className="flex justify-between text-sm gap-2">
+                    <span className="text-muted-foreground shrink-0">HS Code</span>
+                    <span className="font-medium text-foreground text-right text-xs break-all">
+                      {hsCode || '—'}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
