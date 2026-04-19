@@ -53,6 +53,13 @@ interface FreeFormLineItem {
 }
 
 interface CreateShipmentPayload {
+  is_csbv_shipment?: string;
+  is_ecommerce?: string;
+  is_scheme?: string;
+  is_bond_ut?: string;
+  lut_number?: string;
+  lut_issue_from?: string;
+  lut_issue_till?: string;
   product_code: string;
   destination_code: string;
   booking_date: string;
@@ -261,6 +268,14 @@ export default function CreateShipment() {
   const [invoiceQty, setInvoiceQty] = useState('1');
   const [invoiceUnitWeight, setInvoiceUnitWeight] = useState('');
   const [invoiceUnitRate, setInvoiceUnitRate] = useState('');
+  const [csbvHsCode, setCsbvHsCode] = useState('');
+  const [csbvEcommerce, setCsbvEcommerce] = useState<'yes' | 'no'>('no');
+  const [csbvScheme, setCsbvScheme] = useState<'yes' | 'no'>('no');
+  const [csbvBondType, setCsbvBondType] = useState<'igst' | 'bond_ut'>('igst');
+  const [csbvIgstAmount, setCsbvIgstAmount] = useState('');
+  const [csbvLutNumber, setCsbvLutNumber] = useState('');
+  const [csbvLutFrom, setCsbvLutFrom] = useState('');
+  const [csbvLutTill, setCsbvLutTill] = useState('');
   const [productType, setProductType] = useState('');
   const [showProductTypeInfo, setShowProductTypeInfo] = useState(false);
   const [showPresetSheet, setShowPresetSheet] = useState(false);
@@ -693,6 +708,35 @@ export default function CreateShipment() {
       setFieldErrors(invE);
       return;
     }
+    if (productType === 'CSB V') {
+      const csbvE: Record<string, boolean> = {};
+
+      if (csbvHsCode.length !== 10) {
+        csbvE.csbvHsCode = true;
+      }
+
+      if (csbvBondType === 'igst') {
+        const igstAmt = parseFloat(csbvIgstAmount);
+        if (!csbvIgstAmount.trim() || Number.isNaN(igstAmt)) {
+          csbvE.csbvIgstAmount = true;
+        }
+      } else {
+        if (!csbvLutNumber.trim()) {
+          csbvE.csbvLutNumber = true;
+        }
+        if (!csbvLutFrom.trim()) {
+          csbvE.csbvLutFrom = true;
+        }
+        if (!csbvLutTill.trim()) {
+          csbvE.csbvLutTill = true;
+        }
+      }
+
+      if (Object.keys(csbvE).length) {
+        setFieldErrors(csbvE);
+        return;
+      }
+    }
     const weightLb = getWeightLb();
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
@@ -711,6 +755,32 @@ export default function CreateShipment() {
 
     const apiServiceCodeResolved =
       selectedService.internal_api_service_code || selectedService.code;
+
+    const defaultLineItem: FreeFormLineItem = {
+      total,
+      no_of_packages: String(qty),
+      box_no: '1',
+      rate: String(rate),
+      hscode: lineHsCode,
+      description: contentTrimmed || 'GIFTS',
+      unit_of_measurement: 'PCS',
+      unit_weight: invoiceUnitWeight || '0.00',
+      igst_amount: '0.00',
+    };
+
+    const freeFormLineItem: FreeFormLineItem =
+      productType === 'CSB V'
+        ? csbvBondType === 'igst'
+          ? {
+              ...defaultLineItem,
+              hscode: csbvHsCode,
+              igst_amount: csbvIgstAmount,
+            }
+          : {
+              ...defaultLineItem,
+              hscode: csbvHsCode,
+            }
+        : defaultLineItem;
 
     const payload: CreateShipmentPayload = {
       product_code: productType,
@@ -765,18 +835,21 @@ export default function CreateShipment() {
         height: heightVal,
         number_of_boxes: String(parseInt(pieces) || 1),
       }],
-      free_form_line_items: [{
-        total,
-        no_of_packages: String(qty),
-        box_no: '1',
-        rate: String(rate),
-        hscode: lineHsCode,
-        description: contentTrimmed || 'GIFTS',
-        unit_of_measurement: 'PCS',
-        unit_weight: invoiceUnitWeight || '0.00',
-        igst_amount: '0.00',
-      }],
+      free_form_line_items: [freeFormLineItem],
     };
+
+    if (productType === 'CSB V') {
+      payload.is_csbv_shipment = 'true';
+      payload.is_ecommerce = csbvEcommerce;
+      payload.is_scheme = csbvScheme;
+      payload.is_bond_ut = csbvBondType;
+
+      if (csbvBondType === 'bond_ut') {
+        payload.lut_number = csbvLutNumber;
+        payload.lut_issue_from = csbvLutFrom;
+        payload.lut_issue_till = csbvLutTill;
+      }
+    }
 
     createMutation.mutate(payload);
   };
@@ -1437,6 +1510,16 @@ export default function CreateShipment() {
                       setSelectedService(null);
                       setRatesError('');
                       setServiceSelectionError('');
+                      if (v !== 'CSB V') {
+                        setCsbvHsCode('');
+                        setCsbvEcommerce('no');
+                        setCsbvScheme('no');
+                        setCsbvBondType('igst');
+                        setCsbvIgstAmount('');
+                        setCsbvLutNumber('');
+                        setCsbvLutFrom('');
+                        setCsbvLutTill('');
+                      }
                     }}
                   >
                     <SelectTrigger className="mt-1">
@@ -1450,6 +1533,251 @@ export default function CreateShipment() {
                     </SelectContent>
                   </Select>
                 </div>
+                {productType === 'CSB V' && (
+                  <div className="mt-3 space-y-3 pt-3 border-t border-border">
+                    <p className="text-xs font-semibold text-foreground">
+                      CSB V Details
+                    </p>
+
+                    <div>
+                      <Label className="text-xs text-muted-foreground">
+                        HS Code (10 digits)
+                        <span className="text-red-400">
+                          *
+                        </span>
+                      </Label>
+                      <Input
+                        type="text"
+                        value={csbvHsCode}
+                        onChange={(e) => {
+                          const val = e.target.value
+                            .replace(/\D/g, '')
+                            .slice(0, 10);
+                          setCsbvHsCode(val);
+                          clearFieldError('csbvHsCode');
+                        }}
+                        placeholder="Enter 10-digit HS code"
+                        maxLength={10}
+                        className={cn(
+                          'mt-1',
+                          fieldBorderClass('csbvHsCode')
+                        )}
+                      />
+                      {fieldErrors.csbvHsCode && (
+                        <p className="text-xs text-red-600 mt-1">
+                          HS code must be exactly
+                          10 digits
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">
+                        E-commerce Shipment?
+                      </span>
+                      <div className="flex gap-3">
+                        {(['yes', 'no'] as const).map(
+                          (opt) => (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() =>
+                                setCsbvEcommerce(opt)}
+                              className={cn(
+                                'px-3 py-1 text-xs',
+                                'rounded-full border',
+                                'transition-colors',
+                                csbvEcommerce === opt
+                                  ? 'bg-primary text-white border-primary'
+                                  : 'border-border text-muted-foreground'
+                              )}
+                            >
+                              {opt.toUpperCase()}
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">
+                        Under a Scheme?
+                      </span>
+                      <div className="flex gap-3">
+                        {(['yes', 'no'] as const).map(
+                          (opt) => (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() =>
+                                setCsbvScheme(opt)}
+                              className={cn(
+                                'px-3 py-1 text-xs',
+                                'rounded-full border',
+                                'transition-colors',
+                                csbvScheme === opt
+                                  ? 'bg-primary text-white border-primary'
+                                  : 'border-border text-muted-foreground'
+                              )}
+                            >
+                              {opt.toUpperCase()}
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">
+                        Bond UT / IGST
+                      </span>
+                      <div className="flex gap-3">
+                        {([
+                          { val: 'bond_ut', label: 'Bond UT' },
+                          { val: 'igst', label: 'IGST' }
+                        ] as const).map(({ val, label }) => (
+                          <button
+                            key={val}
+                            type="button"
+                            onClick={() => {
+                              setCsbvBondType(val);
+                              setCsbvIgstAmount('');
+                              setCsbvLutNumber('');
+                              setCsbvLutFrom('');
+                              setCsbvLutTill('');
+                            }}
+                            className={cn(
+                              'px-3 py-1 text-xs',
+                              'rounded-full border',
+                              'transition-colors',
+                              csbvBondType === val
+                                ? 'bg-primary text-white border-primary'
+                                : 'border-border text-muted-foreground'
+                            )}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {csbvBondType === 'igst' ? (
+                      <div>
+                        <Label className="text-xs text-muted-foreground">
+                          IGST Amount (USD)
+                          <span className="text-red-400">
+                            *
+                          </span>
+                        </Label>
+                        <Input
+                          type="number"
+                          value={csbvIgstAmount}
+                          onChange={(e) => {
+                            setCsbvIgstAmount(e.target.value);
+                            clearFieldError('csbvIgstAmount');
+                          }}
+                          placeholder="0.00"
+                          className={cn(
+                            'mt-1',
+                            fieldBorderClass('csbvIgstAmount')
+                          )}
+                        />
+                        {fieldErrors.csbvIgstAmount && (
+                          <p className="text-xs text-red-600 mt-1">
+                            IGST amount is required
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div>
+                          <Label className="text-xs text-muted-foreground">
+                            LUT Number
+                            <span className="text-red-400">
+                              *
+                            </span>
+                          </Label>
+                          <Input
+                            type="text"
+                            value={csbvLutNumber}
+                            onChange={(e) => {
+                              setCsbvLutNumber(
+                                e.target.value);
+                              clearFieldError(
+                                'csbvLutNumber');
+                            }}
+                            placeholder="Enter LUT number"
+                            className={cn(
+                              'mt-1',
+                              fieldBorderClass('csbvLutNumber')
+                            )}
+                          />
+                          {fieldErrors.csbvLutNumber && (
+                            <p className="text-xs text-red-600 mt-1">
+                              LUT number is required
+                            </p>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs text-muted-foreground">
+                              LUT Issue From
+                              <span className="text-red-400">
+                                *
+                              </span>
+                            </Label>
+                            <Input
+                              type="date"
+                              value={csbvLutFrom}
+                              onChange={(e) => {
+                                setCsbvLutFrom(
+                                  e.target.value);
+                                clearFieldError(
+                                  'csbvLutFrom');
+                              }}
+                              className={cn(
+                                'mt-1',
+                                fieldBorderClass('csbvLutFrom')
+                              )}
+                            />
+                            {fieldErrors.csbvLutFrom && (
+                              <p className="text-xs text-red-600 mt-1">
+                                Required
+                              </p>
+                            )}
+                          </div>
+                          <div>
+                            <Label className="text-xs text-muted-foreground">
+                              LUT Issue Till
+                              <span className="text-red-400">
+                                *
+                              </span>
+                            </Label>
+                            <Input
+                              type="date"
+                              value={csbvLutTill}
+                              onChange={(e) => {
+                                setCsbvLutTill(
+                                  e.target.value);
+                                clearFieldError(
+                                  'csbvLutTill');
+                              }}
+                              className={cn(
+                                'mt-1',
+                                fieldBorderClass('csbvLutTill')
+                              )}
+                            />
+                            {fieldErrors.csbvLutTill && (
+                              <p className="text-xs text-red-600 mt-1">
+                                Required
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="flex justify-between text-sm gap-2">
                   <span className="text-muted-foreground shrink-0">Service</span>
                   <span className="font-medium text-foreground text-right text-xs break-words">

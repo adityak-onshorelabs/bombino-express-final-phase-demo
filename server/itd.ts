@@ -87,6 +87,13 @@ export interface FreeFormLineItem {
 
 export interface CreateShipmentPayload {
   tracking_no?: string;
+  is_csbv_shipment?: string;
+  is_ecommerce?: string;
+  is_scheme?: string;
+  is_bond_ut?: string;
+  lut_number?: string;
+  lut_issue_from?: string;
+  lut_issue_till?: string;
   product_code: string;
   destination_code: string;
   booking_date: string;
