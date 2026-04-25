@@ -500,6 +500,7 @@ export async function registerRoutes(
   app.post(
     "/api/support/chat",
     ensureDbUser,
+  refreshItdTokenIfNeeded,
     supportChatRateLimit,
     async (req: Request, res: Response) => {
     // #region agent log
