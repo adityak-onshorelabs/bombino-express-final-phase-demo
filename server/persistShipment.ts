@@ -1,5 +1,5 @@
 import {
-  insertAddressAndReturnId,
+  findOrCreateAddress,
   insertShipmentAndReturnId,
   insertShipmentCreatedAuditLog,
   insertShipmentCreatedNotification,
@@ -55,7 +55,7 @@ export async function persistShipmentAfterCreate(
   const senderCountryCode = countryCodeFromLabel(payload.shipper_country);
   const recipientCountryCode = countryCodeFromLabel(payload.consignee_country);
 
-  const senderRow = await insertAddressAndReturnId({
+  const senderRow = await findOrCreateAddress({
     user_id: dbUserId,
     type: "sender",
     full_name: payload.shipper_name,
@@ -75,7 +75,7 @@ export async function persistShipmentAfterCreate(
     return;
   }
 
-  const recipientRow = await insertAddressAndReturnId({
+  const recipientRow = await findOrCreateAddress({
     user_id: dbUserId,
     type: "recipient",
     full_name: payload.consignee_name,

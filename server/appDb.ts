@@ -603,6 +603,61 @@ export async function insertAddressAndReturnId(
   return data;
 }
 
+export async function findOrCreateAddress(
+  input: AddressInsert
+): Promise<{ id: string } | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  let query = client
+    .from("addresses")
+    .select("id, address_line_1, city")
+    .eq("user_id", input.user_id)
+    .eq("type", input.type)
+    .eq("phone", input.phone);
+
+  if (input.pincode == null) {
+    query = query.is("pincode", null);
+  } else {
+    query = query.eq("pincode", input.pincode);
+  }
+
+  const { data: candidates, error } = await query;
+  if (error) {
+    logSupabaseError("findOrCreateAddress:select", error);
+    return null;
+  }
+
+  if (candidates && candidates.length > 0) {
+    const normalizedInputLine = input.address_line_1.trim().toLowerCase();
+    const normalizedInputCity = input.city.trim().toLowerCase();
+
+    const match = candidates.find((row) => {
+      const rowLine = (row.address_line_1 ?? "").trim().toLowerCase();
+      const rowCity = (row.city ?? "").trim().toLowerCase();
+      return rowLine === normalizedInputLine && rowCity === normalizedInputCity;
+    });
+
+    if (match) {
+      void client
+        .from("addresses")
+        .update({
+          last_used_at: new Date().toISOString(),
+        })
+        .eq("id", match.id)
+        .then(({ error: updateErr }) => {
+          if (updateErr) {
+            logSupabaseError("findOrCreateAddress:updateUsage", updateErr);
+          }
+        });
+
+      return { id: match.id };
+    }
+  }
+
+  return insertAddressAndReturnId(input);
+}
+
 export async function insertShipmentAndReturnId(
   input: ShipmentInsert
 ): Promise<{ id: string } | null> {
