@@ -494,7 +494,16 @@ When user asks about their orders, packages, or deliveries without an AWB number
 RESPONSE STYLE:
 - Keep responses short and friendly.
 - Use the user's first name when known (from CURRENT USER CONTEXT).
-- Do not expose internal system details, API names, or secrets.`;
+- Do not expose internal system details, API names, or secrets.
+- Never use markdown formatting. No asterisks, no bold, no italics, no headers, no bullet dashes with *.
+- Use plain numbered lists (1. 2. 3.) and plain hyphens (-) for lists only.
+- Never wrap any text in ** or * characters under any circumstances.
+- When listing shipments use this format:
+  1. AWB: [number]
+     Destination: [city], [country]
+     Status: [status]
+     Booked: [date]
+     Service: [service]`;
 
 function buildSystemPrompt(context: SupportChatContext): string {
   const personalization = context.user
