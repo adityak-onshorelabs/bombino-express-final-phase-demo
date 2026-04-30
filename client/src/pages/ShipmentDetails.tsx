@@ -154,22 +154,9 @@ export default function ShipmentDetails() {
       }
 
       const { label } = (await res.json()) as { label: string };
-      const binary = atob(label);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      const blob = new Blob([bytes], {
-        type: 'application/pdf',
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `label-${awb}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const dataUrl =
+        `data:application/pdf;base64,${label}`;
+      window.open(dataUrl, '_blank');
     } catch {
       toast({
         title: 'Download failed',

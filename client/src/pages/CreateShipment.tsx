@@ -609,7 +609,7 @@ export default function CreateShipment() {
             {shipmentLabel && (
               <Button
                 variant="outline"
-                onClick={() => handleDownloadLabel(shipmentLabel, newAWB)}
+                onClick={() => handleDownloadLabel(shipmentLabel!)}
                 className="w-full h-12 text-sm rounded-xl border-[#14567C] text-[#14567C] flex items-center justify-center gap-2"
                 data-testid="button-download-label"
               >
@@ -871,28 +871,17 @@ export default function CreateShipment() {
     createMutation.mutate(payload);
   };
 
-  const handleDownloadLabel = (base64: string, awb: string) => {
+  const handleDownloadLabel = (
+    base64: string
+  ) => {
     try {
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      const blob = new Blob([bytes], {
-        type: 'application/pdf',
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `label-${awb}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const dataUrl =
+        `data:application/pdf;base64,${base64}`;
+      window.open(dataUrl, '_blank');
     } catch {
       toast({
         title: 'Download failed',
-        description: 'Could not decode the shipment label.',
+        description: 'Could not open the shipment label.',
         variant: 'destructive',
       });
     }
