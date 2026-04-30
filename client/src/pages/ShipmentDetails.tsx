@@ -102,6 +102,7 @@ export default function ShipmentDetails() {
   const [, params] = useRoute('/shipment/:awb');
   const [, setLocation] = useLocation();
   const [copied, setCopied] = useState(false);
+  const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -156,7 +157,7 @@ export default function ShipmentDetails() {
       const { label } = (await res.json()) as { label: string };
       const dataUrl =
         `data:application/pdf;base64,${label}`;
-      window.open(dataUrl, '_blank');
+      setPdfDataUrl(dataUrl);
     } catch {
       toast({
         title: 'Download failed',
@@ -588,6 +589,27 @@ export default function ShipmentDetails() {
         <Download className="w-4 h-4" />
         Label
       </button>
+      {pdfDataUrl && (
+        <div className="fixed inset-0 z-[100] bg-white flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-white safe-top">
+            <span className="font-semibold text-sm text-foreground">
+              Shipment Label
+            </span>
+            <button
+              type="button"
+              onClick={() => setPdfDataUrl(null)}
+              className="text-sm text-[#14567C] font-medium"
+            >
+              Close
+            </button>
+          </div>
+          <iframe
+            src={pdfDataUrl}
+            className="flex-1 w-full border-0"
+            title="Shipment Label"
+          />
+        </div>
+      )}
       <BottomNav />
     </div>
   );

@@ -237,6 +237,7 @@ export default function CreateShipment() {
   const [currentStep, setCurrentStep] = useState(1);
   const [newAWB, setNewAWB] = useState('');
   const [shipmentLabel, setShipmentLabel] = useState<string | null>(null);
+  const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState('');
 
   const [senderName, setSenderName] = useState(isLoggedIn ? user?.fullName ?? '' : '');
@@ -555,6 +556,27 @@ export default function CreateShipment() {
 
     return (
       <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create-success">
+        {pdfDataUrl && (
+          <div className="fixed inset-0 z-[100] bg-white flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-white safe-top">
+              <span className="font-semibold text-sm text-foreground">
+                Shipment Label
+              </span>
+              <button
+                type="button"
+                onClick={() => setPdfDataUrl(null)}
+                className="text-sm text-[#14567C] font-medium"
+              >
+                Close
+              </button>
+            </div>
+            <iframe
+              src={pdfDataUrl}
+              className="flex-1 w-full border-0"
+              title="Shipment Label"
+            />
+          </div>
+        )}
         <main className="px-4 py-12 max-w-md mx-auto text-center">
           <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-5 animate-scale-in">
             <Check className="w-10 h-10 text-[#14567C]" strokeWidth={2.5} />
@@ -706,6 +728,7 @@ export default function CreateShipment() {
     setServiceSelectionError('');
     setFieldErrors({});
     setShipmentLabel(null);
+    setPdfDataUrl(null);
     if (!productType.trim()) {
       setSubmitError('Please select a product type');
       return;
@@ -874,17 +897,9 @@ export default function CreateShipment() {
   const handleDownloadLabel = (
     base64: string
   ) => {
-    try {
-      const dataUrl =
-        `data:application/pdf;base64,${base64}`;
-      window.open(dataUrl, '_blank');
-    } catch {
-      toast({
-        title: 'Download failed',
-        description: 'Could not open the shipment label.',
-        variant: 'destructive',
-      });
-    }
+    const dataUrl =
+      `data:application/pdf;base64,${base64}`;
+    setPdfDataUrl(dataUrl);
   };
 
   return (
