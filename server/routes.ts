@@ -10,6 +10,7 @@ import {
   insertLoginAuditLog,
   resolveSupportSession,
   listAddressesByUserIdAndType,
+  getShipmentLabel,
   listNotificationsByUserId,
   listShipmentsByUserId,
   markNotificationRead,
@@ -236,6 +237,27 @@ export async function registerRoutes(
       }
       const rows = await listShipmentsByUserId(req.session.dbUserId);
       return res.json(rows ?? []);
+    }
+  );
+
+  app.get(
+    "/api/shipments/:awb/label",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const { awb } = req.params;
+      const dbUserId = req.session.dbUserId;
+
+      if (!dbUserId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const label = await getShipmentLabel(awb, dbUserId);
+      if (!label) {
+        return res.status(404).json({ message: "Label not available" });
+      }
+
+      return res.json({ label });
     }
   );
 

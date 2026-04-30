@@ -299,6 +299,36 @@ export async function getRecentShipmentsByUserId(
     .join("\n");
 }
 
+export async function getShipmentLabel(
+  awbNumber: string,
+  userId: string
+): Promise<string | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("shipments")
+    .select("itd_response")
+    .eq("awb_number", awbNumber)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getShipmentLabel", error);
+    return null;
+  }
+
+  if (!data?.itd_response) return null;
+
+  const response = data.itd_response as {
+    labels?: { label?: unknown }[];
+  };
+  const label = response?.labels?.[0]?.label;
+  if (typeof label !== "string" || !label) return null;
+
+  return label;
+}
+
 // ─── BIA support_sessions ───────────────────────────────────────────────────
 
 function parseMessagesJson(raw: unknown): ChatMessage[] {

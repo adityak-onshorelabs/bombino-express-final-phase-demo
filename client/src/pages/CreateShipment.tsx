@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   FileText,
   Copy,
+  Download,
   Zap,
   ChevronDown,
   Info,
@@ -115,6 +116,7 @@ interface CreateShipmentResponse {
     docket_id: number;
     awb_no: string;
   };
+  labels?: { label: string }[];
 }
 
 interface RateParams {
@@ -234,6 +236,7 @@ export default function CreateShipment() {
   const { isLoggedIn, user, addShipment, addNotification, logout } = useAppStore();
   const [currentStep, setCurrentStep] = useState(1);
   const [newAWB, setNewAWB] = useState('');
+  const [shipmentLabel, setShipmentLabel] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState('');
 
   const [senderName, setSenderName] = useState(isLoggedIn ? user?.fullName ?? '' : '');
@@ -339,6 +342,8 @@ export default function CreateShipment() {
         return;
       }
       const awb = data.data.awb_no;
+      const labelStr = data.labels?.[0]?.label ?? null;
+      setShipmentLabel(labelStr);
       const now = new Date();
       const w = parseFloat(weight) || 1;
       const weightLb = weightUnit === 'lb' ? w : w / 0.453592;
@@ -601,6 +606,17 @@ export default function CreateShipment() {
             >
               Track Shipment
             </Button>
+            {shipmentLabel && (
+              <Button
+                variant="outline"
+                onClick={() => handleDownloadLabel(shipmentLabel, newAWB)}
+                className="w-full h-12 text-sm rounded-xl border-[#14567C] text-[#14567C] flex items-center justify-center gap-2"
+                data-testid="button-download-label"
+              >
+                <Download className="w-4 h-4" />
+                Download Label
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() => setLocation('/home')}
@@ -689,6 +705,7 @@ export default function CreateShipment() {
     setSubmitError('');
     setServiceSelectionError('');
     setFieldErrors({});
+    setShipmentLabel(null);
     if (!productType.trim()) {
       setSubmitError('Please select a product type');
       return;
@@ -852,6 +869,33 @@ export default function CreateShipment() {
     }
 
     createMutation.mutate(payload);
+  };
+
+  const handleDownloadLabel = (base64: string, awb: string) => {
+    try {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], {
+        type: 'application/pdf',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `label-${awb}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({
+        title: 'Download failed',
+        description: 'Could not decode the shipment label.',
+        variant: 'destructive',
+      });
+    }
   };
 
   return (

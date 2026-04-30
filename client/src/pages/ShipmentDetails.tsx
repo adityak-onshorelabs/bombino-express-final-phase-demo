@@ -19,6 +19,7 @@ import { TrackingTimeline } from '@/components/TrackingTimeline';
 import type { TrackingEvent } from '@/lib/mockData';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 
 interface DocketEvent {
@@ -102,6 +103,7 @@ export default function ShipmentDetails() {
   const [, setLocation] = useLocation();
   const [copied, setCopied] = useState(false);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const awb = params?.awb ? decodeURIComponent(params.awb) : '';
 
@@ -135,6 +137,46 @@ export default function ShipmentDetails() {
     void navigator.clipboard.writeText(awb);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownloadLabel = async () => {
+    try {
+      const res = await fetch(`/api/shipments/${encodeURIComponent(awb)}/label`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        toast({
+          title: 'Label not available',
+          description: 'The label for this shipment could not be found.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const { label } = (await res.json()) as { label: string };
+      const binary = atob(label);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], {
+        type: 'application/pdf',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `label-${awb}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({
+        title: 'Download failed',
+        description: 'Could not download the shipment label.',
+        variant: 'destructive',
+      });
+    }
   };
 
   const invalidateTrack = () => {
@@ -553,7 +595,7 @@ export default function ShipmentDetails() {
       <button
         type="button"
         className="fixed right-4 bottom-[calc(var(--nav-stack)+5.5rem)] z-40 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-[0_8px_24px_rgba(0,0,0,0.2)]"
-        onClick={() => alert('Label download not available')}
+        onClick={() => void handleDownloadLabel()}
         data-testid="button-download-label"
       >
         <Download className="w-4 h-4" />
