@@ -564,6 +564,13 @@ export default function CreateShipment() {
               </span>
               <button
                 type="button"
+                onClick={() => void handleShareLabel(pdfDataUrl)}
+                className="text-sm text-[#14567C] font-medium"
+              >
+                Share
+              </button>
+              <button
+                type="button"
                 onClick={() => setPdfDataUrl(null)}
                 className="text-sm text-[#14567C] font-medium"
               >
@@ -900,6 +907,54 @@ export default function CreateShipment() {
     const dataUrl =
       `data:application/pdf;base64,${base64}`;
     setPdfDataUrl(dataUrl);
+  };
+
+  const handleShareLabel = async (
+    dataUrl: string
+  ) => {
+    try {
+      const base64 = dataUrl.split(',')[1];
+      const binary = atob(base64);
+      const bytes = new Uint8Array(
+        binary.length
+      );
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], {
+        type: 'application/pdf',
+      });
+      const file = new File(
+        [blob],
+        'shipment-label.pdf',
+        { type: 'application/pdf' }
+      );
+
+      if (
+        typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [file] })
+      ) {
+        await navigator.share({
+          files: [file],
+          title: 'Shipment Label',
+        });
+      } else {
+        toast({
+          title: 'Sharing not supported',
+          description: 'Please use the browser download option instead.',
+          variant: 'destructive',
+        });
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        toast({
+          title: 'Share failed',
+          description: 'Could not share the label.',
+          variant: 'destructive',
+        });
+      }
+    }
   };
 
   return (
