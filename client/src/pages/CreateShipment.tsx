@@ -12,7 +12,6 @@ import {
   AlertTriangle,
   FileText,
   Copy,
-  Download,
   Zap,
   ChevronDown,
   Info,
@@ -630,22 +629,12 @@ export default function CreateShipment() {
           <div className="space-y-2">
             <Button
               onClick={() => setLocation(`/shipment/${encodeURIComponent(newAWB)}`)}
-              className="w-full h-12 bg-primary hover:bg-primary/90 text-sm rounded-xl shadow-md"
-              data-testid="button-track-shipment"
+              className="w-full h-12 bg-primary hover:bg-primary/90 text-sm rounded-xl shadow-md flex items-center justify-center gap-2"
+              data-testid="button-view-label"
             >
-              Track Shipment
+              <FileText className="w-4 h-4" />
+              View Label & Details
             </Button>
-            {shipmentLabel && (
-              <Button
-                variant="outline"
-                onClick={() => handleDownloadLabel(shipmentLabel!)}
-                className="w-full h-12 text-sm rounded-xl border-[#14567C] text-[#14567C] flex items-center justify-center gap-2"
-                data-testid="button-download-label"
-              >
-                <Download className="w-4 h-4" />
-                Download Label
-              </Button>
-            )}
             <Button
               variant="outline"
               onClick={() => setLocation('/home')}
