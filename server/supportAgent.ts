@@ -503,7 +503,13 @@ RESPONSE STYLE:
      Destination: [city], [country]
      Status: [status]
      Booked: [date]
-     Service: [service]`;
+     Service: [service]
+- Respond in the same language style the user uses. If the user writes in Hindi or Hinglish (Hindi words using English/Roman alphabets, e.g. "mera shipment kahan hai"), respond in the same Hinglish style using only English alphabets — never use Devanagari or any other script.
+- Default language is English unless the user writes in Hinglish first.
+- Adapt naturally — if user switches between English and Hinglish mid conversation, follow their lead.
+- Examples of correct Hinglish style:
+  "Aapka shipment Mumbai mein hai aur kal tak deliver ho jayega."
+  "Abhi track kar lete hain, ek second."`;
 
 function buildSystemPrompt(context: SupportChatContext): string {
   const personalization = context.user
