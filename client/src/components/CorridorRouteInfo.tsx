@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { formatCountryDisplay, ITD_COUNTRY_MAP } from '@/lib/itdCountryData';
 
 interface CorridorRouteInfoProps {
   className?: string;
@@ -6,9 +7,23 @@ interface CorridorRouteInfoProps {
   compact?: boolean;
   /** No card chrome — use inside another container (e.g. summary grid cell). */
   bare?: boolean;
+  destinationCode?: string;
+  destinationName?: string;
 }
 
-export function CorridorRouteInfo({ className, compact, bare }: CorridorRouteInfoProps) {
+export function CorridorRouteInfo({
+  className,
+  compact,
+  bare,
+  destinationCode,
+  destinationName,
+}: CorridorRouteInfoProps) {
+  const resolvedName =
+    destinationName ??
+    formatCountryDisplay(
+      ITD_COUNTRY_MAP[destinationCode ?? 'US']?.name ?? 'United States'
+    );
+
   return (
     <div
       className={cn(
@@ -24,16 +39,18 @@ export function CorridorRouteInfo({ className, compact, bare }: CorridorRouteInf
           compact ? 'text-[10px] leading-tight' : 'text-sm'
         )}
       >
-        India → United States
+        India → {resolvedName}
       </p>
-      <p
-        className={cn(
-          'text-muted-foreground mt-1',
-          compact ? 'text-[9px] leading-tight' : 'text-xs'
-        )}
-      >
-        More corridors coming soon
-      </p>
+      {!destinationCode ? (
+        <p
+          className={cn(
+            'text-muted-foreground mt-1',
+            compact ? 'text-[9px] leading-tight' : 'text-xs'
+          )}
+        >
+          More corridors coming soon
+        </p>
+      ) : null}
     </div>
   );
 }

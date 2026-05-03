@@ -240,10 +240,8 @@ export const COUNTRY_MAP: Record<string, string> = Object.fromEntries(
   COUNTRY_LIST.map(c => [c.code, c.name])
 );
 
-// The only corridor that supports full shipment creation
 export const BOOKABLE_ORIGIN = "IN";
-export const BOOKABLE_DESTINATION = "US";
 
 export function isBookableCorridor(origin: string, destination: string): boolean {
-  return origin === BOOKABLE_ORIGIN && destination === BOOKABLE_DESTINATION;
+  return origin === BOOKABLE_ORIGIN && destination !== BOOKABLE_ORIGIN;
 }

@@ -39,6 +39,25 @@ import { apiRequest } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
 import { getHsnCode } from '@/lib/hsnData';
 import { useToast } from '@/hooks/use-toast';
+import {
+  ITD_COUNTRY_LIST,
+  ITD_COUNTRY_MAP,
+  getDestinationCurrency,
+  formatCountryDisplay,
+} from '@/lib/itdCountryData';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 
 interface FreeFormLineItem {
   total: string;
@@ -230,6 +249,56 @@ const steps = [
   { id: 4, title: 'Invoice', icon: FileText },
 ];
 
+interface CountryComboboxProps {
+  value: string;
+  onValueChange: (code: string) => void;
+}
+
+function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
+  const [open, setOpen] = useState(false);
+  const country = ITD_COUNTRY_MAP[value];
+  const displayName = country ? formatCountryDisplay(country.name) : value;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full h-11 justify-between font-normal text-sm bg-muted/30 border-border rounded-xl px-3"
+        >
+          <span className="truncate text-left">{displayName}</span>
+          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]" align="start">
+        <Command>
+          <CommandInput placeholder="Search country…" className="h-11" />
+          <CommandList>
+            <CommandEmpty>No country found.</CommandEmpty>
+            <CommandGroup>
+              {ITD_COUNTRY_LIST.filter((c) => c.code !== 'IN').map((c) => (
+                <CommandItem
+                  key={c.code}
+                  value={`${c.name} ${c.code}`}
+                  onSelect={() => {
+                    onValueChange(c.code);
+                    setOpen(false);
+                  }}
+                >
+                  {formatCountryDisplay(c.name)}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export default function CreateShipment() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, addShipment, addNotification, logout } = useAppStore();
@@ -256,6 +325,9 @@ export default function CreateShipment() {
   const [receiverState, setReceiverState] = useState('');
   const [receiverZip, setReceiverZip] = useState('');
   const [receiverAddress, setReceiverAddress] = useState('');
+
+  const [destinationCountry, setDestinationCountry] = useState('US');
+  const [selectedCurrency, setSelectedCurrency] = useState('USD');
 
   const [weightUnit, setWeightUnit] = useState<'lb' | 'kg'>('lb');
   const [weight, setWeight] = useState('2');
@@ -311,6 +383,15 @@ export default function CreateShipment() {
     );
 
   const { toast } = useToast();
+
+  useEffect(() => {
+    setRateResults(null);
+    setSelectedService(null);
+    setRatesError('');
+    setServiceSelectionError('');
+    const destCurrency = getDestinationCurrency(destinationCountry);
+    setSelectedCurrency(destCurrency == null || destCurrency === 'INR' ? 'INR' : destCurrency);
+  }, [destinationCountry]);
 
   useEffect(() => {
     if (!newAWB) return;
@@ -393,7 +474,9 @@ export default function CreateShipment() {
         originCity: senderCity,
         originState: senderState,
         originZip: senderZip,
-        destCountry: 'USA',
+        destCountry: formatCountryDisplay(
+          ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry
+        ),
         destCity: receiverCity,
         destState: receiverState,
         destPincode: receiverZip,
@@ -408,7 +491,7 @@ export default function CreateShipment() {
         eta,
         lastUpdateAt: now,
         createdAt: now,
-        currency: 'USD',
+        currency: selectedCurrency,
         trackingEvents,
       };
 
@@ -494,7 +577,7 @@ export default function CreateShipment() {
     const weightKg = weightUnit === 'kg' ? w : lbToKg(w);
     rateMutation.mutate({
       product_code: productType,
-      destination_code: 'US',
+      destination_code: destinationCountry,
       booking_date: new Date().toISOString().split('T')[0],
       origin_code: 'IN',
       pcs: String(parseInt(pieces) || 1),
@@ -671,7 +754,8 @@ export default function CreateShipment() {
     if (currentStep === 2) {
       const e: Record<string, boolean> = {};
       if (!receiverName.trim()) e.receiverName = true;
-      if (!/^\d{10}$/.test(receiverPhone.trim())) e.receiverPhone = true;
+      const phoneDigits = receiverPhone.replace(/\D/g, '');
+      if (phoneDigits.length < 6 || phoneDigits.length > 15) e.receiverPhone = true;
       if (!receiverAddress.trim()) e.receiverAddress = true;
       if (!receiverCity.trim()) e.receiverCity = true;
       if (!receiverState.trim()) e.receiverState = true;
@@ -820,12 +904,12 @@ export default function CreateShipment() {
 
     const payload: CreateShipmentPayload = {
       product_code: productType,
-      destination_code: 'US',
+      destination_code: destinationCountry,
       booking_date: todayStr,
       booking_time: timeStr,
       pcs: String(parseInt(pieces) || 1),
       shipment_value: shipmentValue || '0',
-      shipment_value_currency: 'USD',
+      shipment_value_currency: selectedCurrency,
       actual_weight: String(weightLb.toFixed(2)),
       // TODO: shipment_invoice_no hardcoded — update when invoice numbering is implemented
       shipment_invoice_no: 'TESTINV01',
@@ -833,7 +917,7 @@ export default function CreateShipment() {
       shipment_content: contentTrimmed || 'GIFTS',
       new_docket_free_form_invoice: '1',
       free_form_invoice_type_id: '1',
-      free_form_currency: 'USD',
+      free_form_currency: selectedCurrency,
       terms_of_trade: 'FOB',
       entry_type: 2,
       api_service_code: apiServiceCodeResolved,
@@ -857,12 +941,15 @@ export default function CreateShipment() {
       }],
       consignee_name: receiverName,
       consignee_company_name: receiverCompany || receiverName,
-      consignee_contact_no: receiverPhone,
+      consignee_contact_no:
+        ITD_COUNTRY_MAP[destinationCountry]?.dialCode
+          ? `${ITD_COUNTRY_MAP[destinationCountry].dialCode}${receiverPhone}`
+          : receiverPhone,
       consignee_email: receiverEmail || senderEmail,
       consignee_address_line_1: receiverAddress,
       consignee_city: receiverCity,
       consignee_state: receiverState,
-      consignee_country: 'US',
+      consignee_country: destinationCountry,
       consignee_zip_code: receiverZip,
       docket_items: [{
         actual_weight: String(weightLb.toFixed(2)),
@@ -1003,7 +1090,12 @@ export default function CreateShipment() {
       <main className="px-4 py-5 max-w-md mx-auto">
         {currentStep === 1 && (
           <div className="space-y-4 animate-fade-in">
-            <CorridorRouteInfo />
+            <CorridorRouteInfo
+              destinationCode={destinationCountry}
+              destinationName={formatCountryDisplay(
+                ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry
+              )}
+            />
             <AddressPicker
               type="sender"
               isLoggedIn={isLoggedIn}
@@ -1169,14 +1261,29 @@ export default function CreateShipment() {
 
         {currentStep === 2 && (
           <div className="space-y-4 animate-fade-in">
-            <CorridorRouteInfo />
+            <CorridorRouteInfo
+              destinationCode={destinationCountry}
+              destinationName={formatCountryDisplay(
+                ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry
+              )}
+            />
+            <div className="bg-card rounded-xl border border-border p-4 shadow-sm space-y-2">
+              <Label className="text-xs text-muted-foreground">Destination Country</Label>
+              <CountryCombobox
+                value={destinationCountry}
+                onValueChange={(code) => {
+                  setDestinationCountry(code);
+                  clearFieldError('destinationCountry');
+                }}
+              />
+            </div>
             <AddressPicker
               type="recipient"
               isLoggedIn={isLoggedIn}
               onSelect={(address: SavedAddress) => {
                 setReceiverName(address.full_name);
                 setReceiverCompany(address.company ?? '');
-                setReceiverPhone(address.phone.replace(/\D/g, '').slice(0, 10));
+                setReceiverPhone(address.phone.replace(/\D/g, ''));
                 setReceiverAddress(address.address_line_1);
                 setReceiverCity(address.city);
                 setReceiverState(address.state ?? '');
@@ -1214,19 +1321,29 @@ export default function CreateShipment() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs text-muted-foreground">Phone</Label>
-                  <Input
-                    value={receiverPhone}
-                    onChange={(e) => {
-                      const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
-                      setReceiverPhone(digits);
-                      clearFieldError('receiverPhone');
-                    }}
-                    placeholder="+1"
-                    className={fieldBorderClass('receiverPhone')}
-                    data-testid="input-receiver-phone"
-                  />
+                  <div className="flex gap-2 mt-1">
+                    {ITD_COUNTRY_MAP[destinationCountry]?.dialCode ? (
+                      <div className="h-11 px-3 flex items-center bg-muted/50 border border-border rounded-xl text-sm text-muted-foreground shrink-0 font-medium">
+                        {ITD_COUNTRY_MAP[destinationCountry].dialCode}
+                      </div>
+                    ) : null}
+                    <Input
+                      value={receiverPhone}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, '');
+                        setReceiverPhone(digits);
+                        clearFieldError('receiverPhone');
+                      }}
+                      placeholder="Phone number"
+                      className={cn(
+                        'flex-1 min-w-0',
+                        fieldBorderClass('receiverPhone')
+                      )}
+                      data-testid="input-receiver-phone"
+                    />
+                  </div>
                   {fieldErrors.receiverPhone && (
-                    <p className="text-xs text-red-600 mt-1">Must be exactly 10 digits</p>
+                    <p className="text-xs text-red-600 mt-1">Must be 6–15 digits</p>
                   )}
                 </div>
                 <div>
@@ -1287,14 +1404,13 @@ export default function CreateShipment() {
                   )}
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">ZIP Code</Label>
+                  <Label className="text-xs text-muted-foreground">Postal Code</Label>
                   <Input
                     value={receiverZip}
                     onChange={(e) => {
                       setReceiverZip(e.target.value);
                       clearFieldError('receiverZip');
                     }}
-                    maxLength={5}
                     className={fieldBorderClass('receiverZip')}
                     data-testid="input-receiver-pincode"
                   />
@@ -1547,9 +1663,34 @@ export default function CreateShipment() {
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">Currency</Label>
-                  <div className="h-11 mt-1 flex items-center justify-center bg-muted/50 border border-border rounded-xl text-sm font-medium text-muted-foreground">
-                    USD
-                  </div>
+                  {(() => {
+                    const destCurrency = getDestinationCurrency(destinationCountry);
+                    const showToggle = destCurrency !== null && destCurrency !== 'INR';
+                    if (!showToggle) {
+                      return (
+                        <div className="h-11 mt-1 flex items-center justify-center bg-muted/50 border border-border rounded-xl text-sm font-medium text-muted-foreground">
+                          INR
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="flex bg-muted rounded-lg p-0.5 mt-1">
+                        {(['INR', destCurrency] as string[]).map((cur) => (
+                          <button
+                            key={cur}
+                            type="button"
+                            onClick={() => setSelectedCurrency(cur)}
+                            className={cn(
+                              'flex-1 py-2 text-xs font-medium rounded-md transition-colors',
+                              selectedCurrency === cur ? 'bg-white text-primary shadow-sm' : 'text-muted-foreground'
+                            )}
+                          >
+                            {cur}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
               <p className="text-[10px] text-muted-foreground mt-1.5">Customs declared value for international shipping</p>
@@ -1756,7 +1897,7 @@ export default function CreateShipment() {
                     {csbvBondType === 'igst' ? (
                       <div>
                         <Label className="text-xs text-muted-foreground">
-                          IGST Amount (USD)
+                          IGST Amount ({selectedCurrency})
                           <span className="text-red-400">
                             *
                           </span>
@@ -2171,7 +2312,7 @@ export default function CreateShipment() {
                 </div>
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Unit Rate (USD)</Label>
+                <Label className="text-xs text-muted-foreground">Unit Rate ({selectedCurrency})</Label>
                 <Input
                   type="number"
                   value={invoiceUnitRate}
@@ -2191,7 +2332,8 @@ export default function CreateShipment() {
                 <div className="flex justify-between text-sm pt-2 border-t border-border">
                   <span className="text-muted-foreground">Total</span>
                   <span className="font-semibold">
-                    ${(parseFloat(invoiceQty || '0') * parseFloat(invoiceUnitRate || '0')).toFixed(2)}
+                    {selectedCurrency}{' '}
+                    {(parseFloat(invoiceQty || '0') * parseFloat(invoiceUnitRate || '0')).toFixed(2)}
                   </span>
                 </div>
               )}
