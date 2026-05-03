@@ -12,6 +12,7 @@ export interface SavedAddress {
   state: string | null;
   pincode: string | null;
   type: string;
+  country_code: string | null;
 }
 
 interface AddressPickerProps {

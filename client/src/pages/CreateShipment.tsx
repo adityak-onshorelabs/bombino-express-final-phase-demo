@@ -1278,12 +1278,25 @@ export default function CreateShipment() {
               onSelect={(address: SavedAddress) => {
                 setReceiverName(address.full_name);
                 setReceiverCompany(address.company ?? '');
-                setReceiverPhone(address.phone.replace(/\D/g, ''));
                 setReceiverAddress(address.address_line_1);
                 setReceiverCity(address.city);
                 setReceiverState(address.state ?? '');
                 setReceiverZip(address.pincode ?? '');
                 setFieldErrors({});
+
+                // Update destination country from saved address if available
+                if (address.country_code && address.country_code !== 'IN') {
+                  setDestinationCountry(address.country_code);
+                }
+
+                // Strip dial code from stored phone since consignee_contact_no is stored with prefix
+                const rawPhone = address.phone.replace(/\D/g, '');
+                const dialCode = address.country_code
+                  ? (ITD_COUNTRY_MAP[address.country_code]?.dialCode ?? '').replace(/\D/g, '')
+                  : '';
+                const phoneDigits =
+                  dialCode && rawPhone.startsWith(dialCode) ? rawPhone.slice(dialCode.length) : rawPhone;
+                setReceiverPhone(phoneDigits);
               }}
             />
 
@@ -1313,44 +1326,44 @@ export default function CreateShipment() {
                   data-testid="input-receiver-company"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Phone</Label>
-                  <div className="flex gap-2 mt-1">
-                    {ITD_COUNTRY_MAP[destinationCountry]?.dialCode ? (
-                      <div className="h-11 px-3 flex items-center bg-muted/50 border border-border rounded-xl text-sm text-muted-foreground shrink-0 font-medium">
-                        {ITD_COUNTRY_MAP[destinationCountry].dialCode}
-                      </div>
-                    ) : null}
-                    <Input
-                      value={receiverPhone}
-                      onChange={(e) => {
-                        const digits = e.target.value.replace(/\D/g, '');
-                        setReceiverPhone(digits);
-                        clearFieldError('receiverPhone');
-                      }}
-                      placeholder="Phone number"
-                      className={cn(
-                        'flex-1 min-w-0',
-                        fieldBorderClass('receiverPhone')
-                      )}
-                      data-testid="input-receiver-phone"
-                    />
-                  </div>
-                  {fieldErrors.receiverPhone && (
-                    <p className="text-xs text-red-600 mt-1">Must be 6–15 digits</p>
-                  )}
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Email</Label>
+              <div>
+                <Label className="text-xs text-muted-foreground">Phone</Label>
+                <div className="flex gap-2 mt-1">
+                  {ITD_COUNTRY_MAP[destinationCountry]?.dialCode ? (
+                    <div className="h-11 px-3 flex items-center bg-muted/50 border border-border rounded-xl text-sm text-muted-foreground shrink-0 font-medium">
+                      {ITD_COUNTRY_MAP[destinationCountry].dialCode}
+                    </div>
+                  ) : null}
                   <Input
-                    type="email"
-                    value={receiverEmail}
-                    onChange={(e) => setReceiverEmail(e.target.value)}
-                    className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl"
-                    data-testid="input-receiver-email"
+                    value={receiverPhone}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '');
+                      setReceiverPhone(digits);
+                      clearFieldError('receiverPhone');
+                    }}
+                    placeholder="Phone number"
+                    className={cn(
+                      'flex-1 min-w-0',
+                      fieldBorderClass('receiverPhone')
+                    )}
+                    data-testid="input-receiver-phone"
                   />
                 </div>
+                {fieldErrors.receiverPhone && (
+                  <p className="text-xs text-red-600 mt-1">Must be 6–15 digits</p>
+                )}
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">
+                  Email <span className="text-muted-foreground/60 ml-1">(optional)</span>
+                </Label>
+                <Input
+                  type="email"
+                  value={receiverEmail}
+                  onChange={(e) => setReceiverEmail(e.target.value)}
+                  className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl"
+                  data-testid="input-receiver-email"
+                />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Address</Label>

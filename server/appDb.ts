@@ -577,7 +577,7 @@ export async function listAddressesByUserIdAndType(
 
   const { data, error } = await client
     .from("addresses")
-    .select("id, full_name, company, phone, address_line_1, city, state, pincode, type")
+    .select("id, full_name, company, phone, address_line_1, city, state, pincode, type, country_code")
     .eq("user_id", userId)
     .eq("type", type)
     .order("use_count", { ascending: false })
