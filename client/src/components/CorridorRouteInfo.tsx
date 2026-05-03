@@ -9,6 +9,7 @@ interface CorridorRouteInfoProps {
   bare?: boolean;
   destinationCode?: string;
   destinationName?: string;
+  originOnly?: boolean;
 }
 
 export function CorridorRouteInfo({
@@ -17,6 +18,7 @@ export function CorridorRouteInfo({
   bare,
   destinationCode,
   destinationName,
+  originOnly,
 }: CorridorRouteInfoProps) {
   const resolvedName =
     destinationName ??
@@ -33,14 +35,18 @@ export function CorridorRouteInfo({
         className
       )}
     >
-      <p
-        className={cn(
-          'font-semibold text-foreground',
-          compact ? 'text-[10px] leading-tight' : 'text-sm'
-        )}
-      >
-        India → {resolvedName}
-      </p>
+      {originOnly ? (
+        <p className="font-semibold text-foreground text-sm">Shipping from India</p>
+      ) : (
+        <p
+          className={cn(
+            'font-semibold text-foreground',
+            compact ? 'text-[10px] leading-tight' : 'text-sm'
+          )}
+        >
+          India → {resolvedName}
+        </p>
+      )}
       {!destinationCode ? (
         <p
           className={cn(

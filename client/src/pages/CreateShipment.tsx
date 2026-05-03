@@ -1090,12 +1090,7 @@ export default function CreateShipment() {
       <main className="px-4 py-5 max-w-md mx-auto">
         {currentStep === 1 && (
           <div className="space-y-4 animate-fade-in">
-            <CorridorRouteInfo
-              destinationCode={destinationCountry}
-              destinationName={formatCountryDisplay(
-                ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry
-              )}
-            />
+            <CorridorRouteInfo originOnly />
             <AddressPicker
               type="sender"
               isLoggedIn={isLoggedIn}
