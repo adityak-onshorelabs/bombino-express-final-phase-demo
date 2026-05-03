@@ -84,18 +84,46 @@ export default function Orders() {
 
   const handleDownloadCSV = async () => {
     try {
-      const res = await fetch('/api/shipments/download-csv', { credentials: 'include' });
+      const res = await fetch(
+        '/api/shipments/download-csv',
+        { credentials: 'include' }
+      );
       if (!res.ok) throw new Error('Failed');
+
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'bombino-shipments-' + new Date().toISOString().split('T')[0] + '.csv';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const filename = 'bombino-shipments-'
+        + new Date().toISOString()
+          .split('T')[0]
+        + '.csv';
+      const file = new File(
+        [blob],
+        filename,
+        { type: 'text/csv' }
+      );
+
+      if (
+        typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [file] })
+      ) {
+        await navigator.share({
+          files: [file],
+          title: 'Bombino Shipments',
+        });
+      } else {
+        // Fallback for desktop browsers
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
     } catch (err) {
+      if (err instanceof Error &&
+        err.name === 'AbortError') return;
       console.error('CSV download failed:', err);
     }
   };
