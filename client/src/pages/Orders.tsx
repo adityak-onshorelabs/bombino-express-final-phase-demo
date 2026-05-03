@@ -14,6 +14,55 @@ import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
 import { useToast } from '@/hooks/use-toast';
 
+/** RFC 4180-style CSV parse (quoted fields, escaped "", newlines inside quotes). */
+function parseCsvRecords(csvText: string): string[][] {
+  const records: string[][] = [];
+  let fields: string[] = [];
+  let field = '';
+  let inQuotes = false;
+  const text =
+    csvText.charCodeAt(0) === 0xfeff ? csvText.slice(1) : csvText;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        fields.push(field);
+        field = '';
+      } else if (ch === '\r') {
+        // skip
+      } else if (ch === '\n') {
+        fields.push(field);
+        field = '';
+        records.push(fields);
+        fields = [];
+      } else {
+        field += ch;
+      }
+    }
+  }
+
+  if (field.length > 0 || fields.length > 0) {
+    fields.push(field);
+    records.push(fields);
+  }
+
+  return records;
+}
+
 function formatBookingDate(value: string | null): string {
   if (!value) return '—';
   const d = parseISO(value.length <= 10 ? `${value}T12:00:00Z` : value);
@@ -30,6 +79,8 @@ export default function Orders() {
   const [trackingInput, setTrackingInput] = useState('');
   const [items, setItems] = useState<ShipmentHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [csvOverlayData, setCsvOverlayData] = useState<string | null>(null);
+  const [csvOverlayBlob, setCsvOverlayBlob] = useState<Blob | null>(null);
 
   const loadHistory = useCallback(async () => {
     if (!isLoggedIn) {
@@ -84,23 +135,40 @@ export default function Orders() {
 
   const handleDownloadCSV = async () => {
     try {
-      const res = await fetch(
-        '/api/shipments/download-csv',
-        { credentials: 'include' }
-      );
+      const res = await fetch('/api/shipments/download-csv', { credentials: 'include' });
       if (!res.ok) throw new Error('Failed');
 
       const blob = await res.blob();
-      const filename = 'bombino-shipments-'
-        + new Date().toISOString()
-          .split('T')[0]
-        + '.csv';
-      const file = new File(
-        [blob],
-        filename,
-        { type: 'text/csv' }
-      );
+      const text = await blob.text();
+      if (!text.trim()) {
+        toast({
+          title: 'No export data',
+          description: 'No shipments found to export.',
+        });
+        return;
+      }
 
+      setCsvOverlayBlob(blob);
+      setCsvOverlayData(text);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      console.error('CSV fetch failed:', err);
+      toast({
+        title: 'Export failed',
+        description: 'Could not generate the export. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleShareCSV = async () => {
+    if (!csvOverlayBlob || !csvOverlayData) return;
+
+    const filename =
+      'bombino-shipments-' + new Date().toISOString().split('T')[0] + '.csv';
+    const file = new File([csvOverlayBlob], filename, { type: 'text/csv' });
+
+    try {
       if (
         typeof navigator.share === 'function' &&
         typeof navigator.canShare === 'function' &&
@@ -111,20 +179,20 @@ export default function Orders() {
           title: 'Bombino Shipments',
         });
       } else {
-        // Fallback for desktop browsers
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        await navigator.clipboard.writeText(csvOverlayData);
+        toast({
+          title: 'Copied to clipboard',
+          description: 'CSV data copied. Paste into any spreadsheet app.',
+        });
       }
     } catch (err) {
-      if (err instanceof Error &&
-        err.name === 'AbortError') return;
-      console.error('CSV download failed:', err);
+      if (err instanceof Error && err.name === 'AbortError') return;
+      console.error('Share failed:', err);
+      toast({
+        title: 'Share failed',
+        description: 'Could not share the export.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -281,6 +349,77 @@ export default function Orders() {
       </main>
 
       <BottomNav />
+
+      {csvOverlayData && (
+        <div className="fixed inset-0 z-[100] bg-white flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-white safe-top shrink-0">
+            <span className="font-semibold text-sm text-foreground">Shipment Export</span>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => void handleShareCSV()}
+                className="text-sm text-[#14567C] font-medium"
+              >
+                Share
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCsvOverlayData(null);
+                  setCsvOverlayBlob(null);
+                }}
+                className="text-sm text-muted-foreground font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {(() => {
+              const records = parseCsvRecords(csvOverlayData);
+              const dataRows = records.slice(1).filter((r) => r.length > 1);
+              if (dataRows.length === 0) {
+                return (
+                  <p className="text-sm text-muted-foreground text-center mt-8">No shipments found.</p>
+                );
+              }
+              return dataRows.map((cols, i) => {
+                const awb = cols[0] ?? '—';
+                const booked = cols[1] ?? '—';
+                const service = cols[2] ?? '—';
+                const destCity = cols[4] ?? '';
+                const destCountry = cols[5] ?? '';
+                const destination =
+                  [destCity, destCountry].filter(Boolean).join(', ') || '—';
+                const consignee = cols[6] ?? '—';
+                const rawStatus = cols[12] ?? '—';
+                const hasStatus = rawStatus.trim() !== '' && rawStatus !== '—';
+                return (
+                  <div
+                    key={`${awb}-${i}`}
+                    className="bg-card rounded-xl border border-border p-3 shadow-sm space-y-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-foreground break-all">{awb}</span>
+                      <StatusBadge
+                        status={hasStatus ? getStatusLabel(rawStatus) : 'Unknown'}
+                        tone={hasStatus ? getStatusColor(rawStatus) : 'gray'}
+                        className="shrink-0"
+                      />
+                    </div>
+                    <div className="text-xs text-muted-foreground">To: {destination}</div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">{service}</span>
+                      <span className="text-xs text-muted-foreground">{booked}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">{consignee}</div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
