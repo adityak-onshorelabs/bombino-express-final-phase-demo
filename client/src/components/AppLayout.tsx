@@ -1,0 +1,35 @@
+import type * as React from 'react';
+import { useLocation } from 'wouter';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { DesktopSidebar } from './DesktopSidebar';
+import { DesktopTopBar } from './DesktopTopBar';
+
+export function AppLayout({ children }: { children: React.ReactNode }) {
+  const isMobile = useIsMobile();
+  const [location] = useLocation();
+  const isFullscreenPage = location === '/help';
+
+  if (isMobile === undefined) {
+    return <>{children}</>;
+  }
+
+  if (isMobile) {
+    return <>{children}</>;
+  }
+
+  return (
+    <div className="flex h-screen overflow-hidden">
+      <DesktopSidebar />
+      <main
+        className={`app-content-desktop flex-1 flex flex-col ${
+          isFullscreenPage
+            ? 'overflow-hidden fullscreen-page bg-[#080808]'
+            : 'overflow-y-auto bg-[#F4F4F5]'
+        }`}
+      >
+        <DesktopTopBar />
+        {children}
+      </main>
+    </div>
+  );
+}

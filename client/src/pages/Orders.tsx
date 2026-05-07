@@ -207,8 +207,8 @@ export default function Orders() {
           data-testid="zone-orders-track"
         >
           <div className="relative z-10">
-            <h2 className="text-lg font-semibold text-foreground mb-1">Track Your Shipment</h2>
-            <p className="text-sm text-muted-foreground mb-4">Enter AWB number to get real-time status</p>
+            <h2 className="text-lg font-semibold text-foreground mb-1 md:hidden">Track Your Shipment</h2>
+            <p className="text-sm text-muted-foreground mb-4 md:hidden">Enter AWB number to get real-time status</p>
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -287,7 +287,16 @@ export default function Orders() {
             </Button>
           </div>
         ) : (
-          <div className="space-y-3">
+          <>
+            <div className="hidden md:grid md:grid-cols-[2fr_2fr_1.5fr_1fr_auto_auto] md:gap-x-6 md:px-4 md:py-2 md:mb-1 md:text-xs md:font-medium md:text-muted-foreground md:border-b md:border-border">
+              <span>AWB Number</span>
+              <span>Recipient</span>
+              <span>Service</span>
+              <span>Booked</span>
+              <span className="md:text-right">Amount</span>
+              <span>Status</span>
+            </div>
+            <div className="space-y-3">
             {items.map((row) => {
               const awb = row.awb_number;
               const amountStr = formatInr(row.total_amount, row.currency);
@@ -296,36 +305,27 @@ export default function Orders() {
                   key={`${awb}-${row.created_at}`}
                   type="button"
                   onClick={() => setLocation(`/shipment/${encodeURIComponent(awb)}`)}
-                  className="w-full text-left card-accent hover:border-primary/25 active:scale-[0.99] transition-all"
+                  className="w-full text-left card-accent hover:border-primary/25 active:scale-[0.99] transition-all md:grid md:grid-cols-[2fr_2fr_1.5fr_1fr_auto_auto] md:gap-x-6 md:items-center md:rounded-none md:border-0 md:border-b md:border-border md:shadow-none md:bg-transparent md:px-4 md:py-3"
                   data-testid={`order-card-${awb}`}
                 >
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="font-semibold tabular-nums text-sm text-foreground truncate">{awb}</span>
-                      <button
-                        type="button"
-                        onClick={(e) => copyAwb(e, awb)}
-                        className="p-1.5 rounded-lg hover:bg-muted shrink-0"
-                        aria-label="Copy AWB"
-                      >
-                        <Copy className="w-4 h-4 text-muted-foreground" />
-                      </button>
+                  <div className="flex items-center gap-2 min-w-0 mb-2 md:mb-0">
+                    <span className="font-semibold tabular-nums text-sm text-foreground truncate">{awb}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => copyAwb(e, awb)}
+                      className="p-1.5 rounded-lg hover:bg-muted shrink-0"
+                      aria-label="Copy AWB"
+                    >
+                      <Copy className="w-4 h-4 text-muted-foreground" />
+                    </button>
+                    <div className="ml-auto md:hidden">
+                      <StatusBadge
+                        status={row.current_status?.trim() ? getStatusLabel(row.current_status) : 'Unknown'}
+                        tone={row.current_status?.trim() ? getStatusColor(row.current_status) : 'gray'}
+                      />
                     </div>
-                    <StatusBadge
-                      status={
-                        row.current_status != null && row.current_status.trim() !== ''
-                          ? getStatusLabel(row.current_status)
-                          : 'Unknown'
-                      }
-                      tone={
-                        row.current_status != null && row.current_status.trim() !== ''
-                          ? getStatusColor(row.current_status)
-                          : 'gray'
-                      }
-                      className="shrink-0"
-                    />
                   </div>
-                  <p className="text-sm text-gray-500 truncate">
+                  <p className="text-sm text-gray-500 truncate mb-1 md:mb-0">
                     {row.consignee_name ?? '—'}
                     {row.consignee_city ? (
                       <>
@@ -334,17 +334,24 @@ export default function Orders() {
                       </>
                     ) : null}
                   </p>
-                  <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-                    <span className="truncate">{row.service_name ?? '—'}</span>
-                    {amountStr ? <span className="tabular-nums shrink-0 ml-2">{amountStr}</span> : null}
+                  <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground md:contents">
+                    <span className="truncate md:text-sm">{row.service_name ?? '—'}</span>
+                    <span className="md:text-sm">{formatBookingDate(row.booking_date)}</span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-2">
-                    Booked {formatBookingDate(row.booking_date)}
-                  </p>
+                  <span className="hidden md:block text-sm tabular-nums text-right">
+                    {amountStr ?? '—'}
+                  </span>
+                  <div className="hidden md:flex md:justify-end md:shrink-0">
+                    <StatusBadge
+                      status={row.current_status?.trim() ? getStatusLabel(row.current_status) : 'Unknown'}
+                      tone={row.current_status?.trim() ? getStatusColor(row.current_status) : 'gray'}
+                    />
+                  </div>
                 </button>
               );
             })}
-          </div>
+            </div>
+          </>
         )}
       </main>
 

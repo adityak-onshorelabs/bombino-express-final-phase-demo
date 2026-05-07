@@ -150,7 +150,7 @@ function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-full h-11 justify-between font-normal text-sm bg-muted/30 border-border rounded-xl px-3"
+          className="w-full h-11 justify-between font-normal text-sm bg-muted/30 border-border rounded-xl px-3 md:bg-transparent md:border-0 md:h-auto md:p-0 md:text-base md:font-medium"
         >
           <span className="truncate text-left">{displayName}</span>
           <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -307,8 +307,8 @@ export default function Rates() {
         style={ratesResultsShellStyle}
         data-testid="screen-rates-results"
       >
-        <header className="px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 max-w-md mx-auto">
-          <div className="flex items-center gap-2">
+        <header className="px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 max-w-md mx-auto md:max-w-none md:px-0 md:pt-8 md:pb-4">
+          <div className="flex items-center gap-2 md:mb-2">
             <button
               type="button"
               onClick={handleBack}
@@ -317,30 +317,30 @@ export default function Rates() {
             >
               <ArrowLeft className="w-5 h-5 text-foreground" />
             </button>
-            <h1 className="text-base font-medium text-foreground tracking-tight">Rate options</h1>
+            <h1 className="text-base font-medium text-foreground tracking-tight md:text-2xl md:font-semibold md:text-[#1E3A4A]">Rate options</h1>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            <span className="inline-flex items-center rounded-full bg-white border-[0.5px] border-[var(--color-border-tertiary)] px-3 py-[5px] text-[12px] text-foreground">
+          <div className="mt-4 flex flex-wrap gap-2 md:gap-3 md:mt-4">
+            <span className="inline-flex items-center rounded-full bg-white border-[0.5px] border-[var(--color-border-tertiary)] px-3 py-[5px] text-[12px] text-foreground md:px-4 md:py-2 md:text-sm md:font-medium md:rounded-xl">
               {weightKgLabel}
             </span>
-            <span className="inline-flex items-center rounded-full bg-white border-[0.5px] border-[var(--color-border-tertiary)] px-3 py-[5px] text-[12px] text-foreground">
+            <span className="inline-flex items-center rounded-full bg-white border-[0.5px] border-[var(--color-border-tertiary)] px-3 py-[5px] text-[12px] text-foreground md:px-4 md:py-2 md:text-sm md:font-medium md:rounded-xl">
               {piecesLabel}
             </span>
-            <span className="inline-flex flex-col justify-center rounded-full bg-white border-[0.5px] border-[var(--color-border-tertiary)] px-3 py-[5px] min-w-[10rem] max-w-full">
-              <span className="text-[12px] font-medium leading-tight break-words">{corridorLabel}</span>
+            <span className="inline-flex flex-col justify-center rounded-full bg-white border-[0.5px] border-[var(--color-border-tertiary)] px-3 py-[5px] min-w-[10rem] max-w-full md:px-4 md:py-2 md:text-sm md:font-medium md:rounded-xl">
+              <span className="text-[12px] font-medium leading-tight break-words md:text-sm md:font-medium">{corridorLabel}</span>
             </span>
           </div>
 
-          <div className="mt-3 flex items-center justify-between text-[12px] text-muted-foreground">
+          <div className="mt-3 flex items-center justify-between text-[12px] text-muted-foreground md:mt-3 md:text-sm">
             <span>{displayRates.length} services available</span>
             <span>↑ lowest price first</span>
           </div>
         </header>
 
-        <main className="px-4 max-w-md mx-auto pb-2">
+        <main className="px-4 max-w-md mx-auto pb-2 md:max-w-none md:px-0 md:pb-8">
           {!bookable ? (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 md:col-span-2">
               <div className="flex gap-3">
                 <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" aria-hidden />
                 <div className="min-w-0 flex-1">
@@ -393,20 +393,20 @@ export default function Rates() {
               return (
                 <div
                   key={service.id}
-                  className="rounded-[14px] border-[0.5px] border-[var(--color-border-tertiary)] bg-[var(--color-background-primary)] overflow-hidden"
+                  className="rounded-[14px] border-[0.5px] border-[var(--color-border-tertiary)] bg-[var(--color-background-primary)] overflow-hidden md:rounded-2xl"
                   data-testid={`rate-card-${idx}`}
                 >
-                  <div className="flex items-center gap-3 px-4 pt-[14px] pb-3">
+                  <div className="flex items-center gap-3 px-4 pt-[14px] pb-3 md:px-6 md:pt-5 md:pb-4 md:gap-4">
                     <div
-                      className="w-[34px] h-[34px] shrink-0 rounded-[10px] flex items-center justify-center text-[13px] font-medium text-white"
+                      className="w-[34px] h-[34px] shrink-0 rounded-[10px] flex items-center justify-center text-[13px] font-medium text-white md:w-11 md:h-11 md:rounded-xl md:text-base"
                       style={{ backgroundColor: isBest ? BEST_GREEN : BOMBINO_BLUE }}
                     >
                       {letter}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-medium text-foreground leading-snug">{displayName}</p>
+                      <p className="text-[13px] font-medium text-foreground leading-snug md:text-base md:font-semibold">{displayName}</p>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                        <span className="text-[11px] text-muted-foreground">
+                        <span className="text-[11px] text-muted-foreground md:text-xs md:mt-1">
                           {weightStr} kg chargeable
                         </span>
                         {isBest && (
@@ -420,10 +420,10 @@ export default function Rates() {
                       </div>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="text-[20px] font-medium tabular-nums" style={{ color: BOMBINO_BLUE }}>
+                      <p className="text-[20px] font-medium tabular-nums md:text-2xl md:font-semibold" style={{ color: BOMBINO_BLUE }}>
                         {formatInr(service.total)}
                       </p>
-                      <p className="text-[10px] text-muted-foreground">incl. GST</p>
+                      <p className="text-[10px] text-muted-foreground md:text-xs">incl. GST</p>
                     </div>
                   </div>
 
@@ -432,7 +432,7 @@ export default function Rates() {
                   <button
                     type="button"
                     onClick={toggle}
-                    className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-black/[0.02] transition-colors"
+                    className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-black/[0.02] transition-colors md:px-6 md:py-3 md:text-xs"
                   >
                     <span className="text-[11px] text-muted-foreground">
                       {open ? 'Hide breakdown' : 'View price breakdown'}
@@ -446,7 +446,7 @@ export default function Rates() {
                   </button>
 
                   {open && (
-                    <div className="bg-[var(--color-background-secondary)] px-4 py-3 border-t-[0.5px] border-[var(--color-border-tertiary)]">
+                    <div className="bg-[var(--color-background-secondary)] px-4 py-3 border-t-[0.5px] border-[var(--color-border-tertiary)] md:px-6 md:py-4">
                       <div className="space-y-2">
                         <div className="flex justify-between gap-3 text-[11px]">
                           <span className="text-muted-foreground">Base rate</span>
@@ -511,7 +511,7 @@ export default function Rates() {
                       {bookable ? (
                         <button
                           type="button"
-                          className="mt-[10px] w-full h-10 rounded-[10px] text-[13px] font-medium text-white transition-opacity hover:opacity-95 active:opacity-90"
+                          className="mt-[10px] w-full h-10 rounded-[10px] text-[13px] font-medium text-white transition-opacity hover:opacity-95 active:opacity-90 md:h-12 md:rounded-xl md:text-sm md:font-semibold md:mt-4"
                           style={{ backgroundColor: BOMBINO_BLUE }}
                           onClick={() => handleBookRate(service)}
                         >
@@ -525,7 +525,7 @@ export default function Rates() {
             })}
           </div>
 
-          <p className="text-[10px] text-muted-foreground text-center mt-6 px-4 leading-relaxed">
+          <p className="text-[10px] text-muted-foreground text-center mt-6 px-4 leading-relaxed md:col-span-2 md:text-xs">
             Rates are indicative and subject to change based on actual shipment weight and dimensions at the time of pickup. Final charges may vary.
           </p>
         </main>
@@ -547,28 +547,31 @@ export default function Rates() {
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 
       <main className="px-4 py-5 max-w-md mx-auto">
-        <h1 className="text-lg font-semibold text-foreground mb-1">Get Rates</h1>
+        <h1 className="text-lg font-semibold text-foreground mb-1 md:text-3xl md:font-bold md:mb-1 md:text-[#1E3A4A]">Get Rates</h1>
+        <p className="hidden md:block text-sm text-muted-foreground mb-6">
+          Instant rates for international shipments from India
+        </p>
 
         <div className="mb-5 space-y-3">
-          <div className="flex items-end gap-2">
-            <div className="flex-1 min-w-0">
-              <Label className="text-[10px] text-muted-foreground mb-1 block">From</Label>
+          <div className="flex items-end gap-2 md:gap-0 md:items-stretch md:bg-white md:rounded-2xl md:border md:border-border md:shadow-sm md:p-1 md:mb-8">
+            <div className="flex-1 min-w-0 md:flex-1 md:p-3">
+              <Label className="text-[10px] text-muted-foreground mb-1 block md:text-xs md:font-semibold md:text-[#1E3A4A] md:uppercase md:tracking-wider">From</Label>
               <CountryCombobox value={selectedOrigin} onValueChange={handleOriginChange} />
             </div>
-            <div className="flex shrink-0 pb-[10px] text-muted-foreground" aria-hidden>
+            <div className="flex shrink-0 pb-[10px] text-muted-foreground md:flex md:items-center md:px-3 md:pb-0 md:text-[#1E3A4A] md:font-semibold" aria-hidden>
               <ArrowRight className="w-5 h-5" />
             </div>
-            <div className="flex-1 min-w-0">
-              <Label className="text-[10px] text-muted-foreground mb-1 block">To</Label>
+            <div className="flex-1 min-w-0 md:flex-1 md:p-3">
+              <Label className="text-[10px] text-muted-foreground mb-1 block md:text-xs md:font-semibold md:text-[#1E3A4A] md:uppercase md:tracking-wider">To</Label>
               <CountryCombobox value={selectedDestination} onValueChange={handleDestinationChange} />
             </div>
           </div>
         </div>
 
         <div className="space-y-4">
-          <div className="bg-card rounded-xl border border-border p-4 shadow-sm">
+          <div className="bg-card rounded-xl border border-border p-4 shadow-sm md:p-6 md:rounded-2xl md:shadow-md">
             <div className="flex items-center justify-between mb-3">
-              <Label className="text-sm font-semibold">Weight</Label>
+              <Label className="text-sm font-semibold md:text-base md:font-semibold">Weight</Label>
               <div className="flex bg-muted rounded-lg p-0.5">
                 <button
                   onClick={() => setWeightUnit('lb')}
@@ -590,7 +593,7 @@ export default function Rates() {
                 </button>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 md:gap-6">
               <div>
                 <Label className="text-[10px] text-muted-foreground">Weight ({weightUnit})</Label>
                 <Input
@@ -598,7 +601,7 @@ export default function Rates() {
                   value={weight}
                   onChange={(e) => setWeight(e.target.value)}
                   placeholder="2"
-                  className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl"
+                  className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl md:h-12 md:text-base"
                   step="0.1"
                   min="0.1"
                   data-testid="input-weight"
@@ -611,7 +614,7 @@ export default function Rates() {
                   value={pieces}
                   onChange={(e) => setPieces(e.target.value)}
                   placeholder="1"
-                  className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl"
+                  className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl md:h-12 md:text-base"
                   min="1"
                   data-testid="input-pieces"
                 />
@@ -629,7 +632,7 @@ export default function Rates() {
           <Button
             onClick={handleGetRates}
             disabled={rateMutation.isPending}
-            className="w-full h-12 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-xl shadow-md disabled:opacity-70 mt-6 mb-4"
+            className="w-full h-12 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-xl shadow-md disabled:opacity-70 mt-6 mb-4 md:h-14 md:text-base md:rounded-2xl"
             data-testid="button-get-rates"
           >
             {rateMutation.isPending ? (

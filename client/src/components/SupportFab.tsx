@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "wouter";
 import { Sparkles } from "lucide-react";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const FAB_SIZE = 64;
 /** BottomNav tap row (matches `h-16` / 4rem). */
@@ -145,6 +146,8 @@ export function SupportFab() {
     return () => window.removeEventListener("resize", onResize);
   }, [position]);
 
+  const isMobile = useIsMobile();
+
   const isPositioned = position !== null;
 
   // Default mode: only bottom, let .fab-wrapper provide left: 50%
@@ -166,6 +169,8 @@ export function SupportFab() {
         bottom: "calc(4rem + env(safe-area-inset-bottom, 0px) + 1rem)",
         touchAction: "none",
       };
+
+  if (!isMobile) return null;
 
   const fabContent = (
     <div

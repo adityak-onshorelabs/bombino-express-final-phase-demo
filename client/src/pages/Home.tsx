@@ -170,11 +170,11 @@ export default function Home() {
 
         {/* ZONE 1: Hero - Track Shipment (Primary Action) */}
         <div 
-          className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/8 via-primary/4 to-transparent border border-primary/10 p-5 shadow-[0_8px_32px_rgba(198,40,40,0.10)]"
+          className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/8 via-primary/4 to-transparent border border-primary/10 p-5 shadow-[0_8px_32px_rgba(198,40,40,0.10)] md:py-8 md:px-8"
           data-testid="zone-hero"
         >
           <div className="relative z-10">
-            <h1 className="text-lg font-semibold text-foreground mb-1">Track Any Order</h1>
+            <h1 className="text-lg font-semibold text-foreground mb-1 md:text-2xl md:font-bold md:mb-2">Track Any Order</h1>
             <p className="text-sm text-muted-foreground mb-4">Enter AWB number to get real-time status</p>
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -183,14 +183,14 @@ export default function Home() {
                   value={trackingNumber}
                   onChange={(e) => setTrackingNumber(e.target.value)}
                   placeholder="e.g. BMB123456789"
-                  className="h-12 pl-10 text-sm bg-white border-border rounded-xl shadow-sm"
+                  className="h-12 pl-10 text-sm bg-white border-border rounded-xl shadow-sm md:h-14 md:text-base md:pl-12"
                   onKeyDown={(e) => e.key === 'Enter' && handleTrack()}
                   data-testid="input-tracking"
                 />
               </div>
               <Button
                 onClick={handleTrack}
-                className="h-12 px-5 bg-primary hover:bg-primary/90 rounded-xl shadow-lg shadow-primary/25 active:scale-[0.97] transition-all font-semibold"
+                className="h-12 px-5 bg-primary hover:bg-primary/90 rounded-xl shadow-lg shadow-primary/25 active:scale-[0.97] transition-all font-semibold md:h-14 md:px-8 md:text-base"
                 data-testid="button-track"
               >
                 Track
@@ -204,29 +204,29 @@ export default function Home() {
         <div className="flex gap-3" data-testid="zone-actions">
           <Link
             href="/rates"
-            className="flex-1 flex items-center gap-3 p-4 card-elevated active:scale-[0.98] transition-transform"
+            className="flex-1 flex items-center gap-3 p-4 card-elevated active:scale-[0.98] transition-transform md:py-6 md:px-6 md:gap-4 md:rounded-2xl"
             data-testid="button-get-rates"
           >
-            <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center flex-shrink-0">
-              <BadgeDollarSign className="w-5 h-5 text-amber-600" />
+            <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center flex-shrink-0 md:w-14 md:h-14 md:rounded-2xl">
+              <BadgeDollarSign className="w-5 h-5 text-amber-600 md:w-7 md:h-7" />
             </div>
             <div>
-              <p className="font-medium text-sm text-foreground">Get Rates</p>
-              <p className="text-[11px] text-muted-foreground">Check costs</p>
+              <p className="font-medium text-sm text-foreground md:text-base md:font-semibold">Get Rates</p>
+              <p className="text-[11px] text-muted-foreground md:text-sm md:mt-1">Check costs</p>
             </div>
           </Link>
 
           <Link
             href="/create"
-            className="flex-1 flex items-center gap-3 p-4 card-elevated active:scale-[0.98] transition-transform"
+            className="flex-1 flex items-center gap-3 p-4 card-elevated active:scale-[0.98] transition-transform md:py-6 md:px-6 md:gap-4 md:rounded-2xl"
             data-testid="button-ship"
           >
-            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <Send className="w-5 h-5 text-primary" />
+            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 md:w-14 md:h-14 md:rounded-2xl">
+              <Send className="w-5 h-5 text-primary md:w-7 md:h-7" />
             </div>
             <div>
-              <p className="font-medium text-sm text-foreground">Ship Now</p>
-              <p className="text-[11px] text-muted-foreground">Create shipment</p>
+              <p className="font-medium text-sm text-foreground md:text-base md:font-semibold">Ship Now</p>
+              <p className="text-[11px] text-muted-foreground md:text-sm md:mt-1">Create shipment</p>
             </div>
           </Link>
         </div>
@@ -279,112 +279,129 @@ export default function Home() {
           </>
         )}
 
-        {/* Logged-in: My Shipments */}
-        {isLoggedIn && !shipmentsError && (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-medium text-foreground">My Shipments</h2>
-              <Link href="/orders" className="text-xs text-[#FBAD1F] font-medium flex items-center gap-0.5 hover:underline">
-                View all <ChevronRight className="w-3 h-3" />
-              </Link>
-            </div>
-            <div className="space-y-2">
-              {shipmentsLoading && (
-                <>
-                  <HomeShipmentsSkeleton />
-                  <HomeShipmentsSkeleton />
-                </>
-              )}
-              {!shipmentsLoading &&
-                userShipments.length > 0 &&
-                userShipments.map((shipment) => (
-                  <Link
-                    key={shipment.awb_number + shipment.created_at}
-                    href={`/shipment/${encodeURIComponent(shipment.awb_number)}`}
-                    className="block card-accent hover:border-primary/25 active:scale-[0.99] transition-all"
-                    data-testid={`shipment-card-${shipment.awb_number}`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-semibold tabular-nums tracking-[0.02em] text-foreground">
-                        {shipment.awb_number}
-                      </span>
-                      <StatusBadge
-                        status={
-                          shipment.current_status != null && shipment.current_status.trim() !== ''
-                            ? getStatusLabel(shipment.current_status)
-                            : 'Unknown'
-                        }
-                        tone={
-                          shipment.current_status != null && shipment.current_status.trim() !== ''
-                            ? getStatusColor(shipment.current_status)
-                            : 'gray'
-                        }
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-muted-foreground">
-                      <span>
-                        {[shipment.consignee_city, shipment.consignee_country].filter(Boolean).join(', ') || '—'}
-                      </span>
-                      <span>
-                        {shipment.total_amount != null && String(shipment.total_amount) !== ''
-                          ? `${(shipment.currency ?? 'INR').toUpperCase() === 'INR' ? '₹' : ''}${Number(shipment.total_amount).toLocaleString()}`
-                          : '—'}
-                      </span>
-                    </div>
-                  </Link>
-                ))}
-              {!shipmentsLoading && apiShipments.length === 0 && (
-                <div className="card-elevated flex items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
-                  No shipments yet
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Logged-in: Recent Updates */}
-        {isLoggedIn && !notificationsError && (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-medium text-foreground">Recent Updates</h2>
-              <Link href="/notifications" className="text-xs text-[#FBAD1F] font-medium flex items-center gap-0.5 hover:underline">
-                View all <ChevronRight className="w-3 h-3" />
-              </Link>
-            </div>
-            <div className="space-y-2">
-              {shipmentsLoading && (
-                <>
-                  <HomeNotificationsSkeleton />
-                  <HomeNotificationsSkeleton />
-                </>
-              )}
-              {!shipmentsLoading &&
-                userNotifications.length > 0 &&
-                userNotifications.map((notif) => (
-                  <div
-                    key={notif.id}
-                    className="flex items-start gap-3 card-accent"
-                    data-testid={`notification-${notif.id}`}
-                  >
-                    <div className="rounded-full bg-primary/8 p-2 flex items-center justify-center flex-shrink-0">
-                      <Bell className="w-4 h-4 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm text-foreground">{notif.title ?? ''}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{notif.body ?? ''}</p>
-                    </div>
+        {isLoggedIn && (
+          <div className="space-y-7 md:space-y-0 md:grid md:grid-cols-[1fr_320px] md:gap-8 md:items-start">
+            <div className="space-y-7">
+              {!shipmentsError && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-sm font-medium text-foreground md:text-base md:font-semibold">My Shipments</h2>
+                    <Link href="/orders" className="text-xs text-[#FBAD1F] font-medium flex items-center gap-0.5 hover:underline">
+                      View all <ChevronRight className="w-3 h-3" />
+                    </Link>
                   </div>
-                ))}
-              {!shipmentsLoading && apiNotifications.length === 0 && (
-                <div className="card-elevated flex items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
-                  No recent updates
+
+                  <div className="hidden md:grid md:grid-cols-[2fr_1fr_auto_auto] md:gap-4 md:px-4 md:py-2 md:text-xs md:font-medium md:text-muted-foreground md:border-b md:border-border">
+                    <span>AWB Number</span>
+                    <span>Destination</span>
+                    <span className="text-right">Amount</span>
+                    <span>Status</span>
+                  </div>
+
+                  <div className="space-y-2 md:space-y-0">
+                    {shipmentsLoading && (
+                      <>
+                        <HomeShipmentsSkeleton />
+                        <HomeShipmentsSkeleton />
+                      </>
+                    )}
+                    {!shipmentsLoading &&
+                      userShipments.length > 0 &&
+                      userShipments.map((shipment) => {
+                        const dest = [shipment.consignee_city, shipment.consignee_country].filter(Boolean).join(', ') || '—';
+                        const amount = shipment.total_amount != null && String(shipment.total_amount) !== ''
+                          ? `${(shipment.currency ?? 'INR').toUpperCase() === 'INR' ? '₹' : ''}${Number(shipment.total_amount).toLocaleString()}`
+                          : '—';
+                        return (
+                          <Link
+                            key={shipment.awb_number + shipment.created_at}
+                            href={`/shipment/${encodeURIComponent(shipment.awb_number)}`}
+                            className="block card-accent hover:border-primary/25 active:scale-[0.99] transition-all md:grid md:grid-cols-[2fr_1fr_auto_auto] md:gap-4 md:items-center md:rounded-none md:border-0 md:border-b md:border-border md:shadow-none md:px-4 md:py-3"
+                            data-testid={`shipment-card-${shipment.awb_number}`}
+                          >
+                            <div className="flex items-center justify-between mb-1 md:mb-0">
+                              <span className="text-sm font-semibold tabular-nums tracking-[0.02em] text-foreground">
+                                {shipment.awb_number}
+                              </span>
+                              <StatusBadge
+                                className="md:hidden"
+                                status={shipment.current_status?.trim() ? getStatusLabel(shipment.current_status) : 'Unknown'}
+                                tone={shipment.current_status?.trim() ? getStatusColor(shipment.current_status) : 'gray'}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between text-xs text-muted-foreground md:contents">
+                              <span className="md:text-sm">{dest}</span>
+                              <span className="md:text-sm md:text-right">{amount}</span>
+                            </div>
+                            <StatusBadge
+                              className="hidden md:flex md:shrink-0"
+                              status={shipment.current_status?.trim() ? getStatusLabel(shipment.current_status) : 'Unknown'}
+                              tone={shipment.current_status?.trim() ? getStatusColor(shipment.current_status) : 'gray'}
+                            />
+                          </Link>
+                        );
+                      })}
+                    {!shipmentsLoading && apiShipments.length === 0 && (
+                      <div className="card-elevated flex items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
+                        No shipments yet
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              <div className="hidden md:block">
+                <WhyBombinoSection />
+              </div>
+            </div>
+
+            <div>
+              {!notificationsError && (
+                <div className="md:sticky md:top-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-sm font-medium text-foreground md:text-base md:font-semibold">Recent Updates</h2>
+                    <Link href="/notifications" className="text-xs text-[#FBAD1F] font-medium flex items-center gap-0.5 hover:underline">
+                      View all <ChevronRight className="w-3 h-3" />
+                    </Link>
+                  </div>
+                  <div className="space-y-2">
+                    {shipmentsLoading && (
+                      <>
+                        <HomeNotificationsSkeleton />
+                        <HomeNotificationsSkeleton />
+                      </>
+                    )}
+                    {!shipmentsLoading &&
+                      userNotifications.length > 0 &&
+                      userNotifications.map((notif) => (
+                        <div
+                          key={notif.id}
+                          className="flex items-start gap-3 card-accent"
+                          data-testid={`notification-${notif.id}`}
+                        >
+                          <div className="rounded-full bg-primary/8 p-2 flex items-center justify-center flex-shrink-0">
+                            <Bell className="w-4 h-4 text-primary" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm text-foreground">{notif.title ?? ''}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{notif.body ?? ''}</p>
+                          </div>
+                        </div>
+                      ))}
+                    {!shipmentsLoading && apiNotifications.length === 0 && (
+                      <div className="card-elevated flex items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
+                        No recent updates
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {isLoggedIn && <WhyBombinoSection />}
+        <div className="md:hidden">
+          {isLoggedIn && <WhyBombinoSection />}
+        </div>
       </main>
 
       <BottomNav />
