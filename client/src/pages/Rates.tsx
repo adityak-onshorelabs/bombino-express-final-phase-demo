@@ -150,7 +150,7 @@ function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-full h-11 justify-between font-normal text-sm bg-muted/30 border-border rounded-xl px-3 md:bg-transparent md:border-0 md:h-auto md:p-0 md:text-base md:font-medium"
+          className="w-full h-11 justify-between font-normal text-sm bg-muted/30 border-border rounded-xl px-3 md:h-auto md:text-base md:font-medium"
         >
           <span className="truncate text-left">{displayName}</span>
           <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -308,7 +308,7 @@ export default function Rates() {
         data-testid="screen-rates-results"
       >
         <header className="px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 max-w-md mx-auto md:max-w-none md:px-0 md:pt-8 md:pb-4">
-          <div className="flex items-center gap-2 md:mb-2">
+          <div className="flex items-center gap-2 md:mb-4">
             <button
               type="button"
               onClick={handleBack}
@@ -317,7 +317,7 @@ export default function Rates() {
             >
               <ArrowLeft className="w-5 h-5 text-foreground" />
             </button>
-            <h1 className="text-base font-medium text-foreground tracking-tight md:text-2xl md:font-semibold md:text-[#1E3A4A]">Rate options</h1>
+            <h1 className="text-base font-medium text-foreground tracking-tight md:text-2xl md:font-bold md:text-[#1E3A4A]">Rate options</h1>
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2 md:gap-3 md:mt-4">
@@ -447,65 +447,67 @@ export default function Rates() {
 
                   {open && (
                     <div className="bg-[var(--color-background-secondary)] px-4 py-3 border-t-[0.5px] border-[var(--color-border-tertiary)] md:px-6 md:py-4">
-                      <div className="space-y-2">
-                        <div className="flex justify-between gap-3 text-[11px]">
-                          <span className="text-muted-foreground">Base rate</span>
-                          <span className="font-medium tabular-nums">{formatInr(service.rate)}</span>
+                      <div className="md:max-w-xl">
+                        <div className="space-y-2">
+                          <div className="flex justify-between gap-3 text-[11px]">
+                            <span className="text-muted-foreground">Base rate</span>
+                            <span className="font-medium tabular-nums">{formatInr(service.rate)}</span>
+                          </div>
+                          {service.fsc !== 0 && (
+                            <div className="flex justify-between gap-3 text-[11px]">
+                              <span className="text-muted-foreground">Fuel surcharge (FSC)</span>
+                              <span className="font-medium tabular-nums">{formatInr(service.fsc)}</span>
+                            </div>
+                          )}
+                          {!itemizedEmpty &&
+                            Object.values(service.chrage_apply_data!)
+                              .filter((entry) => entry.amount !== 0)
+                              .map((entry, i) => (
+                                <div key={`${service.id}-chg-${i}`} className="flex justify-between gap-3 text-[11px]">
+                                  <span className="text-muted-foreground">{entry.name}</span>
+                                  <span className="font-medium tabular-nums">{formatInr(entry.amount)}</span>
+                                </div>
+                              ))}
+                          {showOtherChargesAggregate && (
+                            <div className="flex justify-between gap-3 text-[11px]">
+                              <span className="text-muted-foreground">Other charges</span>
+                              <span className="font-medium tabular-nums">
+                                {formatInr(service.other_charges)}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                        {service.fsc !== 0 && (
-                          <div className="flex justify-between gap-3 text-[11px]">
-                            <span className="text-muted-foreground">Fuel surcharge (FSC)</span>
-                            <span className="font-medium tabular-nums">{formatInr(service.fsc)}</span>
-                          </div>
-                        )}
-                        {!itemizedEmpty &&
-                          Object.values(service.chrage_apply_data!)
-                            .filter((entry) => entry.amount !== 0)
-                            .map((entry, i) => (
-                              <div key={`${service.id}-chg-${i}`} className="flex justify-between gap-3 text-[11px]">
-                                <span className="text-muted-foreground">{entry.name}</span>
-                                <span className="font-medium tabular-nums">{formatInr(entry.amount)}</span>
-                              </div>
-                            ))}
-                        {showOtherChargesAggregate && (
-                          <div className="flex justify-between gap-3 text-[11px]">
-                            <span className="text-muted-foreground">Other charges</span>
-                            <span className="font-medium tabular-nums">
-                              {formatInr(service.other_charges)}
-                            </span>
-                          </div>
-                        )}
-                      </div>
 
-                      <div className="my-3 h-[0.5px] bg-[var(--color-border-tertiary)]" />
+                        <div className="my-3 h-[0.5px] bg-[var(--color-border-tertiary)]" />
 
-                      <div className="space-y-2">
-                        {service.sub_total !== 0 && (
-                          <div className="flex justify-between gap-3 text-[11px]">
-                            <span className="text-muted-foreground">Sub-total</span>
-                            <span className="font-medium tabular-nums">{formatInr(service.sub_total)}</span>
-                          </div>
-                        )}
-                        {gstTotal !== 0 && (
-                          <div className="flex justify-between gap-3 text-[11px]">
-                            <span className="text-muted-foreground">
-                              GST ({service.gst_per || '0'}%)
-                            </span>
-                            <span className="font-medium tabular-nums">{formatInr(gstTotal)}</span>
-                          </div>
-                        )}
-                      </div>
+                        <div className="space-y-2">
+                          {service.sub_total !== 0 && (
+                            <div className="flex justify-between gap-3 text-[11px]">
+                              <span className="text-muted-foreground">Sub-total</span>
+                              <span className="font-medium tabular-nums">{formatInr(service.sub_total)}</span>
+                            </div>
+                          )}
+                          {gstTotal !== 0 && (
+                            <div className="flex justify-between gap-3 text-[11px]">
+                              <span className="text-muted-foreground">
+                                GST ({service.gst_per || '0'}%)
+                              </span>
+                              <span className="font-medium tabular-nums">{formatInr(gstTotal)}</span>
+                            </div>
+                          )}
+                        </div>
 
-                      <div className="my-3 h-px bg-[var(--color-border-tertiary)] opacity-80" />
+                        <div className="my-3 h-px bg-[var(--color-border-tertiary)] opacity-80" />
 
-                      <div className="flex justify-between gap-3 items-baseline">
-                        <span className="text-[11px] text-muted-foreground">Total payable</span>
-                        <span
-                          className="text-[13px] font-medium tabular-nums"
-                          style={{ color: BOMBINO_BLUE }}
-                        >
-                          {formatInr(service.total)}
-                        </span>
+                        <div className="flex justify-between gap-3 items-baseline">
+                          <span className="text-[11px] text-muted-foreground">Total payable</span>
+                          <span
+                            className="text-[13px] font-medium tabular-nums"
+                            style={{ color: BOMBINO_BLUE }}
+                          >
+                            {formatInr(service.total)}
+                          </span>
+                        </div>
                       </div>
 
                       {bookable ? (
