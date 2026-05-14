@@ -50,7 +50,7 @@ export default function Profile() {
   if (!isLoggedIn) {
     return (
       <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-profile-login-required">
-        <header className="sticky top-0 z-50 bg-white border-b border-border safe-top">
+        <header className="sticky top-0 z-50 bg-white border-b border-[#E2E8F0] safe-top md:hidden">
           <div className="flex items-center h-14 px-4 max-w-md mx-auto">
             <button
               onClick={() => setLocation('/home')}
@@ -62,17 +62,17 @@ export default function Profile() {
           </div>
         </header>
 
-        <main className="px-4 py-12 max-w-md mx-auto text-center">
-          <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-            <User className="w-8 h-8 text-primary" />
+        <main className="flex flex-col items-center justify-center min-h-[60vh] max-w-md mx-auto px-4 text-center">
+          <div className="w-16 h-16 bg-[#112330]/8 rounded-full flex items-center justify-center mx-auto mb-4">
+            <User className="w-8 h-8 text-[#112330]" />
           </div>
-          <h2 className="text-lg font-semibold text-foreground mb-2">Please login to continue</h2>
+          <h2 className="text-lg font-semibold text-[#112330] mb-2">Please login to continue</h2>
           <p className="text-sm text-muted-foreground mb-6">
             Sign in to view your profile
           </p>
           <Button
             onClick={() => setLocation('/login?redirect=/profile')}
-            className="bg-primary hover:bg-primary/90 h-11 px-8"
+            className="bg-[#F2A123] hover:bg-[#F2A123]/90 text-[#112330] font-semibold h-11 px-8 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
           >
             Login
           </Button>
@@ -107,7 +107,7 @@ export default function Profile() {
 
   return (
     <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-profile">
-      <header className="sticky top-0 z-50 bg-white border-b border-border safe-top">
+      <header className="sticky top-0 z-50 bg-white border-b border-[#E2E8F0] safe-top md:hidden">
         <div className="flex items-center h-14 px-4 max-w-md mx-auto">
           <button
             onClick={() => window.history.back()}
@@ -120,109 +120,121 @@ export default function Profile() {
         </div>
       </header>
 
-      <main className="px-4 py-5 max-w-md mx-auto">
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mb-3">
-            <User className="w-10 h-10 text-primary" />
-          </div>
-          <h2 className="text-lg font-semibold text-foreground">
-            {displayName}
-          </h2>
-          <p className="text-sm text-muted-foreground">{displayEmail}</p>
-        </div>
+      <main className="max-w-5xl mx-auto w-full px-4 md:px-8 py-6">
+        <div className="md:grid md:grid-cols-12 gap-8 items-start">
 
-        <div className="bg-white rounded-xl border border-border divide-y divide-border mb-4">
-          <div className="flex items-center gap-3 p-4">
-            <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
-              <Mail className="w-4 h-4 text-muted-foreground" />
+          {/* LEFT — avatar + identity */}
+          <div className="md:col-span-5 flex flex-col items-center text-center md:text-left md:items-start mb-6 md:mb-0 md:sticky md:top-6">
+            <div className="w-20 h-20 bg-[#112330]/8 rounded-2xl flex items-center justify-center mb-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06)]">
+              <User className="w-10 h-10 text-[#112330]" />
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-muted-foreground">Email</p>
-              <p className="font-medium text-sm truncate">{displayEmail}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 p-4">
-            <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
-              <Phone className="w-4 h-4 text-muted-foreground" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-muted-foreground">Phone</p>
-              <p className="font-medium text-sm truncate">{displayPhone}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 p-4">
-            <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
-              <UserCircle className="w-4 h-4 text-muted-foreground" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-muted-foreground">Username</p>
-              <p className="font-medium text-sm truncate">{displayUsername}</p>
+            <h2 className="text-xl font-bold text-[#112330] leading-tight">
+              {displayName || 'User'}
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">{displayEmail}</p>
+            {memberSince && (
+              <span className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-medium text-[#2F4468] bg-[#2F4468]/8 px-3 py-1 rounded-full">
+                <Calendar className="w-3 h-3" />
+                Member since {memberSince}
+              </span>
+            )}
+            <div className="mt-8 hidden md:block">
+              <img src={bombinoLogo} alt="Bombino" className="h-6 w-auto mb-1 opacity-30" />
+              <p className="text-[10px] text-muted-foreground">Bombino Express v1.0</p>
             </div>
           </div>
-          <div className="flex items-center gap-3 p-4">
-            <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
-              <Shield className="w-4 h-4 text-muted-foreground" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] text-muted-foreground">Role</p>
-              <p className="font-medium text-sm truncate">{displayRole}</p>
-            </div>
-          </div>
-          {memberSince ? (
-            <div className="flex items-center gap-3 p-4">
-              <div className="w-9 h-9 bg-muted rounded-full flex items-center justify-center">
-                <Calendar className="w-4 h-4 text-muted-foreground" />
+
+          {/* RIGHT — details + support + sign out */}
+          <div className="md:col-span-7 space-y-5">
+            {/* Details card */}
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] divide-y divide-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+              <div className="flex items-center gap-3 p-4">
+                <div className="w-9 h-9 bg-[#F3F4F6] rounded-xl flex items-center justify-center shrink-0">
+                  <Mail className="w-4 h-4 text-[#2F4468]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Email</p>
+                  <p className="font-medium text-sm truncate text-[#112330]">{displayEmail}</p>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] text-muted-foreground">Member since</p>
-                <p className="font-medium text-sm truncate">{memberSince}</p>
+              <div className="flex items-center gap-3 p-4">
+                <div className="w-9 h-9 bg-[#F3F4F6] rounded-xl flex items-center justify-center shrink-0">
+                  <Phone className="w-4 h-4 text-[#2F4468]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Phone</p>
+                  <p className="font-medium text-sm truncate text-[#112330]">{displayPhone}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 p-4">
+                <div className="w-9 h-9 bg-[#F3F4F6] rounded-xl flex items-center justify-center shrink-0">
+                  <UserCircle className="w-4 h-4 text-[#2F4468]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Username</p>
+                  <p className="font-medium text-sm truncate text-[#112330]">{displayUsername}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 p-4">
+                <div className="w-9 h-9 bg-[#F3F4F6] rounded-xl flex items-center justify-center shrink-0">
+                  <Shield className="w-4 h-4 text-[#2F4468]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Role</p>
+                  <p className="font-medium text-sm truncate text-[#112330]">{displayRole}</p>
+                </div>
               </div>
             </div>
-          ) : null}
-        </div>
 
-        <div className="bg-white rounded-xl border border-border divide-y divide-border mb-4">
-          <a
-            href="https://api.whatsapp.com/send?phone=917045999553"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors"
-            data-testid="link-profile-whatsapp"
-          >
-            <div className="w-9 h-9 bg-green-50 rounded-full flex items-center justify-center">
-              <img src={whatsAppLogo} alt="WhatsApp" className="w-4 h-4 object-contain" />
+            {/* Support card */}
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] divide-y divide-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+              <a
+                href="https://api.whatsapp.com/send?phone=917045999553"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 p-4 hover:bg-[#F8F9FA] transition-colors rounded-t-2xl"
+                data-testid="link-profile-whatsapp"
+              >
+                <div className="w-9 h-9 bg-green-50 rounded-xl flex items-center justify-center shrink-0">
+                  <img src={whatsAppLogo} alt="WhatsApp" className="w-4 h-4 object-contain" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-medium text-sm text-[#112330]">WhatsApp Support</p>
+                  <p className="text-xs text-muted-foreground">Chat with us instantly</p>
+                </div>
+              </a>
+              <a
+                href="tel:+912266400000"
+                className="flex items-center gap-3 p-4 hover:bg-[#F8F9FA] transition-colors rounded-b-2xl"
+                data-testid="link-profile-call"
+              >
+                <div className="w-9 h-9 bg-[#2F4468]/8 rounded-xl flex items-center justify-center shrink-0">
+                  <PhoneIcon className="w-4 h-4 text-[#2F4468]" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-medium text-sm text-[#112330]">Call Support</p>
+                  <p className="text-xs text-muted-foreground">+91 22 6640 0000</p>
+                </div>
+              </a>
             </div>
-            <div className="flex-1">
-              <p className="font-medium text-sm">WhatsApp Support</p>
-            </div>
-          </a>
-          <a
-            href="tel:+912266400000"
-            className="flex items-center gap-3 p-4 hover:bg-muted/50 transition-colors"
-            data-testid="link-profile-call"
-          >
-            <div className="w-9 h-9 bg-blue-50 rounded-full flex items-center justify-center">
-              <PhoneIcon className="w-4 h-4 text-blue-600" />
-            </div>
-            <div className="flex-1">
-              <p className="font-medium text-sm">Call Support</p>
-            </div>
-          </a>
-        </div>
 
-        <Button
-          onClick={handleLogout}
-          variant="outline"
-          className="w-full h-10 text-red-600 border-red-200 hover:bg-red-50 text-sm"
-          data-testid="button-profile-logout"
-        >
-          <LogOut className="w-4 h-4 mr-2" />
-          Sign Out
-        </Button>
+            {/* Sign out */}
+            <Button
+              onClick={handleLogout}
+              variant="outline"
+              className="w-full h-10 text-red-600 border-red-200 hover:bg-red-50 text-sm rounded-xl"
+              data-testid="button-profile-logout"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign Out
+            </Button>
 
-        <div className="mt-8 text-center">
-          <img src={bombinoLogo} alt="Bombino" className="h-6 w-auto mx-auto mb-1 opacity-40" />
-          <p className="text-[10px] text-muted-foreground">Bombino Express v1.0</p>
+            {/* Footer (mobile only) */}
+            <div className="mt-4 text-center md:hidden">
+              <img src={bombinoLogo} alt="Bombino" className="h-5 w-auto mx-auto mb-1 opacity-30" />
+              <p className="text-[10px] text-muted-foreground">Bombino Express v1.0</p>
+            </div>
+          </div>
         </div>
       </main>
 

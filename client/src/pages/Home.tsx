@@ -8,9 +8,11 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useIsMobile } from '@/hooks/use-mobile';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
+import HomeDesktop from '@/pages/HomeDesktop';
 
 interface HomeNotificationRow {
   id: string;
@@ -87,6 +89,18 @@ function WhyBombinoSection() {
 
 
 export default function Home() {
+  const isMobile = useIsMobile();
+
+  // ─── DESKTOP: delegate to the new desktop view (mobile path below is untouched) ───
+  if (!isMobile) {
+    return <HomeDesktop />;
+  }
+
+  // ─── MOBILE (unchanged from original) ──────────────────────────────────────────
+  return <HomeMobile />;
+}
+
+function HomeMobile() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState('');
   const [, setLocation] = useLocation();
@@ -159,7 +173,7 @@ export default function Home() {
       <Header onMenuClick={() => setMenuOpen(true)} />
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 
-      <main className="px-4 py-5 max-w-md mx-auto space-y-7">
+      <main className="px-4 py-5 max-w-md mx-auto space-y-7 md:max-w-none md:px-0 md:py-0">
         {isLoggedIn && (
           <div className="mb-6">
             <p className="text-muted-foreground text-sm">

@@ -1,60 +1,30 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,600;0,700;0,800&family=Geist+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
-@font-face {
-  font-family: 'Plus Jakarta Sans';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url(https://fonts.gstatic.com/s/plusjakartasans/v8/LDIbaomQNQcsA88c7O9yZ4KMCoOg4IA6-91aHEjcWuA_qU79TR_V.woff2) format('woff2');
-}
-
-@font-face {
-  font-family: 'Plus Jakarta Sans';
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url(https://fonts.gstatic.com/s/plusjakartasans/v8/LDIbaomQNQcsA88c7O9yZ4KMCoOg4IA6-91aHEjcWuA_qU79TR_V.woff2) format('woff2');
-}
-
-@font-face {
-  font-family: 'Plus Jakarta Sans';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url(https://fonts.gstatic.com/s/plusjakartasans/v8/LDIbaomQNQcsA88c7O9yZ4KMCoOg4IA6-91aHEjcWuA_qU79TR_V.woff2) format('woff2');
-}
-
-@font-face {
-  font-family: 'Plus Jakarta Sans';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url(https://fonts.gstatic.com/s/plusjakartasans/v8/LDIbaomQNQcsA88c7O9yZ4KMCoOg4IA6-91aHEjcWuA_qU79TR_V.woff2) format('woff2');
-}
-
 :root {
-  --background: 249 246 245;
-  --foreground: 17 24 39;
+  /* Palette — space-separated RGB for Tailwind 4 composition */
+  --background: 248 249 250;       /* Freight Paper #F8F9FA */
+  --foreground: 17 35 48;          /* Admiralty Dark #112330 */
   --card: 255 255 255;
-  --card-foreground: 17 24 39;
+  --card-foreground: 17 35 48;
   --popover: 255 255 255;
-  --popover-foreground: 17 24 39;
-  --primary: 20 86 124;
-  --primary-foreground: 255 255 255;
-  --secondary: 243 244 246;
-  --secondary-foreground: 17 24 39;
-  --muted: 243 244 246;
-  --muted-foreground: 107 114 128;
-  --accent: 251 248 235;
-  --accent-foreground: 20 86 124;
+  --popover-foreground: 17 35 48;
+  --primary: 17 35 48;             /* Admiralty Dark #112330 */
+  --primary-foreground: 248 249 250;
+  --secondary: 47 68 104;          /* Trade Wind #2F4468 */
+  --secondary-foreground: 248 249 250;
+  --muted: 243 244 246;            /* Surface Tinted #F3F4F6 */
+  --muted-foreground: 100 116 139; /* Muted Ink #64748B */
+  --accent: 242 161 35;            /* Dispatch Amber #F2A123 */
+  --accent-foreground: 17 35 48;
   --destructive: 239 68 68;
   --destructive-foreground: 255 255 255;
-  --border: 226 232 240;
-  --input: 230 220 218;
-  --ring: 20 86 124;
+  --border: 226 232 240;           /* Border Subtle #E2E8F0 */
+  --input: 243 244 246;            /* Surface Tinted #F3F4F6 */
+  --ring: 47 68 104;               /* Trade Wind #2F4468 */
   --radius: 0.75rem;
   /* BottomNav: h-16 row + safe-area inset (see .pb-nav, ShipmentDetails strip offset). */
   --nav-stack: calc(4rem + env(safe-area-inset-bottom, 0px));
@@ -80,10 +50,31 @@
   --color-border: oklch(from rgb(var(--border)) l c h);
   --color-input: oklch(from rgb(var(--input)) l c h);
   --color-ring: oklch(from rgb(var(--ring)) l c h);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+
+  /* Brand OKLCH tokens — direct utilities: bg-admiralty, text-dispatch-amber, etc. */
+  --color-admiralty: oklch(17% 0.048 248);
+  --color-trade-wind: oklch(37% 0.092 245);
+  --color-dispatch-amber: oklch(73% 0.160 64);
+  --color-freight-paper: oklch(98% 0.004 246);
+  --color-surface-tinted: oklch(96% 0.006 246);
+  --color-muted-ink: oklch(52% 0.035 246);
+  --color-border-subtle: oklch(88% 0.010 246);
+
+  /* Radius scale per DESIGN.md: sm=4 md=8 lg=12 xl=20 2xl=32 */
+  --radius-sm: calc(var(--radius) - 8px);
+  --radius-md: calc(var(--radius) - 4px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 8px);
+  --radius-2xl: calc(var(--radius) + 20px);
+
+  /* Navy-tinted shadow system */
+  --shadow-hover: 0 4px 20px oklch(17% 0.048 248 / 0.12);
+  --shadow-modal: 0 12px 48px oklch(17% 0.048 248 / 0.18), 0 4px 16px oklch(17% 0.048 248 / 0.10);
+  --shadow-focus: 0 0 0 3px oklch(37% 0.092 245 / 0.40);
+
+  /* Font system */
+  --font-sans: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'Geist Mono', 'Menlo', 'Monaco', 'Cascadia Code', monospace;
 }
 
 * {
@@ -97,7 +88,7 @@ html {
 
 body {
   @apply bg-background text-foreground antialiased;
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.5;
 }
 
@@ -383,7 +374,7 @@ body {
   justify-content: center;
   border-radius: 9999px;
   @apply text-white;
-  background-color: #FBAD1F;
+  background-color: #F2A123;
   transition: transform 0.15s ease-out;
   animation: fab-glow-breathe 2.5s ease-in-out infinite;
 }
@@ -484,11 +475,11 @@ body {
 
 .card-elevated {
   @apply rounded-2xl border;
-  border-color: rgba(20, 86, 124, 0.08);
+  border-color: oklch(17% 0.048 248 / 0.08);
   background: linear-gradient(135deg, #ffffff 0%, #fef9f9 100%);
   box-shadow:
-    0 2px 12px rgba(20, 86, 124, 0.06),
-    0 1px 3px rgba(0, 0, 0, 0.04);
+    0 2px 12px oklch(17% 0.048 248 / 0.06),
+    0 1px 3px oklch(17% 0.048 248 / 0.04);
   transition:
     box-shadow 0.2s ease,
     transform 0.2s ease;
@@ -497,18 +488,18 @@ body {
 .card-elevated:hover,
 .card-elevated:active {
   box-shadow:
-    0 4px 20px rgba(20, 86, 124, 0.1),
-    0 2px 6px rgba(0, 0, 0, 0.06);
+    0 4px 20px oklch(17% 0.048 248 / 0.12),
+    0 2px 6px oklch(17% 0.048 248 / 0.06);
 }
 
 .card-accent {
   @apply rounded-2xl border;
-  border-color: rgba(20, 86, 124, 0.08);
-  border-left: 3px solid #FBAD1F;
+  border-color: oklch(17% 0.048 248 / 0.08);
+  border-left: 3px solid #F2A123;
   background: linear-gradient(135deg, #ffffff 0%, #fef9f9 100%);
   box-shadow:
-    0 2px 12px rgba(20, 86, 124, 0.06),
-    0 1px 3px rgba(0, 0, 0, 0.04);
+    0 2px 12px oklch(17% 0.048 248 / 0.06),
+    0 1px 3px oklch(17% 0.048 248 / 0.04);
   transition:
     box-shadow 0.2s ease,
     transform 0.2s ease;
@@ -518,8 +509,8 @@ body {
 .card-accent:hover,
 .card-accent:active {
   box-shadow:
-    0 4px 20px rgba(20, 86, 124, 0.1),
-    0 2px 6px rgba(0, 0, 0, 0.06);
+    0 4px 20px oklch(17% 0.048 248 / 0.12),
+    0 2px 6px oklch(17% 0.048 248 / 0.06);
 }
 
 .section-header-accent {
@@ -536,7 +527,7 @@ body {
   width: 3px;
   height: 16px;
   flex-shrink: 0;
-  background: #14567C;
+  background: #2F4468;
   border-radius: 2px;
 }
 
@@ -553,19 +544,22 @@ body {
 }
 
 .text-gold {
-  color: #FBAD1F;
+  color: #F2A123;
 }
 
 .bg-gold {
-  background-color: #FBAD1F;
+  background-color: #F2A123;
 }
 
 .border-gold {
-  border-color: #FBAD1F;
+  border-color: #F2A123;
 }
 
 input:focus {
-  @apply ring-[3px] ring-primary/12 border-primary transition-all duration-150;
+  outline: none;
+  border-color: #2F4468;
+  box-shadow: 0 0 0 3px oklch(37% 0.092 245 / 0.40);
+  transition: all 0.15s ease;
 }
 
 input[type="number"]::-webkit-inner-spin-button,
@@ -590,21 +584,10 @@ input[type="number"] {
   @apply text-sm text-muted-foreground leading-relaxed;
 }
 
-/* Desktop content width upgrade */
+/* Desktop content — let pages control their own max-width and centering */
 @media (min-width: 768px) {
-  .app-content-desktop:not(.fullscreen-page) .max-w-md {
-    max-width: 100%;
-  }
-  .app-content-desktop:not(.fullscreen-page) .mx-auto {
-    margin-left: 0;
-    margin-right: 0;
-  }
   .app-content-desktop {
     padding-bottom: 0;
-  }
-  .app-content-desktop:not(.fullscreen-page) {
-    padding-left: 2rem;
-    padding-right: 2rem;
   }
 }
 

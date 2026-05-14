@@ -55,8 +55,6 @@ function debugLog(payload: Record<string, unknown>) {
 // #endregion
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
-import { RedisStore } from "connect-redis";
-import redisClient from "./redisClient.js";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -66,9 +64,31 @@ app.set('trust proxy', 1);
 const httpServer = createServer(app);
 
 // ─── Session + Auth ───────────────────────────────────────────────────────────
+async function buildSessionStore() {
+  if (process.env.REDIS_URL) {
+    try {
+      const { RedisStore } = await import("connect-redis");
+      const redisModule = await import("./redisClient.js");
+      const client = redisModule.default;
+      // Wait briefly for Redis to connect before committing to it
+      await new Promise<void>((resolve) => setTimeout(resolve, 500));
+      if (client.isReady) {
+        console.log("[session] using RedisStore");
+        return new RedisStore({ client });
+      }
+    } catch (e) {
+      console.warn("[session] RedisStore init failed, falling back to MemoryStore:", e);
+    }
+  }
+  console.log("[session] using MemoryStore (set REDIS_URL to enable Redis sessions)");
+  return undefined; // express-session defaults to MemoryStore
+}
+
+const sessionStore = await buildSessionStore();
+
 app.use(
   session({
-    store: new RedisStore({ client: redisClient }),
+    ...(sessionStore ? { store: sessionStore } : {}),
     secret: process.env.SESSION_SECRET ?? "dev-secret",
     resave: false,
     saveUninitialized: false,

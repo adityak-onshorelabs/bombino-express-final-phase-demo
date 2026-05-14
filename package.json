@@ -5,11 +5,11 @@
   "license": "MIT",
   "scripts": {
     "dev:client": "vite dev --port 5000",
-    "dev": "NODE_OPTIONS='--import ./server/dns-ipv4first.mjs' NODE_ENV=development tsx server/index.ts",
+    "dev": "cross-env NODE_OPTIONS=--import=./server/dns-ipv4first.mjs NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
-    "start": "NODE_OPTIONS='--import ./server/dns-ipv4first.mjs' NODE_ENV=production node dist/index.cjs",
+    "start": "cross-env NODE_OPTIONS=--import=./server/dns-ipv4first.mjs NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
-    "db:push": "NODE_OPTIONS='--import ./server/dns-ipv4first.mjs' drizzle-kit push"
+    "db:push": "cross-env NODE_OPTIONS=--import=./server/dns-ipv4first.mjs drizzle-kit push"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -51,7 +51,7 @@
     "connect-redis": "^9.0.0",
     "date-fns": "^3.6.0",
     "dotenv": "^17.3.1",
-    "drizzle-orm": "^0.39.3",
+    "drizzle-orm": "^0.45.2",
     "drizzle-zod": "^0.7.0",
     "embla-carousel-react": "^8.6.0",
     "express": "^4.21.2",
@@ -104,7 +104,8 @@
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.21",
-    "drizzle-kit": "^0.31.4",
+    "cross-env": "^10.1.0",
+    "drizzle-kit": "^0.18.1",
     "esbuild": "^0.25.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.14",

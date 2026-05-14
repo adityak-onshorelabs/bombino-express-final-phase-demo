@@ -45,25 +45,21 @@ function NavItem({
     <Link
       href={path}
       className={cn(
-        'flex items-center gap-3 px-3 py-2.5 rounded-xl mx-2 my-0.5 transition-all duration-150 relative group cursor-pointer select-none',
+        'flex items-center gap-3 px-3 py-2.5 rounded-xl mx-2 my-0.5 transition-all duration-150 cursor-pointer select-none group',
         active
-          ? 'bg-white/[0.1] text-white'
-          : 'text-white/55 hover:bg-white/[0.06] hover:text-white/90'
+          ? 'bg-[#F2A123]/[0.12] text-white'
+          : 'text-white/50 hover:bg-white/[0.06] hover:text-white/80'
       )}
     >
-      {active && (
-        <div
-          className="absolute left-0 top-2 bottom-2 w-[3px] bg-[#F5A82A] rounded-full"
-          aria-hidden
-        />
-      )}
       <Icon
         className={cn(
-          'w-[18px] h-[18px] flex-shrink-0',
-          active ? 'text-white' : 'text-white/50 group-hover:text-white/80'
+          'w-[18px] h-[18px] flex-shrink-0 transition-colors',
+          active ? 'text-[#F2A123]' : 'text-white/40 group-hover:text-white/70'
         )}
       />
-      <span className="text-sm font-medium leading-none">{label}</span>
+      <span className={cn('text-sm leading-none', active ? 'font-semibold' : 'font-medium')}>
+        {label}
+      </span>
     </Link>
   );
 }
@@ -130,12 +126,12 @@ export function DesktopSidebar() {
   );
 
   return (
-    <div className="hidden md:flex relative flex-col w-56 h-screen sticky top-0 bg-[#1E3A4A] border-r border-white/[0.08] overflow-hidden">
+    <div className="hidden md:flex relative flex-col w-60 h-screen sticky top-0 bg-[#112330] border-r border-white/[0.07] overflow-hidden">
       <div
-        className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-white/[0.04] to-transparent pointer-events-none"
+        className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-[#F2A123]/[0.05] to-transparent pointer-events-none"
         aria-hidden
       />
-      <div className="h-16 flex items-center justify-between px-5 border-b border-white/[0.08]">
+      <div className="h-16 flex items-center justify-between px-5 border-b border-white/[0.07]">
         <img
           src={bombinoLogo}
           alt="Bombino Express"
@@ -153,15 +149,15 @@ export function DesktopSidebar() {
         </Link>
       </div>
 
-      <div className="px-4 py-4 border-b border-white/[0.08] flex items-center gap-3">
+      <div className="px-4 py-4 border-b border-white/[0.07] flex items-center gap-3">
         <div
           className={cn(
             'w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center',
-            isLoggedIn ? 'bg-[#F5A82A]/20' : 'bg-white/[0.08]'
+            isLoggedIn ? 'bg-[#F2A123]/20' : 'bg-white/[0.08]'
           )}
         >
           {isLoggedIn ? (
-            <span className="text-[#F5A82A] text-xs font-bold">
+            <span className="text-[#F2A123] text-xs font-bold">
               {initials || 'U'}
             </span>
           ) : (
@@ -194,7 +190,7 @@ export function DesktopSidebar() {
           />
         ))}
 
-        <div className="my-3 mx-4 h-px bg-white/[0.06]" />
+        <div className="my-3 mx-4 h-px bg-white/[0.07]" />
 
         <p className="px-5 mb-2 text-[10px] font-semibold tracking-widest text-white/25 uppercase">
           Account
@@ -210,7 +206,7 @@ export function DesktopSidebar() {
         ))}
       </nav>
 
-      <div className="flex-shrink-0 border-t border-white/[0.08] px-3 pt-2 pb-3">
+      <div className="flex-shrink-0 border-t border-white/[0.07] px-3 pt-2 pb-3">
         {isLoggedIn ? (
           <button
             type="button"
@@ -226,7 +222,7 @@ export function DesktopSidebar() {
         ) : (
           <Link
             href="/login"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-[#F5A82A]/70 hover:bg-[#F5A82A]/[0.08] hover:text-[#F5A82A] transition-all duration-150"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-[#F2A123]/70 hover:bg-[#F2A123]/[0.08] hover:text-[#F2A123] transition-all duration-150"
           >
             <LogIn className="w-[18px] h-[18px]" />
             <span className="text-sm font-medium">Sign in</span>
