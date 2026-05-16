@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { ScanSearch, ArrowRight, PackageSearch, Package } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Header } from '@/components/Header';
@@ -40,7 +40,7 @@ export default function Receive() {
 
       <main className="px-4 py-5 max-w-md mx-auto md:max-w-5xl md:px-6 md:py-6">
         <div className="mb-5 md:mb-6">
-          <h1 className="text-lg font-semibold text-foreground mb-1 md:text-2xl md:font-bold md:text-[#112330]">Track & Receive</h1>
+          <h1 className="text-lg font-semibold text-foreground mb-1 md:text-2xl md:font-bold md:text-[lab(34.0831_-9.57756_-27.7093)]">Track & Receive</h1>
           <p className="text-sm text-muted-foreground">Track your incoming shipments</p>
         </div>
 
@@ -48,11 +48,11 @@ export default function Receive() {
           {/* Left — Track by AWB */}
           <div className="bg-white rounded-2xl border border-[#E2E8F0] p-5 mb-5 md:mb-0 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-11 h-11 rounded-xl bg-[#112330]/8 flex items-center justify-center">
-                <ScanSearch className="w-5 h-5 text-[#112330]" />
+              <div className="w-11 h-11 rounded-xl bg-[lab(34.0831_-9.57756_-27.7093)]/8 flex items-center justify-center">
+                <ScanSearch className="w-5 h-5 text-[lab(34.0831_-9.57756_-27.7093)]" />
               </div>
               <div>
-                <h2 className="font-semibold text-[#112330]">Track by AWB</h2>
+                <h2 className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">Track by AWB</h2>
                 <p className="text-xs text-muted-foreground">Enter your tracking number</p>
               </div>
             </div>
@@ -73,7 +73,7 @@ export default function Receive() {
                 className="h-12 w-12 bg-[#F2A123] hover:bg-[#F2A123]/90 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] shrink-0"
                 data-testid="button-track-submit"
               >
-                <ArrowRight className="w-5 h-5 text-[#112330]" />
+                <ArrowRight className="w-5 h-5 text-[lab(34.0831_-9.57756_-27.7093)]" />
               </Button>
             </div>
             {error && (
@@ -86,7 +86,7 @@ export default function Receive() {
             {isLoggedIn ? (
               incomingShipments.length > 0 ? (
                 <div>
-                  <h2 className="font-semibold text-[#112330] text-sm mb-3 md:text-base">Incoming Shipments</h2>
+                  <h2 className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)] text-sm mb-3 md:text-base">Incoming Shipments</h2>
                   <div className="space-y-2">
                     {incomingShipments.map((shipment) => (
                       <Link
@@ -96,7 +96,7 @@ export default function Receive() {
                         data-testid={`incoming-shipment-${shipment.awb}`}
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <span className="font-semibold text-sm text-[#112330]">{shipment.awb}</span>
+                          <span className="font-semibold text-sm text-[lab(34.0831_-9.57756_-27.7093)]">{shipment.awb}</span>
                           <StatusBadge status={shipment.status} />
                         </div>
                         <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -109,10 +109,10 @@ export default function Receive() {
                 </div>
               ) : (
                 <div className="bg-white rounded-2xl border border-[#E2E8F0] p-8 text-center shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
-                  <div className="w-14 h-14 bg-[#112330]/8 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <PackageSearch className="w-7 h-7 text-[#112330]" />
+                  <div className="w-14 h-14 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <PackageSearch className="w-7 h-7 text-[lab(34.0831_-9.57756_-27.7093)]" />
                   </div>
-                  <p className="font-semibold text-[#112330] text-sm mb-1">No incoming shipments</p>
+                  <p className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)] text-sm mb-1">No incoming shipments</p>
                   <p className="text-xs text-muted-foreground">
                     Track any shipment using the AWB number
                   </p>
@@ -120,10 +120,10 @@ export default function Receive() {
               )
             ) : (
               <div className="bg-white rounded-2xl border border-[#E2E8F0] p-8 text-center shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
-                <div className="w-14 h-14 bg-[#112330]/8 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Package className="w-7 h-7 text-[#112330]" />
+                <div className="w-14 h-14 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Package className="w-7 h-7 text-[lab(34.0831_-9.57756_-27.7093)]" />
                 </div>
-                <p className="font-semibold text-[#112330] text-sm mb-1">Track any shipment</p>
+                <p className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)] text-sm mb-1">Track any shipment</p>
                 <p className="text-xs text-muted-foreground mb-4">
                   Enter an AWB number to track your package
                 </p>

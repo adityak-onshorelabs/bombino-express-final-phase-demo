@@ -1,4 +1,4 @@
-import { useLocation } from 'wouter';
+﻿import { useLocation } from 'wouter';
 
 type PageMeta = { title: string; subtitle: string };
 
@@ -27,7 +27,7 @@ export function DesktopTopBar() {
   return (
     <div className="hidden md:flex items-center justify-between h-14 bg-white/98 backdrop-blur-sm border-b border-[#E2E8F0] px-8 sticky top-0 z-10 shrink-0 shadow-[0_1px_8px_oklch(17%_0.048_248_/_0.07)]">
       <div className="flex items-center gap-2.5 min-w-0">
-        <span className="text-sm font-semibold text-[#112330] truncate tracking-tight">
+        <span className="text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)] truncate tracking-tight">
           {meta.title}
         </span>
         {meta.subtitle ? (
@@ -43,3 +43,4 @@ export function DesktopTopBar() {
     </div>
   );
 }
+

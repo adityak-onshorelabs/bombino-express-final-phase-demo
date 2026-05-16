@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import {
   Search,
@@ -48,7 +48,7 @@ function Greeting({ firstName }: { firstName?: string | null }) {
       </div>
       <Link
         href="/create"
-        className="h-9 px-3 inline-flex items-center gap-2 text-xs font-semibold rounded-lg bg-[#112330] text-white hover:bg-[#2F4468] transition-colors"
+        className="h-9 px-3 inline-flex items-center gap-2 text-xs font-semibold rounded-lg bg-[lab(34.0831_-9.57756_-27.7093)] text-white hover:bg-[#2F4468] transition-colors"
       >
         <ArrowRight className="w-3.5 h-3.5" />
         New shipment
@@ -70,7 +70,7 @@ function TrackBar({
   recent: string[];
 }) {
   return (
-    <div className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_rgba(17,35,48,0.04),0_2px_12px_rgba(17,35,48,0.05)] p-1.5 flex items-center gap-2">
+    <div className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] p-1.5 flex items-center gap-2">
       <div className="flex items-center gap-2 px-3 text-[11px] font-semibold tracking-[0.12em] text-[#F2A123] uppercase border-r border-[#E2E8F0] pr-4 ml-2">
         <span className="relative flex h-1.5 w-1.5">
           <span className="absolute inline-flex h-full w-full rounded-full bg-[#F2A123] opacity-60 animate-ping" />
@@ -107,7 +107,7 @@ function TrackBar({
       )}
       <button
         onClick={() => onTrack()}
-        className="h-11 px-6 inline-flex items-center gap-2 text-sm font-semibold rounded-xl bg-[#112330] text-white hover:bg-[#2F4468] transition-colors"
+        className="h-11 px-6 inline-flex items-center gap-2 text-sm font-semibold rounded-xl bg-[lab(34.0831_-9.57756_-27.7093)] text-white hover:bg-[#2F4468] transition-colors"
         data-testid="button-track"
       >
         Track
@@ -124,7 +124,7 @@ function ActionCards() {
       {/* Get Rates */}
       <Link
         href="/rates"
-        className="group relative rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_rgba(17,35,48,0.04),0_2px_12px_rgba(17,35,48,0.05)] hover:shadow-[0_6px_24px_rgba(17,35,48,0.10),0_2px_6px_rgba(17,35,48,0.05)] transition-all overflow-hidden"
+        className="group relative rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] hover:shadow-[0_6px_24px_lab(34.0831_-9.57756_-27.7093_/_0.10),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05)] transition-all overflow-hidden"
         data-testid="card-get-rates"
       >
         <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-[#FFF6E5] to-transparent pointer-events-none" />
@@ -183,7 +183,7 @@ function ActionCards() {
       {/* Ship Now */}
       <Link
         href="/create"
-        className="group relative rounded-2xl bg-[#112330] text-white shadow-[0_1px_2px_rgba(17,35,48,0.04),0_2px_12px_rgba(17,35,48,0.05)] hover:shadow-[0_6px_24px_rgba(17,35,48,0.18)] transition-all overflow-hidden"
+        className="group relative rounded-2xl bg-gradient-to-br from-[lab(34.0831_-9.57756_-27.7093)] to-[#0c1a25] text-white shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] hover:shadow-[0_6px_24px_lab(34.0831_-9.57756_-27.7093_/_0.18)] transition-all overflow-hidden"
         data-testid="card-ship-now"
       >
         <div
@@ -193,16 +193,12 @@ function ActionCards() {
             backgroundSize: '14px 14px',
           }}
         />
-        <div
-          className="absolute -top-20 -right-20 w-64 h-64 rounded-full pointer-events-none"
-          style={{ background: 'radial-gradient(circle, rgba(242,161,35,0.22) 0%, transparent 60%)' }}
-        />
         <div className="relative p-6">
           <div className="flex items-start justify-between mb-5">
             <div className="w-12 h-12 rounded-2xl bg-[#F2A123] flex items-center justify-center">
-              <Send className="w-[22px] h-[22px] text-[#112330]" />
+              <Send className="w-[22px] h-[22px] text-[lab(34.0831_-9.57756_-27.7093)]" />
             </div>
-            <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-[#F2A123] bg-[#F2A123]/15 border border-[#F2A123]/30 px-2.5 py-1 rounded-full">
+            <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-white/70 bg-gradient-to-r from-white/[0.12] to-white/[0.06] border border-white/15 px-2.5 py-1 rounded-full">
               3-step flow
             </span>
           </div>
@@ -221,7 +217,7 @@ function ActionCards() {
                 <div
                   className={
                     s.on
-                      ? 'w-5 h-5 rounded-full bg-[#F2A123] text-[#112330] text-[10px] font-bold flex items-center justify-center'
+                      ? 'w-5 h-5 rounded-full bg-[#F2A123] text-[lab(34.0831_-9.57756_-27.7093)] text-[10px] font-bold flex items-center justify-center'
                       : 'w-5 h-5 rounded-full bg-white/12 text-white/60 text-[10px] font-bold flex items-center justify-center'
                   }
                 >
@@ -261,7 +257,7 @@ function ActionCards() {
 // ─── Popular routes ───
 function PopularRoutes() {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_rgba(17,35,48,0.04),0_2px_12px_rgba(17,35,48,0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
       <div className="px-6 py-4 flex items-center justify-between border-b border-[#E2E8F0]">
         <div>
           <h3 className="text-sm font-bold tracking-tight text-foreground">Popular routes this week</h3>
@@ -306,7 +302,7 @@ function PopularRoutes() {
 // ─── Why Bombino (dark stats band) ───
 function StatsBand() {
   return (
-    <section className="rounded-2xl bg-gradient-to-br from-[#112330] to-[#0c1a25] text-white overflow-hidden relative">
+    <section className="rounded-2xl bg-gradient-to-br from-[lab(34.0831_-9.57756_-27.7093)] to-[#0c1a25] text-white overflow-hidden relative">
       <div
         className="absolute inset-0 opacity-[0.12] pointer-events-none"
         style={{
@@ -351,7 +347,7 @@ function StatsBand() {
 // ─── Support widget (right rail) ───
 function SupportWidget() {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_rgba(17,35,48,0.04),0_2px_12px_rgba(17,35,48,0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
       <div className="px-5 pt-5 pb-3 flex items-center justify-between">
         <h3 className="text-sm font-bold tracking-tight text-foreground">Need to talk to us?</h3>
         <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
@@ -378,11 +374,11 @@ function SupportWidget() {
         </a>
         <a
           href="tel:+912266400000"
-          className="group flex items-center gap-3 p-3 rounded-xl border border-[#E2E8F0] hover:border-[#112330]/30 hover:bg-[#F8F9FA] transition-colors"
+          className="group flex items-center gap-3 p-3 rounded-xl border border-[#E2E8F0] hover:border-[lab(34.0831_-9.57756_-27.7093)]/30 hover:bg-[#F8F9FA] transition-colors"
           data-testid="button-call-desktop"
         >
           <div className="w-9 h-9 rounded-xl bg-[#F3F4F6] flex items-center justify-center flex-shrink-0">
-            <Phone className="w-4 h-4 text-[#112330]" />
+            <Phone className="w-4 h-4 text-[lab(34.0831_-9.57756_-27.7093)]" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold leading-tight text-foreground">Call us</p>
@@ -404,7 +400,7 @@ function SupportWidget() {
 // ─── Tips widget (right rail, guest / pre-KYC users) ───
 function TipsWidget() {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_rgba(17,35,48,0.04),0_2px_12px_rgba(17,35,48,0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
       <div className="px-5 pt-5 pb-3 flex items-center justify-between">
         <h3 className="text-sm font-bold tracking-tight text-foreground">Before you ship</h3>
         <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">3 steps</span>
@@ -478,7 +474,7 @@ function RecentUpdates({
   loading: boolean;
 }) {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_rgba(17,35,48,0.04),0_2px_12px_rgba(17,35,48,0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
       <div className="px-5 pt-5 pb-3 flex items-center justify-between">
         <h3 className="text-sm font-bold tracking-tight text-foreground">Recent updates</h3>
         <Link
@@ -538,7 +534,7 @@ function MyShipmentsTable({
   loading: boolean;
 }) {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_rgba(17,35,48,0.04),0_2px_12px_rgba(17,35,48,0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
       <div className="px-6 py-4 flex items-center justify-between border-b border-[#E2E8F0]">
         <div>
           <h3 className="text-sm font-bold tracking-tight text-foreground">My shipments</h3>
@@ -702,3 +698,4 @@ export default function HomeDesktop() {
     </div>
   );
 }
+

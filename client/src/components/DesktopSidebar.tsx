@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentType } from 'react';
+﻿import { useEffect, useMemo, useState, type ComponentType } from 'react';
 import {
   Home,
   BadgeDollarSign,
@@ -126,7 +126,7 @@ export function DesktopSidebar() {
   );
 
   return (
-    <div className="hidden md:flex relative flex-col w-60 h-screen sticky top-0 bg-[#112330] border-r border-white/[0.07] overflow-hidden">
+    <div className="hidden md:flex relative flex-col w-60 h-screen sticky top-0 bg-gradient-to-b from-[lab(34.0831_-9.57756_-27.7093)] to-[#0c1a25] border-r border-white/[0.07] overflow-hidden">
       <div
         className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-[#F2A123]/[0.05] to-transparent pointer-events-none"
         aria-hidden
@@ -232,3 +232,4 @@ export function DesktopSidebar() {
     </div>
   );
 }
+

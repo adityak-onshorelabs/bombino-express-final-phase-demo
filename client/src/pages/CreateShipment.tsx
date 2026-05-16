@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useLayoutEffect, type CSSProperties } from 'react';
+﻿import { useState, useEffect, useMemo, useLayoutEffect, type CSSProperties } from 'react';
 import confetti from 'canvas-confetti';
 import {
   ArrowLeft,
@@ -601,16 +601,16 @@ export default function CreateShipment() {
         </header>
 
         <main className="flex flex-col items-center justify-center min-h-[60vh] max-w-md mx-auto px-4 text-center">
-          <div className="w-16 h-16 bg-[#112330]/8 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Send className="w-8 h-8 text-[#112330]" />
+          <div className="w-16 h-16 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Send className="w-8 h-8 text-[lab(34.0831_-9.57756_-27.7093)]" />
           </div>
-          <h2 className="text-lg font-semibold text-[#112330] mb-2">Please login to continue</h2>
+          <h2 className="text-lg font-semibold text-[lab(34.0831_-9.57756_-27.7093)] mb-2">Please login to continue</h2>
           <p className="text-sm text-muted-foreground mb-6">
             Sign in to create and manage your shipments
           </p>
           <Button
             onClick={() => setLocation('/login?redirect=/create')}
-            className="bg-[#F2A123] hover:bg-[#F2A123]/90 text-[#112330] font-semibold h-12 px-8 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+            className="bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-12 px-8 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
             data-testid="button-login-to-create"
           >
             Login
@@ -1057,9 +1057,9 @@ export default function CreateShipment() {
                 <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#F2A123]">Booking</span>
                 <span className="h-px w-24 bg-gradient-to-r from-[#F2A123]/30 to-transparent" aria-hidden />
               </div>
-              <h1 className="text-[26px] font-bold tracking-[-0.02em] text-[#112330] leading-tight">Create shipment</h1>
+              <h1 className="text-[26px] font-bold tracking-[-0.02em] text-[lab(34.0831_-9.57756_-27.7093)] leading-tight">Create shipment</h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Step <span className="text-[#112330] font-semibold tabular-nums">{currentStep < 4 ? currentStep : steps.length}</span> of <span className="tabular-nums">{steps.length}</span> · {steps[Math.min(currentStep, steps.length) - 1]?.title}
+                Step <span className="text-[lab(34.0831_-9.57756_-27.7093)] font-semibold tabular-nums">{currentStep < 4 ? currentStep : steps.length}</span> of <span className="tabular-nums">{steps.length}</span> · {steps[Math.min(currentStep, steps.length) - 1]?.title}
               </p>
             </div>
 
@@ -1074,8 +1074,8 @@ export default function CreateShipment() {
                       <div
                         className={cn(
                           'w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-bold tabular-nums transition-all shrink-0',
-                          isActive && 'bg-[#F2A123] text-[#112330] shadow-[0_0_0_3px_rgba(242,161,35,0.18)]',
-                          isCompleted && 'bg-[#112330] text-white',
+                          isActive && 'bg-[#F2A123] text-[lab(34.0831_-9.57756_-27.7093)] shadow-[0_0_0_3px_rgba(242,161,35,0.18)]',
+                          isCompleted && 'bg-[lab(34.0831_-9.57756_-27.7093)] text-white',
                           !isActive && !isCompleted && 'bg-[#F3F4F6] text-muted-foreground border border-[#E2E8F0]'
                         )}
                       >
@@ -1084,7 +1084,7 @@ export default function CreateShipment() {
                       <span
                         className={cn(
                           'text-[13px] font-medium whitespace-nowrap transition-colors',
-                          isActive ? 'text-[#112330] font-semibold' : isCompleted ? 'text-[#112330]/70' : 'text-muted-foreground'
+                          isActive ? 'text-[lab(34.0831_-9.57756_-27.7093)] font-semibold' : isCompleted ? 'text-[lab(34.0831_-9.57756_-27.7093)]/70' : 'text-muted-foreground'
                         )}
                       >
                         {step.title}
@@ -1094,7 +1094,7 @@ export default function CreateShipment() {
                       <div
                         className={cn(
                           'h-px w-10 mx-3 transition-colors',
-                          isCompleted ? 'bg-[#112330]/40' : 'bg-[#E2E8F0]'
+                          isCompleted ? 'bg-[lab(34.0831_-9.57756_-27.7093)]/40' : 'bg-[#E2E8F0]'
                         )}
                         aria-hidden
                       />
@@ -1120,7 +1120,7 @@ export default function CreateShipment() {
                   <div
                     className={cn(
                       'w-10 h-10 rounded-xl flex items-center justify-center transition-all',
-                      isActive && 'bg-[#F2A123] text-[#112330]',
+                      isActive && 'bg-[#F2A123] text-[lab(34.0831_-9.57756_-27.7093)]',
                       isCompleted && 'bg-green-500 text-white',
                       !isActive && !isCompleted && 'bg-muted text-muted-foreground'
                     )}
@@ -1129,7 +1129,7 @@ export default function CreateShipment() {
                   </div>
                   <span className={cn(
                     'text-[10px] mt-1 whitespace-nowrap',
-                    isActive ? 'text-[#112330] font-semibold' : 'text-muted-foreground'
+                    isActive ? 'text-[lab(34.0831_-9.57756_-27.7093)] font-semibold' : 'text-muted-foreground'
                   )}>
                     {step.title}
                   </span>
@@ -1305,7 +1305,7 @@ export default function CreateShipment() {
 
             <Button
               onClick={handleNext}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[#112330] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
               data-testid="button-next-step"
             >
               Continue
@@ -1498,7 +1498,7 @@ export default function CreateShipment() {
 
             <Button
               onClick={handleNext}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[#112330] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
               data-testid="button-next-step"
             >
               Continue
@@ -1773,7 +1773,7 @@ export default function CreateShipment() {
 
             <Button
               onClick={handleNext}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[#112330] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
               data-testid="button-next-step"
             >
               Continue
@@ -2103,7 +2103,7 @@ export default function CreateShipment() {
               type="button"
               onClick={handleGetRates}
               disabled={!productType.trim() || rateMutation.isPending}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[#112330] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
               data-testid="button-get-rates-invoice"
             >
               {rateMutation.isPending ? (
@@ -2179,7 +2179,7 @@ export default function CreateShipment() {
                             data-testid={`invoice-rate-card-${idx}`}
                           >
                             {isSelected ? (
-                              <div className="absolute top-3 right-3 z-10 rounded-full bg-[#F2A123] p-0.5 text-[#112330]">
+                              <div className="absolute top-3 right-3 z-10 rounded-full bg-[#F2A123] p-0.5 text-[lab(34.0831_-9.57756_-27.7093)]">
                                 <Check className="w-3.5 h-3.5" strokeWidth={3} aria-hidden />
                               </div>
                             ) : null}
@@ -2191,7 +2191,7 @@ export default function CreateShipment() {
                                 {letter}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <p className="text-[13px] font-semibold text-[#112330] leading-snug">
+                                <p className="text-[13px] font-semibold text-[lab(34.0831_-9.57756_-27.7093)] leading-snug">
                                   {displayName}
                                 </p>
                                 <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
@@ -2414,7 +2414,7 @@ export default function CreateShipment() {
             <Button
               onClick={handleSubmit}
               disabled={createMutation.isPending}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[#112330] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
               data-testid="button-submit-shipment"
             >
               {createMutation.isPending ? (
@@ -2533,7 +2533,7 @@ export default function CreateShipment() {
                   type="button"
                   onClick={handleGetRates}
                   disabled={!productType.trim() || rateMutation.isPending}
-                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[#112330] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
+                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
                 >
                   {rateMutation.isPending ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
@@ -2555,7 +2555,7 @@ export default function CreateShipment() {
                 {selectedService && (
                   <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-1.5 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06)]">
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Selected service</p>
-                    <p className="font-semibold text-sm text-[#112330]">{selectedService.internal_api_service_code || selectedService.code}</p>
+                    <p className="font-semibold text-sm text-[lab(34.0831_-9.57756_-27.7093)]">{selectedService.internal_api_service_code || selectedService.code}</p>
                     <p className="font-mono text-lg font-semibold text-[#2F4468]">{formatInr(selectedService.total)}</p>
                     <p className="text-[10px] text-muted-foreground">incl. GST · estimated</p>
                   </div>
@@ -2578,7 +2578,7 @@ export default function CreateShipment() {
                 <Button
                   onClick={handleSubmit}
                   disabled={createMutation.isPending}
-                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[#112330] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
                   data-testid="button-submit-shipment-desktop"
                 >
                   {createMutation.isPending ? (
@@ -2662,3 +2662,4 @@ export default function CreateShipment() {
     </div>
   );
 }
+

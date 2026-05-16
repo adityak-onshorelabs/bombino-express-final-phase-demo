@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   User,
@@ -63,16 +63,16 @@ export default function Profile() {
         </header>
 
         <main className="flex flex-col items-center justify-center min-h-[60vh] max-w-md mx-auto px-4 text-center">
-          <div className="w-16 h-16 bg-[#112330]/8 rounded-full flex items-center justify-center mx-auto mb-4">
-            <User className="w-8 h-8 text-[#112330]" />
+          <div className="w-16 h-16 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-4">
+            <User className="w-8 h-8 text-[lab(34.0831_-9.57756_-27.7093)]" />
           </div>
-          <h2 className="text-lg font-semibold text-[#112330] mb-2">Please login to continue</h2>
+          <h2 className="text-lg font-semibold text-[lab(34.0831_-9.57756_-27.7093)] mb-2">Please login to continue</h2>
           <p className="text-sm text-muted-foreground mb-6">
             Sign in to view your profile
           </p>
           <Button
             onClick={() => setLocation('/login?redirect=/profile')}
-            className="bg-[#F2A123] hover:bg-[#F2A123]/90 text-[#112330] font-semibold h-11 px-8 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+            className="bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-11 px-8 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
           >
             Login
           </Button>
@@ -125,10 +125,10 @@ export default function Profile() {
 
           {/* LEFT — avatar + identity */}
           <div className="md:col-span-5 flex flex-col items-center text-center md:text-left md:items-start mb-6 md:mb-0 md:sticky md:top-6">
-            <div className="w-20 h-20 bg-[#112330]/8 rounded-2xl flex items-center justify-center mb-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06)]">
-              <User className="w-10 h-10 text-[#112330]" />
+            <div className="w-20 h-20 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-2xl flex items-center justify-center mb-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06)]">
+              <User className="w-10 h-10 text-[lab(34.0831_-9.57756_-27.7093)]" />
             </div>
-            <h2 className="text-xl font-bold text-[#112330] leading-tight">
+            <h2 className="text-xl font-bold text-[lab(34.0831_-9.57756_-27.7093)] leading-tight">
               {displayName || 'User'}
             </h2>
             <p className="text-sm text-muted-foreground mt-1">{displayEmail}</p>
@@ -154,7 +154,7 @@ export default function Profile() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Email</p>
-                  <p className="font-medium text-sm truncate text-[#112330]">{displayEmail}</p>
+                  <p className="font-medium text-sm truncate text-[lab(34.0831_-9.57756_-27.7093)]">{displayEmail}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 p-4">
@@ -163,7 +163,7 @@ export default function Profile() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Phone</p>
-                  <p className="font-medium text-sm truncate text-[#112330]">{displayPhone}</p>
+                  <p className="font-medium text-sm truncate text-[lab(34.0831_-9.57756_-27.7093)]">{displayPhone}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 p-4">
@@ -172,7 +172,7 @@ export default function Profile() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Username</p>
-                  <p className="font-medium text-sm truncate text-[#112330]">{displayUsername}</p>
+                  <p className="font-medium text-sm truncate text-[lab(34.0831_-9.57756_-27.7093)]">{displayUsername}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 p-4">
@@ -181,7 +181,7 @@ export default function Profile() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Role</p>
-                  <p className="font-medium text-sm truncate text-[#112330]">{displayRole}</p>
+                  <p className="font-medium text-sm truncate text-[lab(34.0831_-9.57756_-27.7093)]">{displayRole}</p>
                 </div>
               </div>
             </div>
@@ -199,7 +199,7 @@ export default function Profile() {
                   <img src={whatsAppLogo} alt="WhatsApp" className="w-4 h-4 object-contain" />
                 </div>
                 <div className="flex-1">
-                  <p className="font-medium text-sm text-[#112330]">WhatsApp Support</p>
+                  <p className="font-medium text-sm text-[lab(34.0831_-9.57756_-27.7093)]">WhatsApp Support</p>
                   <p className="text-xs text-muted-foreground">Chat with us instantly</p>
                 </div>
               </a>
@@ -212,7 +212,7 @@ export default function Profile() {
                   <PhoneIcon className="w-4 h-4 text-[#2F4468]" />
                 </div>
                 <div className="flex-1">
-                  <p className="font-medium text-sm text-[#112330]">Call Support</p>
+                  <p className="font-medium text-sm text-[lab(34.0831_-9.57756_-27.7093)]">Call Support</p>
                   <p className="text-xs text-muted-foreground">+91 22 6640 0000</p>
                 </div>
               </a>
@@ -242,3 +242,4 @@ export default function Profile() {
     </div>
   );
 }
+

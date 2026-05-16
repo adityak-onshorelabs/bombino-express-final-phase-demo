@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+﻿import { useEffect, useState, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { ArrowLeft, Bell, AlertTriangle, Info, LogIn } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
@@ -105,16 +105,16 @@ export default function Notifications() {
       <main className="max-w-4xl mx-auto w-full px-4 md:px-8 py-6">
         {!isLoggedIn ? (
           <div className="text-center py-12 max-w-sm mx-auto">
-            <div className="w-16 h-16 bg-[#112330]/8 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Bell className="w-8 h-8 text-[#112330]" />
+            <div className="w-16 h-16 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Bell className="w-8 h-8 text-[lab(34.0831_-9.57756_-27.7093)]" />
             </div>
-            <h2 className="font-semibold text-[#112330] mb-2">No notifications yet</h2>
+            <h2 className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)] mb-2">No notifications yet</h2>
             <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
               Login to receive shipment updates and alerts.
             </p>
             <Button
               onClick={() => setLocation('/login')}
-              className="bg-[#F2A123] hover:bg-[#F2A123]/90 text-[#112330] font-semibold h-11 px-6 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+              className="bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-11 px-6 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
               data-testid="button-login-notifications"
             >
               <LogIn className="w-4 h-4 mr-2" />
@@ -128,7 +128,7 @@ export default function Notifications() {
             <div className="w-16 h-16 bg-[#F3F4F6] rounded-full flex items-center justify-center mx-auto mb-4">
               <Bell className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h2 className="font-semibold text-[#112330] mb-2">No notifications yet</h2>
+            <h2 className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)] mb-2">No notifications yet</h2>
             <p className="text-sm text-muted-foreground leading-relaxed">
               You'll see updates here when you have shipments.
             </p>
@@ -151,7 +151,7 @@ export default function Notifications() {
                   className={cn(
                     'w-full text-left flex items-start gap-3 p-4 rounded-xl border transition-all',
                     unread
-                      ? 'bg-[#112330]/[0.04] border-[#E2E8F0] border-l-4 border-l-[#112330] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.08),_0_1px_3px_oklch(17%_0.048_248_/_0.05)]'
+                      ? 'bg-[lab(34.0831_-9.57756_-27.7093)]/[0.04] border-[#E2E8F0] border-l-4 border-l-[lab(34.0831_-9.57756_-27.7093)] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.08),_0_1px_3px_oklch(17%_0.048_248_/_0.05)]'
                       : 'bg-white border-[#E2E8F0] shadow-[0_1px_3px_oklch(17%_0.048_248_/_0.04)] hover:shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.08)]'
                   )}
                   data-testid={`notification-item-${notif.id}`}
@@ -162,7 +162,7 @@ export default function Notifications() {
                       isWarn && !isShipmentCreated
                         ? 'bg-amber-50 text-amber-600'
                         : isShipmentCreated
-                          ? 'bg-[#112330]/8 text-[#112330]'
+                          ? 'bg-[lab(34.0831_-9.57756_-27.7093)]/8 text-[lab(34.0831_-9.57756_-27.7093)]'
                           : 'bg-[#F3F4F6] text-[#2F4468]'
                     )}
                   >
@@ -176,7 +176,7 @@ export default function Notifications() {
                     <div className="flex items-start justify-between gap-2">
                       <p className={cn(
                         'font-semibold text-sm leading-snug',
-                        unread ? 'text-[#112330]' : 'text-foreground'
+                        unread ? 'text-[lab(34.0831_-9.57756_-27.7093)]' : 'text-foreground'
                       )}>
                         {notif.title ?? ''}
                       </p>
@@ -207,3 +207,4 @@ export default function Notifications() {
     </div>
   );
 }
+

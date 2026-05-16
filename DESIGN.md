@@ -1,4 +1,4 @@
-# Design System — Bombino Express
+﻿# Design System — Bombino Express
 
 ## Color Palette
 
@@ -6,7 +6,7 @@ Strategy: **Committed** — Admiralty Dark (deep navy) dominates; Dispatch Amber
 
 | Token          | OKLCH                  | HEX Mapping | Use                                                |
 | -------------- | ---------------------- | ----------- | -------------------------------------------------- |
-| Admiralty Dark | `oklch(17% 0.048 248)` | `#112330`   | Primary bg, hero, CTAs, Text Foreground            |
+| Admiralty Dark | `lab(34.0831 -9.57756 -27.7093)` | `lab(34.0831 -9.57756 -27.7093)`   | Primary bg, hero, CTAs, Text Foreground            |
 | Trade Wind     | `oklch(37% 0.092 245)` | `#2F4468`   | Secondary, links, focus rings, icons               |
 | Dispatch Amber | `oklch(73% 0.160 64)`  | `#F2A123`   | Primary CTA, accents, highlights, badges           |
 | Freight Paper  | `oklch(98% 0.004 246)` | `#F8F9FA`   | Page background, white sections, card placeholders |
@@ -39,7 +39,7 @@ modal:   0 12px 48px oklch(17% 0.048 248 / 0.18), 0 4px 16px oklch(17% 0.048 248
 focus:   0 0 0 3px oklch(37% 0.092 245 / 0.40)
 ```
 
-_Note: Some structural components use explicit rgba variations: Hover expansions like `0 8px 30px rgba(0,0,0,0.06)` or massive dropdown drops like `0 8px 40px rgba(17,35,48,0.10)`._
+_Note: Some structural components use explicit rgba variations: Hover expansions like `0 8px 30px rgba(0,0,0,0.06)` or massive dropdown drops like `0 8px 40px lab(34.0831 -9.57756 -27.7093 / 0.10)`._
 
 ## Radius
 
@@ -63,7 +63,7 @@ Reduced motion: `window.matchMedia("(prefers-reduced-motion: reduce)")` check be
 
 ## Components & Structural Audit
 
-- **Buttons (`Button/Primary`):** Dispatch Amber bg (`#F2A123`), Admiralty text (`#112330`), rounded-full (or `rounded-lg` per shadcn default extensions), `h-8` to `h-12`, font-semibold.
+- **Buttons (`Button/Primary`):** Dispatch Amber bg (`#F2A123`), Admiralty text (`lab(34.0831 -9.57756 -27.7093)`), rounded-full (or `rounded-lg` per shadcn default extensions), `h-8` to `h-12`, font-semibold.
 - **Button/Secondary**: transparent bg, border-white/30, freight-paper text, rounded-full, backdrop-blur-sm.
 - **Cards (`GlobalCard`):** Exhibit a highly premium, "app-like" feel.
   - Outer Shell: `bg-white` fill, `border-slate-100` (`#E2E8F0`), massive `rounded-[2rem]` (`32px`) corners. Structural padding (`p-2`) allows inner media to breathe.
@@ -85,3 +85,4 @@ Reduced motion: `window.matchMedia("(prefers-reduced-motion: reduce)")` check be
 7. Global Offices
 8. CTA Strip
 9. Footer
+

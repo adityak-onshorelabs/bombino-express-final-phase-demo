@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+﻿import type { CSSProperties } from 'react';
 import { useLayoutEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, ChevronDown, Info, Loader2, AlertTriangle, Phone } from 'lucide-react';
 import { useLocation } from 'wouter';
@@ -318,7 +318,7 @@ export default function Rates() {
               >
                 <ArrowLeft className="w-5 h-5 text-foreground" />
               </button>
-              <h1 className="text-base font-medium text-foreground tracking-tight md:text-2xl md:font-bold md:text-[#112330]">Rate options</h1>
+              <h1 className="text-base font-medium text-foreground tracking-tight md:text-2xl md:font-bold md:text-[lab(34.0831_-9.57756_-27.7093)]">Rate options</h1>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2 md:gap-2.5 md:mt-3">
@@ -405,7 +405,7 @@ export default function Rates() {
                         {letter}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-semibold text-[#112330] leading-snug md:text-base">{displayName}</p>
+                        <p className="text-[13px] font-semibold text-[lab(34.0831_-9.57756_-27.7093)] leading-snug md:text-base">{displayName}</p>
                         <div className="mt-0.5 flex flex-wrap items-center gap-2">
                           <span className="text-[11px] text-muted-foreground font-mono md:text-xs">
                             {weightStr} kg chargeable
@@ -498,7 +498,7 @@ export default function Rates() {
                         <div className="my-3 h-px bg-[#E2E8F0]" />
 
                         <div className="flex justify-between gap-3 items-baseline">
-                          <span className="text-[11px] text-[#112330] font-semibold md:text-xs">Total payable</span>
+                          <span className="text-[11px] text-[lab(34.0831_-9.57756_-27.7093)] font-semibold md:text-xs">Total payable</span>
                           <span className="text-[14px] font-semibold tabular-nums font-mono text-[#2F4468] md:text-base">
                             {formatInr(service.total)}
                           </span>
@@ -507,7 +507,7 @@ export default function Rates() {
                         {bookable ? (
                           <button
                             type="button"
-                            className="mt-3 w-full h-10 rounded-xl text-[13px] font-semibold bg-[#F2A123] text-[#112330] hover:bg-[#F2A123]/90 active:scale-[0.98] transition-all md:h-12 md:rounded-xl md:text-sm md:mt-4"
+                            className="mt-3 w-full h-10 rounded-xl text-[13px] font-semibold bg-[#F2A123] text-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#F2A123]/90 active:scale-[0.98] transition-all md:h-12 md:rounded-xl md:text-sm md:mt-4"
                             onClick={() => handleBookRate(service)}
                           >
                             Book this rate
@@ -547,13 +547,13 @@ export default function Rates() {
           <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#F2A123]">Calculator</span>
           <span className="h-px flex-1 bg-gradient-to-r from-[#F2A123]/30 to-transparent" aria-hidden />
         </div>
-        <h1 className="text-lg font-semibold text-foreground mb-1 md:text-[26px] md:font-bold md:mb-1 md:tracking-[-0.02em] md:text-[#112330]">Get Rates</h1>
+        <h1 className="text-lg font-semibold text-foreground mb-1 md:text-[26px] md:font-bold md:mb-1 md:tracking-[-0.02em] md:text-[lab(34.0831_-9.57756_-27.7093)]">Get Rates</h1>
         <p className="hidden md:block text-sm text-muted-foreground mb-6">
           Instant rates for international shipments from India
         </p>
 
         <div className="mb-5 space-y-3 md:mb-6">
-          <div className="flex items-end gap-2 md:gap-0 md:items-stretch md:bg-white md:rounded-2xl md:border md:border-[#E2E8F0] md:shadow-[0_1px_2px_rgba(17,35,48,0.04),0_2px_12px_rgba(17,35,48,0.05)] md:p-1 md:mb-3">
+          <div className="flex items-end gap-2 md:gap-0 md:items-stretch md:bg-white md:rounded-2xl md:border md:border-[#E2E8F0] md:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] md:p-1 md:mb-3">
             <div className="flex-1 min-w-0 md:flex-1 md:p-3">
               <Label className="text-[10px] text-muted-foreground mb-1 block md:text-[10px] md:font-bold md:text-muted-foreground md:uppercase md:tracking-[0.14em]">From</Label>
               <CountryCombobox value={selectedOrigin} onValueChange={handleOriginChange} />
@@ -578,7 +578,7 @@ export default function Rates() {
         </div>
 
         <div className="space-y-4">
-          <div className="bg-card rounded-xl border border-border p-4 shadow-sm md:p-5 md:rounded-2xl md:border-[#E2E8F0] md:shadow-[0_1px_2px_rgba(17,35,48,0.04),0_2px_12px_rgba(17,35,48,0.05)]">
+          <div className="bg-card rounded-xl border border-border p-4 shadow-sm md:p-5 md:rounded-2xl md:border-[#E2E8F0] md:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)]">
             <div className="flex items-center justify-between mb-3 md:mb-4">
               <Label className="text-sm font-semibold md:text-[13px] md:font-bold md:tracking-tight">Weight &amp; pieces</Label>
               <div className="flex bg-muted rounded-lg p-0.5">
@@ -641,7 +641,7 @@ export default function Rates() {
           <Button
             onClick={handleGetRates}
             disabled={rateMutation.isPending}
-            className="w-full h-12 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-xl shadow-md disabled:opacity-70 mt-6 mb-4 md:h-12 md:text-sm md:rounded-xl md:mt-5 md:mb-2 md:bg-[#112330] md:hover:bg-[#2F4468] md:shadow-[0_4px_14px_rgba(17,35,48,0.18)]"
+            className="w-full h-12 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-xl shadow-md disabled:opacity-70 mt-6 mb-4 md:h-12 md:text-sm md:rounded-xl md:mt-5 md:mb-2 md:bg-[lab(34.0831_-9.57756_-27.7093)] md:hover:bg-[#2F4468] md:shadow-[0_4px_14px_lab(34.0831_-9.57756_-27.7093_/_0.18)]"
             data-testid="button-get-rates"
           >
             {rateMutation.isPending ? (
@@ -665,3 +665,4 @@ export default function Rates() {
     </div>
   );
 }
+

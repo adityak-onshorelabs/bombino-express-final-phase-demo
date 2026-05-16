@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+﻿import { useEffect, useState, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { Package, Copy, Send, Search, ArrowRight, Download } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
@@ -85,7 +85,7 @@ function TrackBar({
   onSubmit: () => void;
 }) {
   return (
-    <div className="rounded-xl bg-white border border-border shadow-[0_1px_2px_rgba(17,35,48,0.04),0_2px_12px_rgba(17,35,48,0.05)] p-1.5 flex items-center gap-2">
+    <div className="rounded-xl bg-white border border-border shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] p-1.5 flex items-center gap-2">
       <div className="relative flex-1">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <input
@@ -101,7 +101,7 @@ function TrackBar({
       <button
         type="button"
         onClick={onSubmit}
-        className="h-11 px-5 inline-flex items-center gap-2 text-sm font-semibold rounded-lg bg-[#112330] text-white hover:bg-[#2F4468] transition-colors"
+        className="h-11 px-5 inline-flex items-center gap-2 text-sm font-semibold rounded-lg bg-[lab(34.0831_-9.57756_-27.7093)] text-white hover:bg-[#2F4468] transition-colors"
         data-testid="button-track-orders"
       >
         Track
@@ -333,7 +333,7 @@ export default function Orders() {
         {!isLoggedIn ? (
           <div className="text-center py-16">
             <p className="text-sm text-muted-foreground mb-4">Sign in to view your shipments.</p>
-            <Button className="bg-[#112330] hover:bg-[#2F4468] rounded-lg" onClick={() => setLocation('/login')}>
+            <Button className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg" onClick={() => setLocation('/login')}>
               Login
             </Button>
           </div>
@@ -356,7 +356,7 @@ export default function Orders() {
               Create your first shipment to get started.
             </p>
             <Button
-              className="bg-[#112330] hover:bg-[#2F4468] rounded-lg h-10 px-5 mt-5"
+              className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg h-10 px-5 mt-5"
               onClick={() => setLocation('/create')}
               data-testid="button-orders-create"
             >
@@ -467,3 +467,4 @@ export default function Orders() {
     </div>
   );
 }
+

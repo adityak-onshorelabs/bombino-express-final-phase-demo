@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { ArrowLeft, Mail, Lock, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
@@ -61,13 +61,13 @@ export default function Login() {
         <div className="max-w-md mx-auto w-full">
           <div className="flex flex-col items-center mb-8">
             <img src={bombinoLogo} alt="Bombino Express" className="h-auto w-[180px] mb-6 object-contain" />
-            <h2 className="text-xl font-semibold text-[#112330]">Sign In</h2>
+            <h2 className="text-xl font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">Sign In</h2>
             <p className="text-sm text-muted-foreground mt-1">Bringing the world closer</p>
           </div>
 
           <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] p-6 space-y-5 animate-fade-in">
             <div>
-              <Label className="text-sm font-medium text-[#112330]">Email</Label>
+              <Label className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Email</Label>
               <div className="relative mt-2">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
@@ -84,7 +84,7 @@ export default function Login() {
             </div>
 
             <div>
-              <Label className="text-sm font-medium text-[#112330]">Password</Label>
+              <Label className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Password</Label>
               <div className="relative mt-2">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground z-10" />
                 <Input
@@ -115,7 +115,7 @@ export default function Login() {
             <Button
               onClick={handleSubmit}
               disabled={isLoading}
-              className="w-full h-12 text-base font-semibold bg-[#F2A123] hover:bg-[#F2A123]/90 text-[#112330] rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 mt-1"
+              className="w-full h-12 text-base font-semibold bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 mt-1"
               data-testid="button-sign-in"
             >
               {isLoading ? (
@@ -137,3 +137,4 @@ export default function Login() {
     </div>
   );
 }
+

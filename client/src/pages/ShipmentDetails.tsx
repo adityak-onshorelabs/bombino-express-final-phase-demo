@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useRoute, useLocation } from 'wouter';
 import {
   ArrowLeft,
@@ -240,7 +240,7 @@ function ActionRow({
           <button
             type="button"
             onClick={onDownloadLabel}
-            className="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[#112330] text-white text-sm font-semibold hover:bg-[#2F4468] transition-colors"
+            className="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[lab(34.0831_-9.57756_-27.7093)] text-white text-sm font-semibold hover:bg-[#2F4468] transition-colors"
             data-testid="button-download-label"
           >
             <Download className="w-4 h-4" />
@@ -653,3 +653,4 @@ export default function ShipmentDetails() {
     </PageShell>
   );
 }
+
