@@ -144,6 +144,10 @@ interface RateParams {
   origin_code: string;
   pcs: string;
   actual_weight: string;
+  ori_city?: string;
+  ori_pincode?: string;
+  dest_city?: string;
+  dest_pincode?: string;
 }
 
 interface ITDChargeApplyEntry {
@@ -582,6 +586,10 @@ export default function CreateShipment() {
       origin_code: 'IN',
       pcs: String(parseInt(pieces) || 1),
       actual_weight: String(weightKg.toFixed(2)),
+      ori_city: senderCity.toUpperCase(),
+      ori_pincode: senderZip,
+      dest_city: receiverCity.toUpperCase(),
+      dest_pincode: receiverZip,
     });
   };
 

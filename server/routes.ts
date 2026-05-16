@@ -462,8 +462,18 @@ export async function registerRoutes(
     ensureDbUser,
     refreshItdTokenIfNeeded,
     async (req: Request, res: Response) => {
-      const { product_code, destination_code, booking_date, origin_code, pcs, actual_weight } =
-        req.body as RateParams;
+      const {
+        product_code,
+        destination_code,
+        booking_date,
+        origin_code,
+        pcs,
+        actual_weight,
+        ori_city,
+        ori_pincode,
+        dest_city,
+        dest_pincode,
+      } = req.body as RateParams;
 
       if (!product_code || !destination_code || !actual_weight) {
         res.status(400).json({ message: "product_code, destination_code, and actual_weight are required" });
@@ -477,6 +487,10 @@ export async function registerRoutes(
         origin_code: origin_code ?? "IN",
         pcs: pcs ?? "1",
         actual_weight,
+        ori_city,
+        ori_pincode,
+        dest_city,
+        dest_pincode,
       };
 
       try {

@@ -169,6 +169,10 @@ export interface RateParams {
   origin_code: string;
   pcs: string;
   actual_weight: string;
+  ori_city?: string;
+  ori_pincode?: string;
+  dest_city?: string;
+  dest_pincode?: string;
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -340,6 +344,10 @@ class ITDClient {
     form.append("customer_code", customerCode ?? process.env.ITD_CUSTOMER_CODE ?? "");
     form.append("username", username);
     form.append("password", password);
+    if (params.ori_city) form.append("ori_city", params.ori_city);
+    if (params.ori_pincode) form.append("ori_pincode", params.ori_pincode);
+    if (params.dest_city) form.append("dest_city", params.dest_city);
+    if (params.dest_pincode) form.append("dest_pincode", params.dest_pincode);
 
     const url = `${APP_BASE}/docket_api/customer_rate_cals?api_company_id=${apiCompanyId}`;
 
