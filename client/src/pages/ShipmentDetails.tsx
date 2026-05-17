@@ -6,6 +6,7 @@ import {
   Check,
   Plane,
   Download,
+  FileText,
   Phone,
   AlertTriangle,
   Loader2,
@@ -103,6 +104,7 @@ export default function ShipmentDetails() {
   const [, setLocation] = useLocation();
   const [copied, setCopied] = useState(false);
   const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
+  const [pdfTitle, setPdfTitle] = useState('Shipment Label');
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -157,11 +159,40 @@ export default function ShipmentDetails() {
       const { label } = (await res.json()) as { label: string };
       const dataUrl =
         `data:application/pdf;base64,${label}`;
+      setPdfTitle('Shipment Label');
       setPdfDataUrl(dataUrl);
     } catch {
       toast({
         title: 'Download failed',
         description: 'Could not download the shipment label.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDownloadInvoice = async () => {
+    try {
+      const res = await fetch(
+        `/api/shipments/${encodeURIComponent(awb)}/invoice`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) {
+        toast({
+          title: 'Invoice not available',
+          description: 'The invoice for this shipment could not be found.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const { invoice } = (await res.json()) as { invoice: string };
+      const dataUrl = `data:application/pdf;base64,${invoice}`;
+      setPdfTitle('Shipment Invoice');
+      setPdfDataUrl(dataUrl);
+    } catch {
+      toast({
+        title: 'Download failed',
+        description: 'Could not open the invoice.',
         variant: 'destructive',
       });
     }
@@ -182,11 +213,10 @@ export default function ShipmentDetails() {
       const blob = new Blob([bytes], {
         type: 'application/pdf',
       });
-      const file = new File(
-        [blob],
-        'shipment-label.pdf',
-        { type: 'application/pdf' }
-      );
+      const isInvoice = pdfTitle.includes('Invoice');
+      const fileName = isInvoice ? 'shipment-invoice.pdf' : 'shipment-label.pdf';
+      const shareTitle = pdfTitle;
+      const file = new File([blob], fileName, { type: 'application/pdf' });
 
       if (
         typeof navigator.share === 'function' &&
@@ -195,7 +225,7 @@ export default function ShipmentDetails() {
       ) {
         await navigator.share({
           files: [file],
-          title: 'Shipment Label',
+          title: shareTitle,
         });
       } else {
         toast({
@@ -630,6 +660,15 @@ export default function ShipmentDetails() {
       </div>
       <button
         type="button"
+        className="fixed right-4 bottom-[calc(var(--nav-stack)+9.5rem)] z-40 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-[0_8px_24px_rgba(0,0,0,0.2)]"
+        onClick={() => void handleDownloadInvoice()}
+        data-testid="button-download-invoice"
+      >
+        <FileText className="w-4 h-4" />
+        Invoice
+      </button>
+      <button
+        type="button"
         className="fixed right-4 bottom-[calc(var(--nav-stack)+5.5rem)] z-40 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-[0_8px_24px_rgba(0,0,0,0.2)]"
         onClick={() => void handleDownloadLabel()}
         data-testid="button-download-label"
@@ -641,7 +680,7 @@ export default function ShipmentDetails() {
         <div className="fixed inset-0 z-[100] bg-white flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-white safe-top">
             <span className="font-semibold text-sm text-foreground">
-              Shipment Label
+              {pdfTitle}
             </span>
             <button
               type="button"
@@ -661,7 +700,7 @@ export default function ShipmentDetails() {
           <iframe
             src={pdfDataUrl}
             className="flex-1 w-full border-0"
-            title="Shipment Label"
+            title={pdfTitle}
           />
         </div>
       )}

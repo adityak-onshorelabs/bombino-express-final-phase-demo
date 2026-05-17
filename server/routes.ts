@@ -11,6 +11,7 @@ import {
   resolveSupportSession,
   listAddressesByUserIdAndType,
   getShipmentLabel,
+  getShipmentInvoice,
   listNotificationsByUserId,
   listShipmentsByUserId,
   markNotificationRead,
@@ -258,6 +259,27 @@ export async function registerRoutes(
       }
 
       return res.json({ label });
+    }
+  );
+
+  app.get(
+    "/api/shipments/:awb/invoice",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const { awb } = req.params;
+      const dbUserId = req.session.dbUserId;
+
+      if (!dbUserId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const invoice = await getShipmentInvoice(awb, dbUserId);
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not available" });
+      }
+
+      return res.json({ invoice });
     }
   );
 

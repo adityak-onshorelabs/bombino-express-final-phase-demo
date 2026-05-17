@@ -318,7 +318,9 @@ export default function CreateShipment() {
   const [currentStep, setCurrentStep] = useState(1);
   const [newAWB, setNewAWB] = useState('');
   const [shipmentLabel, setShipmentLabel] = useState<string | null>(null);
+  const [shipmentInvoice, setShipmentInvoice] = useState<string | null>(null);
   const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
+  const [pdfTitle, setPdfTitle] = useState('Shipment Label');
   const [submitError, setSubmitError] = useState('');
 
   const [senderName, setSenderName] = useState(isLoggedIn ? user?.fullName ?? '' : '');
@@ -442,6 +444,8 @@ export default function CreateShipment() {
       const awb = data.data.awb_no;
       const labelStr = data.labels?.[0]?.label ?? null;
       setShipmentLabel(labelStr);
+      const invoiceStr = data.labels?.[2]?.label ?? null;
+      setShipmentInvoice(invoiceStr);
       const now = new Date();
       const w = parseFloat(weight) || 1;
       const weightLb = weightUnit === 'lb' ? w : w / 0.453592;
@@ -606,6 +610,55 @@ export default function CreateShipment() {
     });
   };
 
+  const handleDownloadLabel = (base64: string) => {
+    setPdfTitle('Shipment Label');
+    const dataUrl = `data:application/pdf;base64,${base64}`;
+    setPdfDataUrl(dataUrl);
+  };
+
+  const handleShareLabel = async (dataUrl: string) => {
+    try {
+      const base64 = dataUrl.split(',')[1];
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], {
+        type: 'application/pdf',
+      });
+      const isInvoice = pdfTitle.includes('Invoice');
+      const fileName = isInvoice ? 'shipment-invoice.pdf' : 'shipment-label.pdf';
+      const shareTitle = pdfTitle;
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+
+      if (
+        typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [file] })
+      ) {
+        await navigator.share({
+          files: [file],
+          title: shareTitle,
+        });
+      } else {
+        toast({
+          title: 'Sharing not supported',
+          description: 'Please use the browser download option instead.',
+          variant: 'destructive',
+        });
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        toast({
+          title: 'Share failed',
+          description: 'Could not share the label.',
+          variant: 'destructive',
+        });
+      }
+    }
+  };
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create-login-required">
@@ -663,7 +716,7 @@ export default function CreateShipment() {
           <div className="fixed inset-0 z-[100] bg-white flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-white safe-top">
               <span className="font-semibold text-sm text-foreground">
-                Shipment Label
+                {pdfTitle}
               </span>
               <button
                 type="button"
@@ -683,7 +736,7 @@ export default function CreateShipment() {
             <iframe
               src={pdfDataUrl}
               className="flex-1 w-full border-0"
-              title="Shipment Label"
+              title={pdfTitle}
             />
           </div>
         )}
@@ -739,6 +792,22 @@ export default function CreateShipment() {
               <FileText className="w-4 h-4" />
               View Label & Details
             </Button>
+            {shipmentInvoice && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setPdfTitle('Shipment Invoice');
+                  setPdfDataUrl(
+                    `data:application/pdf;base64,${shipmentInvoice}`
+                  );
+                }}
+                className="w-full h-12 text-sm rounded-xl border-[#14567C] text-[#14567C] flex items-center justify-center gap-2"
+                data-testid="button-view-invoice"
+              >
+                <FileText className="w-4 h-4" />
+                View Invoice
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() => setLocation('/home')}
@@ -829,7 +898,9 @@ export default function CreateShipment() {
     setServiceSelectionError('');
     setFieldErrors({});
     setShipmentLabel(null);
+    setShipmentInvoice(null);
     setPdfDataUrl(null);
+    setPdfTitle('Shipment Label');
     if (!productType.trim()) {
       setSubmitError('Please select a product type');
       return;
@@ -1006,62 +1077,6 @@ export default function CreateShipment() {
     }
 
     createMutation.mutate(payload);
-  };
-
-  const handleDownloadLabel = (
-    base64: string
-  ) => {
-    const dataUrl =
-      `data:application/pdf;base64,${base64}`;
-    setPdfDataUrl(dataUrl);
-  };
-
-  const handleShareLabel = async (
-    dataUrl: string
-  ) => {
-    try {
-      const base64 = dataUrl.split(',')[1];
-      const binary = atob(base64);
-      const bytes = new Uint8Array(
-        binary.length
-      );
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      const blob = new Blob([bytes], {
-        type: 'application/pdf',
-      });
-      const file = new File(
-        [blob],
-        'shipment-label.pdf',
-        { type: 'application/pdf' }
-      );
-
-      if (
-        typeof navigator.share === 'function' &&
-        typeof navigator.canShare === 'function' &&
-        navigator.canShare({ files: [file] })
-      ) {
-        await navigator.share({
-          files: [file],
-          title: 'Shipment Label',
-        });
-      } else {
-        toast({
-          title: 'Sharing not supported',
-          description: 'Please use the browser download option instead.',
-          variant: 'destructive',
-        });
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        toast({
-          title: 'Share failed',
-          description: 'Could not share the label.',
-          variant: 'destructive',
-        });
-      }
-    }
   };
 
   return (
