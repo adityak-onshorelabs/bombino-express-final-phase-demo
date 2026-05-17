@@ -312,6 +312,17 @@ function getDispatchType(serviceCode: string): string | undefined {
   return undefined;
 }
 
+function getGstinType(documentType: string): string {
+  const map: Record<string, string> = {
+    'Aadhaar Number': 'AADHAAR NUMBER',
+    'PAN Number': 'PAN NUMBER',
+    'Passport Number': 'PASSPORT NUMBER',
+    'Driving Licence': 'DRIVING LICENCE',
+    'GSTIN (Normal)': 'GSTIN (NORMAL)',
+  };
+  return map[documentType] ?? 'AADHAAR NUMBER';
+}
+
 export default function CreateShipment() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, addShipment, addNotification, logout } = useAppStore();
@@ -1027,7 +1038,7 @@ export default function CreateShipment() {
       shipper_state: senderState,
       shipper_country: 'IN',
       shipper_zip_code: senderZip,
-      shipper_gstin_type: 'AADHAAR NUMBER',
+      shipper_gstin_type: getGstinType(kycResult!.document_type),
       shipper_gstin_no: kycResult!.document_no,
       kyc_details: [{
         document_type:     kycResult!.document_type,

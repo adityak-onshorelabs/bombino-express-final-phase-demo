@@ -2,6 +2,13 @@ import React, { useState, useRef } from 'react';
 import { CloudUpload, CheckCircle2, XCircle, Loader2, FileText } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
 export const KYC_DOCUMENT_TYPE = 'Aadhaar Number';
@@ -23,6 +30,54 @@ interface KycUploadProps {
   };
 }
 
+type DocConfig = {
+  label: string;
+  placeholder: string;
+  hint: string;
+  validate: (v: string) => boolean;
+  maxLength: number;
+};
+
+const DOC_TYPES: Record<string, DocConfig> = {
+  'Aadhaar Number': {
+    label: 'Aadhaar Number',
+    placeholder: 'XXXX XXXX XXXX',
+    hint: '12-digit Aadhaar number',
+    validate: (v) => /^\d{12}$/.test(v),
+    maxLength: 12,
+  },
+  'PAN Number': {
+    label: 'PAN Number',
+    placeholder: 'ABCDE1234F',
+    hint: '10-character PAN',
+    validate: (v) => /^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(v),
+    maxLength: 10,
+  },
+  'Passport Number': {
+    label: 'Passport Number',
+    placeholder: 'A1234567',
+    hint: '7-8 character passport number',
+    validate: (v) => /^[A-Z0-9]{7,8}$/i.test(v),
+    maxLength: 8,
+  },
+  'Driving Licence': {
+    label: 'Driving Licence',
+    placeholder: 'MH01-2000-1234567',
+    hint: 'Driving licence number',
+    validate: (v) => /^[A-Z0-9-]{5,20}$/i.test(v),
+    maxLength: 20,
+  },
+  'GSTIN (Normal)': {
+    label: 'GSTIN',
+    placeholder: '22AAAAA0000A1Z5',
+    hint: '15-character GST number',
+    validate: (v) => v.length === 15,
+    maxLength: 15,
+  },
+};
+
+const DOC_TYPE_KEYS = Object.keys(DOC_TYPES);
+
 const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
@@ -43,26 +98,30 @@ function StatusPill({ status }: { status: UploadStatus }) {
 }
 
 export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React.JSX.Element {
-  const [aadhaarRaw, setAadhaarRaw] = useState('');
-  const [aadhaarDisplay, setAadhaarDisplay] = useState('');
+  const [selectedDocType, setSelectedDocType] = useState(KYC_DOCUMENT_TYPE);
+  const [docNoRaw, setDocNoRaw] = useState('');
+  const [docNoDisplay, setDocNoDisplay] = useState('');
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
   const [uploadError, setUploadError] = useState('');
   const [uploadResult, setUploadResult] = useState<{ id: string; file_path: string } | null>(null);
   const [selectedFileName, setSelectedFileName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  /** File chosen before 12 digits are entered — upload runs once digits are complete */
+  /** File chosen before document number is valid — upload runs once number is complete */
   const pendingFileRef = useRef<File | null>(null);
-  /** Aadhaar string last successfully uploaded — used to invalidate if digits change while still length 12 */
-  const lastUploadedAadhaarRef = useRef<string | null>(null);
+  /** Document number last successfully uploaded — invalidate if it changes */
+  const lastUploadedDocNoRef = useRef<string | null>(null);
+
+  const docConfig = DOC_TYPES[selectedDocType];
 
   function syncToParent(
-    digits: string,
+    raw: string,
     result: { id: string; file_path: string } | null,
+    docType: string,
   ): void {
-    if (/^\d{12}$/.test(digits) && result) {
+    if (DOC_TYPES[docType].validate(raw) && result) {
       onValidChange({
-        document_type: KYC_DOCUMENT_TYPE,
-        document_no: digits,
+        document_type: docType,
+        document_no: raw,
         document_id: result.id,
         file_path: result.file_path,
       });
@@ -71,16 +130,29 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
     }
   }
 
+  const resetForDocTypeChange = (nextType: string): void => {
+    setDocNoRaw('');
+    setDocNoDisplay('');
+    setUploadStatus('idle');
+    setUploadError('');
+    setUploadResult(null);
+    setSelectedFileName('');
+    pendingFileRef.current = null;
+    lastUploadedDocNoRef.current = null;
+    onValidChange(null);
+    setSelectedDocType(nextType);
+  };
+
   async function performUpload(file: File, documentNo: string): Promise<void> {
     setSelectedFileName(file.name);
     setUploadStatus('uploading');
     setUploadError('');
     setUploadResult(null);
-    syncToParent(documentNo, null);
+    syncToParent(documentNo, null, selectedDocType);
 
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('document_type', KYC_DOCUMENT_TYPE);
+    formData.append('document_type', selectedDocType);
     formData.append('document_no', documentNo);
 
     try {
@@ -99,28 +171,68 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
       setUploadResult(data);
       setUploadStatus('success');
       pendingFileRef.current = null;
-      lastUploadedAadhaarRef.current = documentNo;
-      syncToParent(documentNo, data);
+      lastUploadedDocNoRef.current = documentNo;
+      syncToParent(documentNo, data, selectedDocType);
     } catch (err) {
       setUploadStatus('error');
       setUploadError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
     }
   }
 
-  function handleAadhaarChange(raw: string): void {
-    const digits = raw.replace(/\D/g, '').slice(0, 12);
-    setAadhaarRaw(digits);
-    let formatted = '';
-    for (let i = 0; i < digits.length; i++) {
-      if (i > 0 && i % 4 === 0) formatted += '-';
-      formatted += digits[i];
-    }
-    setAadhaarDisplay(formatted);
+  function handleDocNoChange(raw: string): void {
+    if (selectedDocType === 'Aadhaar Number') {
+      const digits = raw.replace(/\D/g, '').slice(0, 12);
+      setDocNoRaw(digits);
+      let formatted = '';
+      for (let i = 0; i < digits.length; i++) {
+        if (i > 0 && i % 4 === 0) formatted += '-';
+        formatted += digits[i];
+      }
+      setDocNoDisplay(formatted);
 
-    if (!/^\d{12}$/.test(digits)) {
+      if (!/^\d{12}$/.test(digits)) {
+        setUploadResult(null);
+        lastUploadedDocNoRef.current = null;
+        syncToParent(digits, null, selectedDocType);
+        if (pendingFileRef.current) {
+          setUploadStatus('pending');
+        } else {
+          setUploadStatus((s) => (s === 'success' || s === 'uploading' ? 'idle' : s));
+          setSelectedFileName('');
+        }
+        return;
+      }
+
+      if (pendingFileRef.current) {
+        const f = pendingFileRef.current;
+        pendingFileRef.current = null;
+        void performUpload(f, digits);
+        return;
+      }
+
+      if (uploadResult && lastUploadedDocNoRef.current !== digits) {
+        setUploadResult(null);
+        lastUploadedDocNoRef.current = null;
+        syncToParent(digits, null, selectedDocType);
+        setUploadStatus('idle');
+        setSelectedFileName('');
+        return;
+      }
+
+      syncToParent(digits, uploadResult, selectedDocType);
+      return;
+    }
+
+    const pattern =
+      selectedDocType === 'Driving Licence' ? /[^A-Za-z0-9-]/g : /[^A-Za-z0-9]/g;
+    const normalized = raw.replace(pattern, '').toUpperCase().slice(0, docConfig.maxLength);
+    setDocNoRaw(normalized);
+    setDocNoDisplay(normalized);
+
+    if (!docConfig.validate(normalized)) {
       setUploadResult(null);
-      lastUploadedAadhaarRef.current = null;
-      syncToParent(digits, null);
+      lastUploadedDocNoRef.current = null;
+      syncToParent(normalized, null, selectedDocType);
       if (pendingFileRef.current) {
         setUploadStatus('pending');
       } else {
@@ -133,20 +245,20 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
     if (pendingFileRef.current) {
       const f = pendingFileRef.current;
       pendingFileRef.current = null;
-      void performUpload(f, digits);
+      void performUpload(f, normalized);
       return;
     }
 
-    if (uploadResult && lastUploadedAadhaarRef.current !== digits) {
+    if (uploadResult && lastUploadedDocNoRef.current !== normalized) {
       setUploadResult(null);
-      lastUploadedAadhaarRef.current = null;
-      syncToParent(digits, null);
+      lastUploadedDocNoRef.current = null;
+      syncToParent(normalized, null, selectedDocType);
       setUploadStatus('idle');
       setSelectedFileName('');
       return;
     }
 
-    syncToParent(digits, uploadResult);
+    syncToParent(normalized, uploadResult, selectedDocType);
   }
 
   async function handleFileSelect(file: File): Promise<void> {
@@ -161,7 +273,7 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
       return;
     }
 
-    if (!/^\d{12}$/.test(aadhaarRaw)) {
+    if (!DOC_TYPES[selectedDocType].validate(docNoRaw)) {
       pendingFileRef.current = file;
       setSelectedFileName(file.name);
       setUploadStatus('pending');
@@ -170,7 +282,7 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
       return;
     }
 
-    await performUpload(file, aadhaarRaw);
+    await performUpload(file, docNoRaw);
   }
 
   function handleDragOver(e: React.DragEvent): void {
@@ -185,15 +297,23 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
     if (file) void handleFileSelect(file);
   }
 
-  const showAadhaarError = fieldErrors?.document_no && !/^\d{12}$/.test(aadhaarRaw);
-  /** Pending = file selected, waiting for digits — not a missing file for Continue validation */
+  const isDocNoValid = docConfig.validate(docNoRaw);
+  const showDocNoError = fieldErrors?.document_no && !isDocNoValid;
+  /** Pending = file selected, waiting for valid number — not a missing file for Continue validation */
   const showFileError =
     fieldErrors?.file && uploadStatus !== 'success' && uploadStatus !== 'pending';
-  const showDigitHint =
-    fieldErrors?.document_no && aadhaarRaw.length > 0 && aadhaarRaw.length < 12;
+  const showIncompleteHint =
+    fieldErrors?.document_no &&
+    docNoRaw.length > 0 &&
+    !isDocNoValid &&
+    selectedDocType === 'Aadhaar Number' &&
+    docNoRaw.length < 12;
 
   const fileErrorHighlight =
     showFileError && uploadStatus === 'idle';
+
+  const inputMaxLength =
+    selectedDocType === 'Aadhaar Number' ? 14 : docConfig.maxLength;
 
   return (
     <div className="bg-card rounded-xl border border-border p-4 shadow-sm space-y-4">
@@ -202,43 +322,51 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
         <span className="text-[10px] text-muted-foreground">Required for Indian customs</span>
       </div>
 
-      {/* Document Type — static (Aadhaar only) */}
+      {/* Document Type */}
       <div>
         <Label className="text-xs text-muted-foreground">
           Document Type <span className="text-red-400">*</span>
         </Label>
-        <div
-          className="h-11 mt-1 px-3 flex items-center text-sm bg-muted/30 border border-border rounded-xl text-foreground"
-          aria-readonly
-        >
-          {KYC_DOCUMENT_TYPE}
-        </div>
+        <Select value={selectedDocType} onValueChange={resetForDocTypeChange}>
+          <SelectTrigger className="mt-1">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {DOC_TYPE_KEYS.map((key) => (
+              <SelectItem key={key} value={key}>
+                {DOC_TYPES[key].label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      {/* Aadhaar Number */}
+      {/* Document Number */}
       <div>
         <Label className="text-xs text-muted-foreground">
-          Aadhaar Number <span className="text-red-400">*</span>
+          {docConfig.label} <span className="text-red-400">*</span>
         </Label>
         <Input
-          value={aadhaarDisplay}
-          onChange={(e) => handleAadhaarChange(e.target.value)}
-          placeholder="XXXX-XXXX-XXXX"
-          maxLength={14}
-          inputMode="numeric"
+          value={docNoDisplay}
+          onChange={(e) => handleDocNoChange(e.target.value)}
+          placeholder={docConfig.placeholder}
+          maxLength={inputMaxLength}
+          inputMode={selectedDocType === 'Aadhaar Number' ? 'numeric' : 'text'}
           className={cn(
-            'h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl font-mono tracking-widest',
-            showAadhaarError && 'border-2 border-primary',
+            'h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl',
+            selectedDocType === 'Aadhaar Number' && 'font-mono tracking-widest',
+            showDocNoError && 'border-2 border-primary',
           )}
           data-testid="input-aadhaar-number"
         />
-        {showDigitHint && (
+        <p className="text-xs text-muted-foreground mt-1">{docConfig.hint}</p>
+        {showIncompleteHint && (
           <p className="text-xs text-muted-foreground mt-1">
-            {12 - aadhaarRaw.length} more digit{12 - aadhaarRaw.length !== 1 ? 's' : ''} required
+            {12 - docNoRaw.length} more digit{12 - docNoRaw.length !== 1 ? 's' : ''} required
           </p>
         )}
-        {showAadhaarError && (
-          <p className="text-xs text-red-600 mt-1">Valid 12-digit Aadhaar number required</p>
+        {showDocNoError && (
+          <p className="text-xs text-red-600 mt-1">Valid {docConfig.hint.toLowerCase()} required</p>
         )}
       </div>
 
@@ -246,7 +374,7 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
       <div>
         <div className="flex items-center justify-between mb-1">
           <Label className="text-xs text-muted-foreground">
-            Aadhaar Document <span className="text-red-400">*</span>
+            {docConfig.label} Document <span className="text-red-400">*</span>
           </Label>
           <StatusPill status={uploadStatus} />
         </div>
@@ -297,7 +425,7 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
                 {selectedFileName}
               </p>
               <p className="text-[10px] text-muted-foreground text-center leading-tight px-1">
-                Enter your 12-digit Aadhaar to upload
+                Enter a valid {docConfig.label} to upload
               </p>
             </>
           )}
@@ -347,7 +475,7 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
         </div>
 
         {showFileError && (
-          <p className="text-xs text-red-600 mt-1">Please upload your Aadhaar document</p>
+          <p className="text-xs text-red-600 mt-1">Please upload your {docConfig.label} document</p>
         )}
         <div className="flex items-center gap-1 mt-1.5">
           <FileText className="w-3 h-3 text-muted-foreground" />
