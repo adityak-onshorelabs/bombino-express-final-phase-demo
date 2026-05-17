@@ -76,6 +76,7 @@ interface CreateShipmentPayload {
   is_ecommerce?: string;
   is_scheme?: string;
   is_bond_ut?: string;
+  dispatch_type?: string;
   lut_number?: string;
   lut_issue_from?: string;
   lut_issue_till?: string;
@@ -303,6 +304,14 @@ function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
   );
 }
 
+function getDispatchType(serviceCode: string): string | undefined {
+  const code = serviceCode.toLowerCase();
+  if (code.includes('bms') || code.includes('bombino')) {
+    return 'Postal';
+  }
+  return undefined;
+}
+
 export default function CreateShipment() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, addShipment, addNotification, logout } = useAppStore();
@@ -347,6 +356,8 @@ export default function CreateShipment() {
   const [invoiceQty, setInvoiceQty] = useState('1');
   const [invoiceUnitWeight, setInvoiceUnitWeight] = useState('');
   const [invoiceUnitRate, setInvoiceUnitRate] = useState('');
+  type CsbvDispatchType = 'Fine Jewellery' | 'Stones' | 'BPN Service' | 'Postal';
+
   const [csbvHsCode, setCsbvHsCode] = useState('');
   const [csbvEcommerce, setCsbvEcommerce] = useState<'yes' | 'no'>('no');
   const [csbvScheme, setCsbvScheme] = useState<'yes' | 'no'>('no');
@@ -355,6 +366,8 @@ export default function CreateShipment() {
   const [csbvLutNumber, setCsbvLutNumber] = useState('');
   const [csbvLutFrom, setCsbvLutFrom] = useState('');
   const [csbvLutTill, setCsbvLutTill] = useState('');
+  const [csbvDispatchType, setCsbvDispatchType] =
+    useState<CsbvDispatchType>('Postal');
   const [productType, setProductType] = useState('');
   const [showProductTypeInfo, setShowProductTypeInfo] = useState(false);
   const [showPresetSheet, setShowPresetSheet] = useState(false);
@@ -884,6 +897,11 @@ export default function CreateShipment() {
     const apiServiceCodeResolved =
       selectedService.internal_api_service_code || selectedService.code;
 
+    const dispatchType =
+      productType !== 'CSB V'
+        ? getDispatchType(apiServiceCodeResolved)
+        : undefined;
+
     const defaultLineItem: FreeFormLineItem = {
       total,
       no_of_packages: String(qty),
@@ -969,11 +987,16 @@ export default function CreateShipment() {
       free_form_line_items: [freeFormLineItem],
     };
 
+    if (dispatchType !== undefined) {
+      payload.dispatch_type = dispatchType;
+    }
+
     if (productType === 'CSB V') {
       payload.is_csbv_shipment = 'true';
       payload.is_ecommerce = csbvEcommerce;
       payload.is_scheme = csbvScheme;
       payload.is_bond_ut = csbvBondType;
+      payload.dispatch_type = csbvDispatchType;
 
       if (csbvBondType === 'bond_ut') {
         payload.lut_number = csbvLutNumber;
@@ -1768,6 +1791,7 @@ export default function CreateShipment() {
                         setCsbvLutNumber('');
                         setCsbvLutFrom('');
                         setCsbvLutTill('');
+                        setCsbvDispatchType('Postal');
                       }
                     }}
                   >
@@ -1873,6 +1897,39 @@ export default function CreateShipment() {
                             </button>
                           )
                         )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">
+                        Postal Product Type
+                        <span className="text-red-400 ml-0.5">*</span>
+                      </span>
+                      <div className="flex gap-2 flex-wrap justify-end max-w-[200px]">
+                        {(
+                          [
+                            'Fine Jewellery',
+                            'Stones',
+                            'BPN Service',
+                            'Postal',
+                          ] as const
+                        ).map((opt) => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => setCsbvDispatchType(opt)}
+                            className={cn(
+                              'px-3 py-1 text-xs',
+                              'rounded-full border',
+                              'transition-colors',
+                              csbvDispatchType === opt
+                                ? 'bg-primary text-white border-primary'
+                                : 'border-border text-muted-foreground'
+                            )}
+                          >
+                            {opt}
+                          </button>
+                        ))}
                       </div>
                     </div>
 

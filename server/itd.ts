@@ -91,6 +91,7 @@ export interface CreateShipmentPayload {
   is_ecommerce?: string;
   is_scheme?: string;
   is_bond_ut?: string;
+  dispatch_type?: string;
   lut_number?: string;
   lut_issue_from?: string;
   lut_issue_till?: string;
