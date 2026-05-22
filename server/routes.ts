@@ -11,6 +11,7 @@ import {
   resolveSupportSession,
   listAddressesByUserIdAndType,
   getShipmentLabel,
+  getShipmentInvoice,
   listNotificationsByUserId,
   listShipmentsByUserId,
   markNotificationRead,
@@ -262,6 +263,27 @@ export async function registerRoutes(
   );
 
   app.get(
+    "/api/shipments/:awb/invoice",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const { awb } = req.params;
+      const dbUserId = req.session.dbUserId;
+
+      if (!dbUserId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      const invoice = await getShipmentInvoice(awb, dbUserId);
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not available" });
+      }
+
+      return res.json({ invoice });
+    }
+  );
+
+  app.get(
     "/api/shipments/download-csv",
     requireUser,
     ensureDbUser,
@@ -462,8 +484,18 @@ export async function registerRoutes(
     ensureDbUser,
     refreshItdTokenIfNeeded,
     async (req: Request, res: Response) => {
-      const { product_code, destination_code, booking_date, origin_code, pcs, actual_weight } =
-        req.body as RateParams;
+      const {
+        product_code,
+        destination_code,
+        booking_date,
+        origin_code,
+        pcs,
+        actual_weight,
+        ori_city,
+        ori_pincode,
+        dest_city,
+        dest_pincode,
+      } = req.body as RateParams;
 
       if (!product_code || !destination_code || !actual_weight) {
         res.status(400).json({ message: "product_code, destination_code, and actual_weight are required" });
@@ -477,6 +509,10 @@ export async function registerRoutes(
         origin_code: origin_code ?? "IN",
         pcs: pcs ?? "1",
         actual_weight,
+        ori_city,
+        ori_pincode,
+        dest_city,
+        dest_pincode,
       };
 
       try {
@@ -774,15 +810,54 @@ export async function registerRoutes(
         return;
       }
 
-      const bodySchema = z.object({
-        document_type: z.string().min(1, "document_type is required"),
-        document_no: z.string().regex(/^\d{12}$/, "Aadhaar must be exactly 12 digits"),
-      });
-      const parsed = bodySchema.safeParse(req.body);
-      if (!parsed.success) {
-        res.status(400).json({ message: parsed.error.issues[0].message });
+      const validDocTypes = [
+        "Aadhaar Number",
+        "PAN Number",
+        "Passport Number",
+        "Driving Licence",
+        "GSTIN (Normal)",
+      ] as const;
+
+      const docNoValidation: Record<string, RegExp> = {
+        "Aadhaar Number": /^\d{12}$/,
+        "PAN Number": /^[A-Z]{5}[0-9]{4}[A-Z]$/i,
+        "Passport Number": /^[A-Z0-9]{7,8}$/i,
+        "Driving Licence": /^[A-Z0-9-]{5,20}$/i,
+        "GSTIN (Normal)": /^.{15}$/,
+      };
+
+      const documentType =
+        typeof req.body.document_type === "string"
+          ? req.body.document_type.trim()
+          : "";
+      const documentNo =
+        typeof req.body.document_no === "string"
+          ? req.body.document_no.trim()
+          : "";
+
+      if (!documentType) {
+        res.status(400).json({ message: "document_type is required" });
         return;
       }
+      if (!documentNo) {
+        res.status(400).json({ message: "document_no is required" });
+        return;
+      }
+      if (!validDocTypes.includes(documentType as (typeof validDocTypes)[number])) {
+        res.status(400).json({ message: "Invalid document type" });
+        return;
+      }
+      if (!docNoValidation[documentType].test(documentNo)) {
+        res.status(400).json({
+          message: `Invalid document number for ${documentType}`,
+        });
+        return;
+      }
+
+      const normalizedDocumentNo =
+        documentType === "Aadhaar Number"
+          ? documentNo
+          : documentNo.toUpperCase();
 
       try {
         const id = crypto.randomUUID();
@@ -790,8 +865,8 @@ export async function registerRoutes(
           buffer: req.file.buffer,
           mimeType: req.file.mimetype,
           originalFilename: req.file.originalname,
-          documentType: parsed.data.document_type,
-          documentNo: parsed.data.document_no,
+          documentType,
+          documentNo: normalizedDocumentNo,
         });
 
         const base = (process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 5000}`).replace(/\/$/, "");

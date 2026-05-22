@@ -76,6 +76,7 @@ interface CreateShipmentPayload {
   is_ecommerce?: string;
   is_scheme?: string;
   is_bond_ut?: string;
+  dispatch_type?: string;
   lut_number?: string;
   lut_issue_from?: string;
   lut_issue_till?: string;
@@ -144,6 +145,10 @@ interface RateParams {
   origin_code: string;
   pcs: string;
   actual_weight: string;
+  ori_city?: string;
+  ori_pincode?: string;
+  dest_city?: string;
+  dest_pincode?: string;
 }
 
 interface ITDChargeApplyEntry {
@@ -299,13 +304,34 @@ function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
   );
 }
 
+function getDispatchType(serviceCode: string): string | undefined {
+  const code = serviceCode.toLowerCase();
+  if (code.includes('bms') || code.includes('bombino')) {
+    return 'Postal';
+  }
+  return undefined;
+}
+
+function getGstinType(documentType: string): string {
+  const map: Record<string, string> = {
+    'Aadhaar Number': 'AADHAAR NUMBER',
+    'PAN Number': 'PAN NUMBER',
+    'Passport Number': 'PASSPORT NUMBER',
+    'Driving Licence': 'DRIVING LICENCE',
+    'GSTIN (Normal)': 'GSTIN (NORMAL)',
+  };
+  return map[documentType] ?? 'AADHAAR NUMBER';
+}
+
 export default function CreateShipment() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, addShipment, addNotification, logout } = useAppStore();
   const [currentStep, setCurrentStep] = useState(1);
   const [newAWB, setNewAWB] = useState('');
   const [shipmentLabel, setShipmentLabel] = useState<string | null>(null);
+  const [shipmentInvoice, setShipmentInvoice] = useState<string | null>(null);
   const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
+  const [pdfTitle, setPdfTitle] = useState('Shipment Label');
   const [submitError, setSubmitError] = useState('');
 
   const [senderName, setSenderName] = useState(isLoggedIn ? user?.fullName ?? '' : '');
@@ -343,6 +369,8 @@ export default function CreateShipment() {
   const [invoiceQty, setInvoiceQty] = useState('1');
   const [invoiceUnitWeight, setInvoiceUnitWeight] = useState('');
   const [invoiceUnitRate, setInvoiceUnitRate] = useState('');
+  type CsbvDispatchType = 'Fine Jewellery' | 'Stones' | 'BPN Service' | 'Postal';
+
   const [csbvHsCode, setCsbvHsCode] = useState('');
   const [csbvEcommerce, setCsbvEcommerce] = useState<'yes' | 'no'>('no');
   const [csbvScheme, setCsbvScheme] = useState<'yes' | 'no'>('no');
@@ -351,6 +379,8 @@ export default function CreateShipment() {
   const [csbvLutNumber, setCsbvLutNumber] = useState('');
   const [csbvLutFrom, setCsbvLutFrom] = useState('');
   const [csbvLutTill, setCsbvLutTill] = useState('');
+  const [csbvDispatchType, setCsbvDispatchType] =
+    useState<CsbvDispatchType>('Postal');
   const [productType, setProductType] = useState('');
   const [showProductTypeInfo, setShowProductTypeInfo] = useState(false);
   const [showPresetSheet, setShowPresetSheet] = useState(false);
@@ -425,6 +455,8 @@ export default function CreateShipment() {
       const awb = data.data.awb_no;
       const labelStr = data.labels?.[0]?.label ?? null;
       setShipmentLabel(labelStr);
+      const invoiceStr = data.labels?.[2]?.label ?? null;
+      setShipmentInvoice(invoiceStr);
       const now = new Date();
       const w = parseFloat(weight) || 1;
       const weightLb = weightUnit === 'lb' ? w : w / 0.453592;
@@ -582,7 +614,60 @@ export default function CreateShipment() {
       origin_code: 'IN',
       pcs: String(parseInt(pieces) || 1),
       actual_weight: String(weightKg.toFixed(2)),
+      ori_city: senderCity.toUpperCase(),
+      ori_pincode: senderZip,
+      dest_city: receiverCity.toUpperCase(),
+      dest_pincode: receiverZip,
     });
+  };
+
+  const handleDownloadLabel = (base64: string) => {
+    setPdfTitle('Shipment Label');
+    const dataUrl = `data:application/pdf;base64,${base64}`;
+    setPdfDataUrl(dataUrl);
+  };
+
+  const handleShareLabel = async (dataUrl: string) => {
+    try {
+      const base64 = dataUrl.split(',')[1];
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const blob = new Blob([bytes], {
+        type: 'application/pdf',
+      });
+      const isInvoice = pdfTitle.includes('Invoice');
+      const fileName = isInvoice ? 'shipment-invoice.pdf' : 'shipment-label.pdf';
+      const shareTitle = pdfTitle;
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+
+      if (
+        typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [file] })
+      ) {
+        await navigator.share({
+          files: [file],
+          title: shareTitle,
+        });
+      } else {
+        toast({
+          title: 'Sharing not supported',
+          description: 'Please use the browser download option instead.',
+          variant: 'destructive',
+        });
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name !== 'AbortError') {
+        toast({
+          title: 'Share failed',
+          description: 'Could not share the label.',
+          variant: 'destructive',
+        });
+      }
+    }
   };
 
   if (!isLoggedIn) {
@@ -642,7 +727,7 @@ export default function CreateShipment() {
           <div className="fixed inset-0 z-[100] bg-white flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-white safe-top">
               <span className="font-semibold text-sm text-foreground">
-                Shipment Label
+                {pdfTitle}
               </span>
               <button
                 type="button"
@@ -662,7 +747,7 @@ export default function CreateShipment() {
             <iframe
               src={pdfDataUrl}
               className="flex-1 w-full border-0"
-              title="Shipment Label"
+              title={pdfTitle}
             />
           </div>
         )}
@@ -718,6 +803,22 @@ export default function CreateShipment() {
               <FileText className="w-4 h-4" />
               View Label & Details
             </Button>
+            {shipmentInvoice && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setPdfTitle('Shipment Invoice');
+                  setPdfDataUrl(
+                    `data:application/pdf;base64,${shipmentInvoice}`
+                  );
+                }}
+                className="w-full h-12 text-sm rounded-xl border-[#14567C] text-[#14567C] flex items-center justify-center gap-2"
+                data-testid="button-view-invoice"
+              >
+                <FileText className="w-4 h-4" />
+                View Invoice
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() => setLocation('/home')}
@@ -808,7 +909,9 @@ export default function CreateShipment() {
     setServiceSelectionError('');
     setFieldErrors({});
     setShipmentLabel(null);
+    setShipmentInvoice(null);
     setPdfDataUrl(null);
+    setPdfTitle('Shipment Label');
     if (!productType.trim()) {
       setSubmitError('Please select a product type');
       return;
@@ -876,6 +979,11 @@ export default function CreateShipment() {
     const apiServiceCodeResolved =
       selectedService.internal_api_service_code || selectedService.code;
 
+    const dispatchType =
+      productType !== 'CSB V'
+        ? getDispatchType(apiServiceCodeResolved)
+        : undefined;
+
     const defaultLineItem: FreeFormLineItem = {
       total,
       no_of_packages: String(qty),
@@ -930,7 +1038,7 @@ export default function CreateShipment() {
       shipper_state: senderState,
       shipper_country: 'IN',
       shipper_zip_code: senderZip,
-      shipper_gstin_type: 'AADHAAR NUMBER',
+      shipper_gstin_type: getGstinType(kycResult!.document_type),
       shipper_gstin_no: kycResult!.document_no,
       kyc_details: [{
         document_type:     kycResult!.document_type,
@@ -961,11 +1069,16 @@ export default function CreateShipment() {
       free_form_line_items: [freeFormLineItem],
     };
 
+    if (dispatchType !== undefined) {
+      payload.dispatch_type = dispatchType;
+    }
+
     if (productType === 'CSB V') {
       payload.is_csbv_shipment = 'true';
       payload.is_ecommerce = csbvEcommerce;
       payload.is_scheme = csbvScheme;
       payload.is_bond_ut = csbvBondType;
+      payload.dispatch_type = csbvDispatchType;
 
       if (csbvBondType === 'bond_ut') {
         payload.lut_number = csbvLutNumber;
@@ -975,62 +1088,6 @@ export default function CreateShipment() {
     }
 
     createMutation.mutate(payload);
-  };
-
-  const handleDownloadLabel = (
-    base64: string
-  ) => {
-    const dataUrl =
-      `data:application/pdf;base64,${base64}`;
-    setPdfDataUrl(dataUrl);
-  };
-
-  const handleShareLabel = async (
-    dataUrl: string
-  ) => {
-    try {
-      const base64 = dataUrl.split(',')[1];
-      const binary = atob(base64);
-      const bytes = new Uint8Array(
-        binary.length
-      );
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      const blob = new Blob([bytes], {
-        type: 'application/pdf',
-      });
-      const file = new File(
-        [blob],
-        'shipment-label.pdf',
-        { type: 'application/pdf' }
-      );
-
-      if (
-        typeof navigator.share === 'function' &&
-        typeof navigator.canShare === 'function' &&
-        navigator.canShare({ files: [file] })
-      ) {
-        await navigator.share({
-          files: [file],
-          title: 'Shipment Label',
-        });
-      } else {
-        toast({
-          title: 'Sharing not supported',
-          description: 'Please use the browser download option instead.',
-          variant: 'destructive',
-        });
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        toast({
-          title: 'Share failed',
-          description: 'Could not share the label.',
-          variant: 'destructive',
-        });
-      }
-    }
   };
 
   return (
@@ -1820,6 +1877,7 @@ export default function CreateShipment() {
                         setCsbvLutNumber('');
                         setCsbvLutFrom('');
                         setCsbvLutTill('');
+                        setCsbvDispatchType('Postal');
                       }
                     }}
                   >
@@ -1925,6 +1983,39 @@ export default function CreateShipment() {
                             </button>
                           )
                         )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">
+                        Postal Product Type
+                        <span className="text-red-400 ml-0.5">*</span>
+                      </span>
+                      <div className="flex gap-2 flex-wrap justify-end max-w-[200px]">
+                        {(
+                          [
+                            'Fine Jewellery',
+                            'Stones',
+                            'BPN Service',
+                            'Postal',
+                          ] as const
+                        ).map((opt) => (
+                          <button
+                            key={opt}
+                            type="button"
+                            onClick={() => setCsbvDispatchType(opt)}
+                            className={cn(
+                              'px-3 py-1 text-xs',
+                              'rounded-full border',
+                              'transition-colors',
+                              csbvDispatchType === opt
+                                ? 'bg-primary text-white border-primary'
+                                : 'border-border text-muted-foreground'
+                            )}
+                          >
+                            {opt}
+                          </button>
+                        ))}
                       </div>
                     </div>
 

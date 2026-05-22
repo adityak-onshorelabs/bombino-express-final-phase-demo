@@ -24,6 +24,10 @@ interface RateParams {
   origin_code: string;
   pcs: string;
   actual_weight: string;
+  ori_city?: string;
+  ori_pincode?: string;
+  dest_city?: string;
+  dest_pincode?: string;
 }
 
 interface ITDChargeApplyEntry {
@@ -275,6 +279,8 @@ export default function Rates() {
       origin_code: selectedOrigin,
       pcs: String(parseInt(pieces) || 1),
       actual_weight: String(weightKg.toFixed(2)),
+      ori_city: 'MUMBAI',
+      ori_pincode: '400001',
     });
   };
 

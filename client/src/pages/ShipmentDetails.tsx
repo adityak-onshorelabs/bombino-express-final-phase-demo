@@ -6,6 +6,7 @@ import {
   Check,
   Plane,
   Download,
+  FileText,
   Phone,
   AlertTriangle,
   Loader2,
@@ -255,12 +256,14 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-// ─── Action row (Label · WhatsApp · Call) ───────────────────────────────────
+// ─── Action row (Label · Invoice · WhatsApp · Call) ────────────────────────
 function ActionRow({
   onDownloadLabel,
+  onDownloadInvoice,
   showLabel,
 }: {
   onDownloadLabel: () => void;
+  onDownloadInvoice?: () => void;
   showLabel: boolean;
 }) {
   return (
@@ -275,6 +278,17 @@ function ActionRow({
           >
             <Download className="w-4 h-4" />
             Download label
+          </button>
+        )}
+        {onDownloadInvoice && (
+          <button
+            type="button"
+            onClick={onDownloadInvoice}
+            className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:border-foreground/30 hover:bg-muted/40 transition-colors"
+            data-testid="button-download-invoice"
+          >
+            <FileText className="w-4 h-4 text-muted-foreground" />
+            Invoice
           </button>
         )}
         <div className="flex-1" />
@@ -307,6 +321,7 @@ export default function ShipmentDetails() {
   const [, setLocation] = useLocation();
   const [copied, setCopied] = useState(false);
   const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
+  const [pdfTitle, setPdfTitle] = useState('Shipment Label');
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -367,11 +382,37 @@ export default function ShipmentDetails() {
         return;
       }
       const { label } = (await res.json()) as { label: string };
+      setPdfTitle('Shipment label');
       setPdfDataUrl(`data:application/pdf;base64,${label}`);
     } catch {
       toast({
         title: 'Download failed',
         description: 'Could not download the shipment label.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDownloadInvoice = async () => {
+    try {
+      const res = await fetch(`/api/shipments/${encodeURIComponent(awb)}/invoice`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        toast({
+          title: 'Invoice not available',
+          description: 'The invoice for this shipment could not be found.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      const { invoice } = (await res.json()) as { invoice: string };
+      setPdfTitle('Shipment invoice');
+      setPdfDataUrl(`data:application/pdf;base64,${invoice}`);
+    } catch {
+      toast({
+        title: 'Download failed',
+        description: 'Could not open the invoice.',
         variant: 'destructive',
       });
     }
@@ -384,14 +425,16 @@ export default function ShipmentDetails() {
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       const blob = new Blob([bytes], { type: 'application/pdf' });
-      const file = new File([blob], 'shipment-label.pdf', { type: 'application/pdf' });
+      const isInvoice = pdfTitle.toLowerCase().includes('invoice');
+      const fileName = isInvoice ? 'shipment-invoice.pdf' : 'shipment-label.pdf';
+      const file = new File([blob], fileName, { type: 'application/pdf' });
 
       if (
         typeof navigator.share === 'function' &&
         typeof navigator.canShare === 'function' &&
         navigator.canShare({ files: [file] })
       ) {
-        await navigator.share({ files: [file], title: 'Shipment Label' });
+        await navigator.share({ files: [file], title: pdfTitle });
       } else {
         toast({
           title: 'Sharing not supported',
@@ -659,13 +702,17 @@ export default function ShipmentDetails() {
         </div>
       </section>
 
-      <ActionRow onDownloadLabel={() => void handleDownloadLabel()} showLabel />
+      <ActionRow
+        onDownloadLabel={() => void handleDownloadLabel()}
+        onDownloadInvoice={() => void handleDownloadInvoice()}
+        showLabel
+      />
 
-      {/* Label PDF preview overlay */}
+      {/* PDF preview overlay (label or invoice) */}
       {pdfDataUrl && (
         <div className="fixed inset-0 z-[100] bg-white flex flex-col" data-testid="label-preview">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-white safe-top">
-            <span className="font-semibold text-sm text-foreground">Shipment label</span>
+            <span className="font-semibold text-sm text-foreground">{pdfTitle}</span>
             <div className="flex items-center gap-4">
               <button
                 type="button"
@@ -683,7 +730,7 @@ export default function ShipmentDetails() {
               </button>
             </div>
           </div>
-          <iframe src={pdfDataUrl} className="flex-1 w-full border-0" title="Shipment label" />
+          <iframe src={pdfDataUrl} className="flex-1 w-full border-0" title={pdfTitle} />
         </div>
       )}
     </PageShell>
