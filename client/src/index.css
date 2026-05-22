@@ -457,13 +457,13 @@ body {
 .metric-number-shimmer {
   background: linear-gradient(
     90deg,
-    rgb(var(--foreground)) 0%,
-    rgb(var(--foreground)) 28%,
+    var(--foreground) 0%,
+    var(--foreground) 28%,
     rgb(100 116 139) 42%,
     rgb(148 163 184) 50%,
     rgb(100 116 139) 58%,
-    rgb(var(--foreground)) 72%,
-    rgb(var(--foreground)) 100%
+    var(--foreground) 72%,
+    var(--foreground) 100%
   );
   background-size: 280% 100%;
   background-position: 150% 50%;
@@ -519,7 +519,7 @@ body {
   gap: 8px;
   font-size: 0.875rem;
   font-weight: 500;
-  color: rgb(var(--foreground));
+  color: var(--foreground);
 }
 
 .section-header-accent::before {

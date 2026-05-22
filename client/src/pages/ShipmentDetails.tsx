@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { useRoute, useLocation } from 'wouter';
 import {
   ArrowLeft,
@@ -12,7 +12,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format, parseISO, isValid } from 'date-fns';
 import { BottomNav } from '@/components/BottomNav';
 import { StatusBadge } from '@/components/StatusBadge';
 import { TrackingTimeline } from '@/components/TrackingTimeline';
@@ -56,9 +56,27 @@ function joinLocationParts(...parts: string[]): string {
 }
 
 function withKg(value: string): string {
-  const trimmed = value.trim();
+  let trimmed = value.trim();
   if (!trimmed) return '';
+  // Drop trailing zeros: "2.000" -> "2", "2.50" -> "2.5"
+  const num = parseFloat(trimmed.replace(/[^0-9.]/g, ''));
+  if (Number.isFinite(num)) {
+    const hasKg = /\bkg\b/i.test(trimmed);
+    trimmed = num.toString();
+    return hasKg || !/^\d/.test(value) ? `${trimmed} kg` : `${trimmed} kg`;
+  }
   return /\bkg\b/i.test(trimmed) ? trimmed : `${trimmed} kg`;
+}
+
+/** Format "2026-05-17" or "2026-05-17T..." -> "17 May 2026". Falls back to original if unparseable. */
+function formatNiceDate(value: string): string {
+  if (!value) return '';
+  const trimmed = value.trim();
+  // Try ISO/date-only first, with a noon stamp to avoid TZ flips on date-only strings
+  const candidate = trimmed.length <= 10 ? `${trimmed}T12:00:00Z` : trimmed;
+  const d = parseISO(candidate);
+  if (isValid(d)) return format(d, 'dd MMM yyyy');
+  return trimmed;
 }
 
 function mapEvents(docketEvents: DocketEvent[]): TrackingEvent[] {
@@ -156,14 +174,21 @@ function ShipmentHero({
 }) {
   return (
     <section className="space-y-6 md:space-y-7">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      {/* SHIPMENT eyebrow + amber gradient line */}
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#F2A123]">Shipment</span>
+        <span className="h-px flex-1 bg-gradient-to-r from-[#F2A123]/30 to-transparent" aria-hidden />
+      </div>
+
+      {/* AWB block — number left, status right, both vertically aligned */}
+      <div className="flex items-end justify-between gap-4 flex-wrap -mt-3">
         <div className="min-w-0">
           <p className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
             AWB number
           </p>
           <div className="flex items-center gap-2 mt-1.5">
             <h1
-              className="text-2xl md:text-[28px] font-bold tabular-nums tracking-tight text-foreground"
+              className="text-2xl md:text-[28px] font-bold tabular-nums tracking-tight text-[#112330]"
               data-testid="text-awb"
             >
               {awb}
@@ -183,31 +208,36 @@ function ShipmentHero({
             </button>
           </div>
         </div>
-        <StatusBadge status={statusLabel} tone={statusTone} className="shrink-0 mt-1" />
+        <StatusBadge status={statusLabel} tone={statusTone} className="shrink-0 mb-1" />
       </div>
 
+      {/* Route — bigger, visual lane with dot ··· plane ··· dot */}
       {(fromLine || toLine) && (
-        <div className="flex items-center gap-3 md:gap-5">
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
-              From
-            </p>
-            <p className="text-sm md:text-[15px] font-semibold mt-1 truncate text-foreground">
-              {fromLine || '—'}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 text-muted-foreground/70 shrink-0">
-            <span className="hidden sm:block h-px w-8 bg-border" aria-hidden />
-            <Plane className="w-4 h-4 rotate-45 text-[#F2A123]" aria-hidden />
-            <span className="hidden sm:block h-px w-8 bg-border" aria-hidden />
-          </div>
-          <div className="flex-1 min-w-0 text-right">
-            <p className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
-              To
-            </p>
-            <p className="text-sm md:text-[15px] font-semibold mt-1 truncate text-foreground">
-              {toLine || '—'}
-            </p>
+        <div className="rounded-xl bg-gradient-to-br from-[#F8F9FA] to-white border border-[#E2E8F0] p-4 md:p-5">
+          <div className="flex items-center gap-3 md:gap-5">
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
+                From
+              </p>
+              <p className="text-[15px] md:text-[16px] font-semibold mt-1.5 truncate text-[#112330]">
+                {fromLine || '—'}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0" aria-hidden>
+              <span className="w-1.5 h-1.5 rounded-full bg-[#F2A123]" />
+              <span className="block h-px w-6 md:w-10 bg-gradient-to-r from-[#F2A123]/60 to-[#F2A123]/20" />
+              <Plane className="w-4 h-4 rotate-45 text-[#F2A123]" />
+              <span className="block h-px w-6 md:w-10 bg-gradient-to-r from-[#F2A123]/20 to-[#F2A123]/60" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#F2A123]" />
+            </div>
+            <div className="flex-1 min-w-0 text-right">
+              <p className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
+                To
+              </p>
+              <p className="text-[15px] md:text-[16px] font-semibold mt-1.5 truncate text-[#112330]">
+                {toLine || '—'}
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -218,9 +248,9 @@ function ShipmentHero({
 // ─── Definition list row ────────────────────────────────────────────────────
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="text-[11px] text-muted-foreground">{label}</dt>
-      <dd className="text-sm text-foreground mt-1 break-words">{value}</dd>
+      <dd className="text-sm font-medium text-[#112330] mt-1 break-words">{value}</dd>
     </div>
   );
 }
@@ -503,7 +533,7 @@ export default function ShipmentDetails() {
   const toCountry = getDocketValue(info, 'Destination');
   const fromCity = getDocketValue(info, 'Shipper City');
   const toCity = getDocketValue(info, 'Consignee City');
-  const bookingDate = getDocketValue(info, 'Booking Date') || getDocketValue(info, 'Created');
+  const bookingDate = formatNiceDate(getDocketValue(info, 'Booking Date') || getDocketValue(info, 'Created'));
   const serviceName = getDocketValue(info, 'Service Name');
   const chargeableWeight = withKg(
     trackingData.chargeable_weight || getDocketValue(info, 'Chargeable Weight')
@@ -599,23 +629,29 @@ export default function ShipmentDetails() {
         )}
       </section>
 
-      {/* Details — two columns on desktop */}
-      <section className="mt-10 md:mt-12 pt-8 border-t border-border grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-8">
-        <div>
-          <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-muted-foreground mb-5">
-            Shipment
-          </h2>
-          <dl className="space-y-4">
+      {/* Details — asymmetric panels (4-field meta + 6-field parties) */}
+      <section className="mt-10 md:mt-12 grid grid-cols-1 md:grid-cols-[5fr_7fr] gap-4 md:gap-5">
+        <div className="relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_12px_28px_-14px_lab(34.0831_-9.57756_-27.7093_/_0.16)] p-5 md:p-6">
+          <div className="flex items-center gap-2 mb-5">
+            <span className="block w-1 h-3.5 rounded-sm bg-[#F2A123]" aria-hidden />
+            <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
+              Shipment
+            </h2>
+          </div>
+          <dl className="grid grid-cols-2 md:grid-cols-1 gap-x-4 gap-y-5 md:gap-y-4">
             {shipmentFields.map((f) => (
               <Field key={f.label} label={f.label} value={f.value} />
             ))}
           </dl>
         </div>
-        <div>
-          <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-muted-foreground mb-5">
-            Parties
-          </h2>
-          <dl className="space-y-4">
+        <div className="relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_12px_28px_-14px_lab(34.0831_-9.57756_-27.7093_/_0.16)] p-5 md:p-6">
+          <div className="flex items-center gap-2 mb-5">
+            <span className="block w-1 h-3.5 rounded-sm bg-[#F2A123]" aria-hidden />
+            <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
+              Parties
+            </h2>
+          </div>
+          <dl className="grid grid-cols-2 md:grid-cols-2 gap-x-6 gap-y-5 md:gap-y-5">
             {partyFields.map((f) => (
               <Field key={f.label} label={f.label} value={f.value} />
             ))}

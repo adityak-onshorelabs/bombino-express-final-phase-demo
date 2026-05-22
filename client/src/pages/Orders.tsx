@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { Package, Copy, Send, Search, ArrowRight, Download } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
@@ -125,19 +125,98 @@ function ShipmentRow({
   const amountStr = formatInr(item.total_amount, item.currency);
   const status = item.current_status?.trim() ? getStatusLabel(item.current_status) : 'Unknown';
   const tone = item.current_status?.trim() ? getStatusColor(item.current_status) : 'gray';
-  const recipient = item.consignee_name?.trim() || '—';
+  const recipientRaw = item.consignee_name?.trim() || '';
   const city = item.consignee_city?.trim() || '';
+  const recipient = recipientRaw || 'Unnamed recipient';
   const recipientLine = city ? `${recipient} · ${city}` : recipient;
+  const service = item.service_name?.trim() || '';
+  const bookingDate = formatBookingDate(item.booking_date);
 
   return (
     <button
       type="button"
       onClick={() => onOpen(awb)}
-      className="w-full text-left grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 px-3 md:px-4 py-3.5 md:py-3 hover:bg-muted/40 transition-colors md:grid-cols-[1.6fr_1.7fr_1.2fr_0.9fr_0.7fr_auto] md:gap-x-6 md:items-center"
+      className="w-full text-left transition-colors md:grid md:grid-cols-[1.6fr_1.7fr_1.2fr_0.9fr_0.7fr_auto] md:gap-x-6 md:items-center md:px-4 md:py-3 md:hover:bg-muted/40"
       data-testid={`order-row-${awb}`}
     >
-      {/* AWB + copy */}
-      <div className="flex items-center gap-2 min-w-0">
+      {/* ─── MOBILE CARD — amber-rail brand accent ──────────────── */}
+      <div className="md:hidden relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.06),0_12px_28px_-12px_lab(34.0831_-9.57756_-27.7093_/_0.18)] active:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_4px_10px_-4px_lab(34.0831_-9.57756_-27.7093_/_0.12)] active:translate-y-px transition-[transform,box-shadow] duration-150 overflow-hidden">
+        {/* Amber accent rail (full height, left edge) */}
+        <span
+          className="absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-[#F2A123] via-[#F2A123] to-[#F2A123]/60 rounded-l-xl"
+          aria-hidden
+        />
+        {/* Subtle warm tint sweep — paper-like, brand aware */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-[0.55]"
+          style={{
+            background:
+              'linear-gradient(115deg, transparent 0%, transparent 55%, oklch(96% 0.04 70 / 0.5) 100%)',
+          }}
+          aria-hidden
+        />
+
+        <div className="relative pl-5 pr-4 py-3.5">
+          {/* Header — AWB + status pill */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center min-w-0">
+              <span className="font-bold tabular-nums text-[16px] tracking-tight text-[#112330] truncate">
+                {awb}
+              </span>
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => onCopy(e, awb)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') onCopy(e as unknown as React.MouseEvent, awb);
+                }}
+                className="ml-1 p-2 -my-1.5 rounded-md active:bg-muted shrink-0 cursor-pointer text-muted-foreground/60 hover:text-muted-foreground"
+                aria-label={`Copy AWB ${awb}`}
+              >
+                <Copy className="w-3.5 h-3.5" />
+              </span>
+            </div>
+            <StatusBadge status={status} tone={tone} className="shrink-0 mt-0.5" />
+          </div>
+
+          {/* Recipient — primary line */}
+          <p className="mt-2 text-[14px] leading-snug truncate">
+            <span className={recipientRaw ? 'font-semibold text-[#112330]' : 'text-muted-foreground italic'}>
+              {recipient}
+            </span>
+            {city && <span className="text-muted-foreground/90 font-normal">{' · '}{city}</span>}
+          </p>
+
+          {/* Meta footer — hairline above, service + date + amount */}
+          {(service || amountStr || bookingDate !== '—') && (
+            <div className="mt-3 pt-2.5 border-t border-dashed border-[#E2E8F0] flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                {service && (
+                  <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#F2A123] truncate">
+                    {service}
+                  </span>
+                )}
+                {service && bookingDate !== '—' && (
+                  <span className="w-0.5 h-0.5 rounded-full bg-muted-foreground/30 shrink-0" aria-hidden />
+                )}
+                {bookingDate !== '—' && (
+                  <span className="text-[11.5px] text-muted-foreground tabular-nums shrink-0">
+                    {bookingDate}
+                  </span>
+                )}
+              </div>
+              {amountStr && (
+                <span className="text-[13px] font-bold tabular-nums text-[#112330] shrink-0">
+                  {amountStr}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ─── DESKTOP COLUMNS (unchanged) ──────────────────────────── */}
+      <div className="hidden md:flex md:items-center md:gap-2 md:min-w-0">
         <span className="font-semibold tabular-nums text-sm text-foreground truncate">{awb}</span>
         <span
           role="button"
@@ -152,29 +231,10 @@ function ShipmentRow({
           <Copy className="w-3.5 h-3.5 text-muted-foreground" />
         </span>
       </div>
-
-      {/* Status badge (mobile: right-aligned on row 1) */}
-      <div className="md:hidden justify-self-end">
-        <StatusBadge status={status} tone={tone} />
-      </div>
-
-      {/* Recipient line (mobile: full row 2; desktop: column 2) */}
-      <p className="col-span-2 md:col-span-1 text-[13px] md:text-sm text-muted-foreground truncate md:text-foreground/80">
-        {recipientLine}
-      </p>
-
-      {/* Mobile-only secondary row: service · date · amount */}
-      <p className="md:hidden col-span-2 text-[11px] text-muted-foreground/90 truncate -mt-0.5">
-        {item.service_name ?? '—'} · {formatBookingDate(item.booking_date)}
-        {amountStr ? <> · <span className="tabular-nums text-foreground/70">{amountStr}</span></> : null}
-      </p>
-
-      {/* Desktop columns 3-5 */}
+      <p className="hidden md:block text-sm text-foreground/80 truncate">{recipientLine}</p>
       <span className="hidden md:block text-sm text-muted-foreground truncate">{item.service_name ?? '—'}</span>
       <span className="hidden md:block text-sm text-muted-foreground tabular-nums">{formatBookingDate(item.booking_date)}</span>
       <span className="hidden md:block text-sm tabular-nums text-right text-foreground/80">{amountStr ?? '—'}</span>
-
-      {/* Desktop status */}
       <div className="hidden md:flex md:justify-end md:shrink-0">
         <StatusBadge status={status} tone={tone} />
       </div>
@@ -338,14 +398,33 @@ export default function Orders() {
             </Button>
           </div>
         ) : loading ? (
-          <div className="rounded-xl border border-border bg-white overflow-hidden">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className={`px-4 py-3.5 ${i > 1 ? 'border-t border-border' : ''} space-y-2 animate-pulse`}>
-                <Skeleton className="h-4 w-44" />
-                <Skeleton className="h-3 w-60" />
-              </div>
-            ))}
-          </div>
+          <>
+            {/* Mobile skeleton */}
+            <div className="md:hidden space-y-2.5">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="rounded-2xl border border-[#E2E8F0] bg-white p-4 space-y-2.5 animate-pulse">
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                  </div>
+                  <Skeleton className="h-3.5 w-52" />
+                  <div className="flex items-center justify-between pt-1">
+                    <Skeleton className="h-3 w-28" />
+                    <Skeleton className="h-3.5 w-12" />
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Desktop skeleton */}
+            <div className="hidden md:block rounded-xl border border-border bg-white overflow-hidden">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className={`px-4 py-3.5 ${i > 1 ? 'border-t border-border' : ''} space-y-2 animate-pulse`}>
+                  <Skeleton className="h-4 w-44" />
+                  <Skeleton className="h-3 w-60" />
+                </div>
+              ))}
+            </div>
+          </>
         ) : items.length === 0 ? (
           <div className="text-center py-16">
             <div className="w-12 h-12 mx-auto rounded-full bg-[#F3F4F6] flex items-center justify-center">
@@ -365,27 +444,41 @@ export default function Orders() {
             </Button>
           </div>
         ) : (
-          <div className="rounded-xl border border-border bg-white overflow-hidden">
-            {/* Desktop column headers */}
-            <div className="hidden md:grid md:grid-cols-[1.6fr_1.7fr_1.2fr_0.9fr_0.7fr_auto] md:gap-x-6 md:px-4 md:py-2.5 md:text-[10px] md:font-bold md:tracking-[0.12em] md:uppercase md:text-muted-foreground md:border-b md:border-border md:bg-[#F8F9FA]">
-              <span>AWB number</span>
-              <span>Recipient</span>
-              <span>Service</span>
-              <span>Booked</span>
-              <span className="text-right">Amount</span>
-              <span className="text-right">Status</span>
-            </div>
-            <div className="divide-y divide-border">
+          <>
+            {/* Mobile — stack of cards */}
+            <div className="md:hidden space-y-2.5">
               {items.map((row) => (
                 <ShipmentRow
-                  key={`${row.awb_number}-${row.created_at}`}
+                  key={`m-${row.awb_number}-${row.created_at}`}
                   item={row}
                   onOpen={openShipment}
                   onCopy={copyAwb}
                 />
               ))}
             </div>
-          </div>
+
+            {/* Desktop — single bordered table */}
+            <div className="hidden md:block rounded-xl border border-border bg-white overflow-hidden">
+              <div className="grid grid-cols-[1.6fr_1.7fr_1.2fr_0.9fr_0.7fr_auto] gap-x-6 px-4 py-2.5 text-[10px] font-bold tracking-[0.12em] uppercase text-muted-foreground border-b border-border bg-[#F8F9FA]">
+                <span>AWB number</span>
+                <span>Recipient</span>
+                <span>Service</span>
+                <span>Booked</span>
+                <span className="text-right">Amount</span>
+                <span className="text-right">Status</span>
+              </div>
+              <div className="divide-y divide-border">
+                {items.map((row) => (
+                  <ShipmentRow
+                    key={`d-${row.awb_number}-${row.created_at}`}
+                    item={row}
+                    onOpen={openShipment}
+                    onCopy={copyAwb}
+                  />
+                ))}
+              </div>
+            </div>
+          </>
         )}
 
         {/* Helper footnote */}
