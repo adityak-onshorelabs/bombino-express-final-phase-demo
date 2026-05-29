@@ -84,24 +84,6 @@ async function buildSessionStore() {
   return undefined; // express-session defaults to MemoryStore
 }
 
-const sessionStore = await buildSessionStore();
-
-app.use(
-  session({
-    ...(sessionStore ? { store: sessionStore } : {}),
-    secret: process.env.SESSION_SECRET ?? "dev-secret",
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite:
-        process.env.NODE_ENV === "production" ? "none" : "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    },
-  })
-);
-
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -172,6 +154,24 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  const sessionStore = await buildSessionStore();
+
+  app.use(
+    session({
+      ...(sessionStore ? { store: sessionStore } : {}),
+      secret: process.env.SESSION_SECRET ?? "dev-secret",
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite:
+          process.env.NODE_ENV === "production" ? "none" : "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      },
+    })
+  );
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
