@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { ArrowLeft, Mail, Lock, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
@@ -57,81 +57,84 @@ export default function Login() {
         </div>
       </header>
 
-      <main className="px-6 py-8">
-        <div className="flex flex-col items-center mb-12">
-          <img src={bombinoLogo} alt="Bombino Express" className="h-auto w-[200px] mb-6 object-contain" />
-          <h2 className="text-xl font-semibold text-foreground">Sign In</h2>
-          <p className="text-sm text-muted-foreground mt-1">Bringing the world closer</p>
-        </div>
-
-        <div className="space-y-6 animate-fade-in">
-          <div>
-            <Label className="text-sm font-medium">Email</Label>
-            <div className="relative mt-2">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => { setEmail(e.target.value); setError(''); }}
-                onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-                placeholder="Enter your email"
-                className="pl-10 h-14"
-                autoComplete="email"
-                data-testid="input-email"
-              />
-            </div>
+      <main className="px-4 py-8 flex flex-col items-center">
+        <div className="max-w-md mx-auto w-full">
+          <div className="flex flex-col items-center mb-8">
+            <img src={bombinoLogo} alt="Bombino Express" className="h-auto w-[180px] mb-6 object-contain" />
+            <h2 className="text-xl font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">Sign In</h2>
+            <p className="text-sm text-muted-foreground mt-1">Bringing the world closer</p>
           </div>
 
-          <div>
-            <Label className="text-sm font-medium">Password</Label>
-            <div className="relative mt-2">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground z-10" />
-              <Input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => { setPassword(e.target.value); setError(''); }}
-                onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-                placeholder="Enter your password"
-                className="pl-10 pr-12 h-14"
-                autoComplete="current-password"
-                data-testid="input-password"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((prev) => !prev)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
+          <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] p-6 space-y-5 animate-fade-in">
+            <div>
+              <Label className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Email</Label>
+              <div className="relative mt-2">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setError(''); }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+                  placeholder="Enter your email"
+                  className="pl-10 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
+                  autoComplete="email"
+                  data-testid="input-email"
+                />
+              </div>
             </div>
-          </div>
 
-          {error && (
-            <p className="text-sm text-red-500">{error}</p>
-          )}
+            <div>
+              <Label className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Password</Label>
+              <div className="relative mt-2">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground z-10" />
+                <Input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => { setPassword(e.target.value); setError(''); }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+                  placeholder="Enter your password"
+                  className="pl-10 pr-12 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
+                  autoComplete="current-password"
+                  data-testid="input-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
 
-          <Button
-            onClick={handleSubmit}
-            disabled={isLoading}
-            className="w-full h-14 text-base font-semibold bg-primary hover:bg-primary/90 disabled:opacity-70"
-            data-testid="button-sign-in"
-          >
-            {isLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              'Sign In'
+            {error && (
+              <p className="text-sm text-red-500">{error}</p>
             )}
-          </Button>
-        </div>
 
-        <p className="text-center text-xs text-muted-foreground mt-6">
-          By signing in you agree to our{' '}
-          <a href="/privacy" className="text-primary underline hover:text-primary/80">
-            Privacy Policy
-          </a>
-        </p>
+            <Button
+              onClick={handleSubmit}
+              disabled={isLoading}
+              className="w-full h-12 text-base font-semibold bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 mt-1"
+              data-testid="button-sign-in"
+            >
+              {isLoading ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                'Sign In'
+              )}
+            </Button>
+          </div>
+
+          <p className="text-center text-xs text-muted-foreground mt-5">
+            By signing in you agree to our{' '}
+            <a href="/privacy" className="text-[#F2A123] underline hover:text-[#F2A123]/80">
+              Privacy Policy
+            </a>
+          </p>
+        </div>
       </main>
     </div>
   );
 }
+

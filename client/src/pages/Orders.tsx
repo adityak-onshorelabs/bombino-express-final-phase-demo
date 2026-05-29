@@ -7,7 +7,6 @@ import { BottomNav } from '@/components/BottomNav';
 import { SideMenu } from '@/components/SideMenu';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAppStore } from '@/lib/store';
 import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
@@ -20,8 +19,7 @@ function parseCsvRecords(csvText: string): string[][] {
   let fields: string[] = [];
   let field = '';
   let inQuotes = false;
-  const text =
-    csvText.charCodeAt(0) === 0xfeff ? csvText.slice(1) : csvText;
+  const text = csvText.charCodeAt(0) === 0xfeff ? csvText.slice(1) : csvText;
 
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
@@ -37,9 +35,8 @@ function parseCsvRecords(csvText: string): string[][] {
         field += ch;
       }
     } else {
-      if (ch === '"') {
-        inQuotes = true;
-      } else if (ch === ',') {
+      if (ch === '"') inQuotes = true;
+      else if (ch === ',') {
         fields.push(field);
         field = '';
       } else if (ch === '\r') {
@@ -49,17 +46,13 @@ function parseCsvRecords(csvText: string): string[][] {
         field = '';
         records.push(fields);
         fields = [];
-      } else {
-        field += ch;
-      }
+      } else field += ch;
     }
   }
-
   if (field.length > 0 || fields.length > 0) {
     fields.push(field);
     records.push(fields);
   }
-
   return records;
 }
 
@@ -70,6 +63,186 @@ function formatBookingDate(value: string | null): string {
   return format(d, 'dd MMM yyyy');
 }
 
+function formatInr(amount: string | number | null, currency: string | null): string | null {
+  if (amount === null || amount === undefined) return null;
+  const n = typeof amount === 'string' ? parseFloat(amount) : amount;
+  if (!Number.isFinite(n)) return null;
+  const cur = (currency ?? 'INR').toUpperCase();
+  if (cur === 'INR' || cur === '₹') {
+    return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+  }
+  return `${cur} ${n.toLocaleString()}`;
+}
+
+// ─── Compact track bar (mobile + desktop) ───────────────────────────────────
+function TrackBar({
+  value,
+  onChange,
+  onSubmit,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="rounded-xl bg-white border border-border shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] p-1.5 flex items-center gap-2">
+      <div className="relative flex-1">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && onSubmit()}
+          placeholder="Track AWB number — e.g. BMB123456789"
+          className="w-full h-11 pl-10 pr-3 text-sm bg-transparent border-0 outline-none placeholder:text-muted-foreground/70 font-medium tabular-nums tracking-tight"
+          data-testid="input-tracking-orders"
+        />
+      </div>
+      <button
+        type="button"
+        onClick={onSubmit}
+        className="h-11 px-5 inline-flex items-center gap-2 text-sm font-semibold rounded-lg bg-[lab(34.0831_-9.57756_-27.7093)] text-white hover:bg-[#2F4468] transition-colors"
+        data-testid="button-track-orders"
+      >
+        Track
+        <ArrowRight className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+// ─── Row (responsive) ───────────────────────────────────────────────────────
+function ShipmentRow({
+  item,
+  onOpen,
+  onCopy,
+}: {
+  item: ShipmentHistoryItem;
+  onOpen: (awb: string) => void;
+  onCopy: (e: React.MouseEvent, awb: string) => void;
+}) {
+  const awb = item.awb_number;
+  const amountStr = formatInr(item.total_amount, item.currency);
+  const status = item.current_status?.trim() ? getStatusLabel(item.current_status) : 'Unknown';
+  const tone = item.current_status?.trim() ? getStatusColor(item.current_status) : 'gray';
+  const recipientRaw = item.consignee_name?.trim() || '';
+  const city = item.consignee_city?.trim() || '';
+  const recipient = recipientRaw || 'Unnamed recipient';
+  const recipientLine = city ? `${recipient} · ${city}` : recipient;
+  const service = item.service_name?.trim() || '';
+  const bookingDate = formatBookingDate(item.booking_date);
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(awb)}
+      className="w-full text-left transition-colors md:grid md:grid-cols-[1.6fr_1.7fr_1.2fr_0.9fr_0.7fr_auto] md:gap-x-6 md:items-center md:px-4 md:py-3 md:hover:bg-muted/40"
+      data-testid={`order-row-${awb}`}
+    >
+      {/* ─── MOBILE CARD — amber-rail brand accent ──────────────── */}
+      <div className="md:hidden relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.06),0_12px_28px_-12px_lab(34.0831_-9.57756_-27.7093_/_0.18)] active:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_4px_10px_-4px_lab(34.0831_-9.57756_-27.7093_/_0.12)] active:translate-y-px transition-[transform,box-shadow] duration-150 overflow-hidden">
+        {/* Amber accent rail (full height, left edge) */}
+        <span
+          className="absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-[#F2A123] via-[#F2A123] to-[#F2A123]/60 rounded-l-xl"
+          aria-hidden
+        />
+        {/* Subtle warm tint sweep — paper-like, brand aware */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-[0.55]"
+          style={{
+            background:
+              'linear-gradient(115deg, transparent 0%, transparent 55%, oklch(96% 0.04 70 / 0.5) 100%)',
+          }}
+          aria-hidden
+        />
+
+        <div className="relative pl-5 pr-4 py-3.5">
+          {/* Header — AWB + status pill */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center min-w-0">
+              <span className="font-bold tabular-nums text-[16px] tracking-tight text-[#112330] truncate">
+                {awb}
+              </span>
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => onCopy(e, awb)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') onCopy(e as unknown as React.MouseEvent, awb);
+                }}
+                className="ml-1 p-2 -my-1.5 rounded-md active:bg-muted shrink-0 cursor-pointer text-muted-foreground/60 hover:text-muted-foreground"
+                aria-label={`Copy AWB ${awb}`}
+              >
+                <Copy className="w-3.5 h-3.5" />
+              </span>
+            </div>
+            <StatusBadge status={status} tone={tone} className="shrink-0 mt-0.5" />
+          </div>
+
+          {/* Recipient — primary line */}
+          <p className="mt-2 text-[14px] leading-snug truncate">
+            <span className={recipientRaw ? 'font-semibold text-[#112330]' : 'text-muted-foreground italic'}>
+              {recipient}
+            </span>
+            {city && <span className="text-muted-foreground/90 font-normal">{' · '}{city}</span>}
+          </p>
+
+          {/* Meta footer — hairline above, service + date + amount */}
+          {(service || amountStr || bookingDate !== '—') && (
+            <div className="mt-3 pt-2.5 border-t border-dashed border-[#E2E8F0] flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                {service && (
+                  <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#F2A123] truncate">
+                    {service}
+                  </span>
+                )}
+                {service && bookingDate !== '—' && (
+                  <span className="w-0.5 h-0.5 rounded-full bg-muted-foreground/30 shrink-0" aria-hidden />
+                )}
+                {bookingDate !== '—' && (
+                  <span className="text-[11.5px] text-muted-foreground tabular-nums shrink-0">
+                    {bookingDate}
+                  </span>
+                )}
+              </div>
+              {amountStr && (
+                <span className="text-[13px] font-bold tabular-nums text-[#112330] shrink-0">
+                  {amountStr}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ─── DESKTOP COLUMNS (unchanged) ──────────────────────────── */}
+      <div className="hidden md:flex md:items-center md:gap-2 md:min-w-0">
+        <span className="font-semibold tabular-nums text-sm text-foreground truncate">{awb}</span>
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => onCopy(e, awb)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') onCopy(e as unknown as React.MouseEvent, awb);
+          }}
+          className="p-1 rounded hover:bg-muted shrink-0 cursor-pointer"
+          aria-label={`Copy AWB ${awb}`}
+        >
+          <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+        </span>
+      </div>
+      <p className="hidden md:block text-sm text-foreground/80 truncate">{recipientLine}</p>
+      <span className="hidden md:block text-sm text-muted-foreground truncate">{item.service_name ?? '—'}</span>
+      <span className="hidden md:block text-sm text-muted-foreground tabular-nums">{formatBookingDate(item.booking_date)}</span>
+      <span className="hidden md:block text-sm tabular-nums text-right text-foreground/80">{amountStr ?? '—'}</span>
+      <div className="hidden md:flex md:justify-end md:shrink-0">
+        <StatusBadge status={status} tone={tone} />
+      </div>
+    </button>
+  );
+}
+
+// ─── Page ───────────────────────────────────────────────────────────────────
 export default function Orders() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [, setLocation] = useLocation();
@@ -115,44 +288,29 @@ export default function Orders() {
     toast({ title: 'Copied', description: awb });
   };
 
-  const formatInr = (amount: string | number | null, currency: string | null) => {
-    if (amount === null || amount === undefined) return null;
-    const n = typeof amount === 'string' ? parseFloat(amount) : amount;
-    if (!Number.isFinite(n)) return null;
-    const cur = (currency ?? 'INR').toUpperCase();
-    if (cur === 'INR' || cur === '₹') {
-      return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
-    }
-    return `${cur} ${n.toLocaleString()}`;
-  };
-
   const submitTrack = () => {
     const t = trackingInput.trim();
-    if (t) {
-      setLocation(`/shipment/${encodeURIComponent(t)}`);
-    }
+    if (t) setLocation(`/shipment/${encodeURIComponent(t)}`);
+  };
+
+  const openShipment = (awb: string) => {
+    setLocation(`/shipment/${encodeURIComponent(awb)}`);
   };
 
   const handleDownloadCSV = async () => {
     try {
       const res = await fetch('/api/shipments/download-csv', { credentials: 'include' });
       if (!res.ok) throw new Error('Failed');
-
       const blob = await res.blob();
       const text = await blob.text();
       if (!text.trim()) {
-        toast({
-          title: 'No export data',
-          description: 'No shipments found to export.',
-        });
+        toast({ title: 'No export data', description: 'No shipments found to export.' });
         return;
       }
-
       setCsvOverlayBlob(blob);
       setCsvOverlayData(text);
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
-      console.error('CSV fetch failed:', err);
       toast({
         title: 'Export failed',
         description: 'Could not generate the export. Please try again.',
@@ -163,21 +321,15 @@ export default function Orders() {
 
   const handleShareCSV = async () => {
     if (!csvOverlayBlob || !csvOverlayData) return;
-
-    const filename =
-      'bombino-shipments-' + new Date().toISOString().split('T')[0] + '.csv';
+    const filename = 'bombino-shipments-' + new Date().toISOString().split('T')[0] + '.csv';
     const file = new File([csvOverlayBlob], filename, { type: 'text/csv' });
-
     try {
       if (
         typeof navigator.share === 'function' &&
         typeof navigator.canShare === 'function' &&
         navigator.canShare({ files: [file] })
       ) {
-        await navigator.share({
-          files: [file],
-          title: 'Bombino Shipments',
-        });
+        await navigator.share({ files: [file], title: 'Bombino Shipments' });
       } else {
         await navigator.clipboard.writeText(csvOverlayData);
         toast({
@@ -187,7 +339,6 @@ export default function Orders() {
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
-      console.error('Share failed:', err);
       toast({
         title: 'Share failed',
         description: 'Could not share the export.',
@@ -201,171 +352,155 @@ export default function Orders() {
       <Header onMenuClick={() => setMenuOpen(true)} />
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 
-      <main className="px-4 py-5 max-w-md mx-auto">
-        <div
-          className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/8 via-primary/4 to-transparent border border-primary/10 p-5 shadow-[0_8px_32px_rgba(198,40,40,0.10)] mb-6"
-          data-testid="zone-orders-track"
-        >
-          <div className="relative z-10">
-            <h2 className="text-lg font-semibold text-foreground mb-1 md:hidden">Track Your Shipment</h2>
-            <p className="text-sm text-muted-foreground mb-4 md:hidden">Enter AWB number to get real-time status</p>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  value={trackingInput}
-                  onChange={(e) => setTrackingInput(e.target.value)}
-                  placeholder="e.g. BMB123456789"
-                  className="h-12 pl-10 text-sm bg-white border-border rounded-xl shadow-sm"
-                  onKeyDown={(e) => e.key === 'Enter' && submitTrack()}
-                  data-testid="input-tracking-orders"
-                />
-              </div>
-              <Button
-                type="button"
-                onClick={submitTrack}
-                className="h-12 px-5 bg-primary hover:bg-primary/90 rounded-xl shadow-lg shadow-primary/25 active:scale-[0.97] transition-all font-semibold"
-                data-testid="button-track-orders"
-              >
-                Track
-                <ArrowRight className="w-4 h-4 ml-1" />
-              </Button>
-            </div>
-          </div>
-        </div>
+      <main className="max-w-5xl mx-auto px-4 md:px-0 py-5 md:py-6 space-y-6">
 
-        <div className="flex items-center justify-between gap-2 mb-1">
-          <h1 className="text-lg font-semibold text-foreground">My Shipments</h1>
-          {isLoggedIn ? (
+        {/* Compact track bar */}
+        <TrackBar
+          value={trackingInput}
+          onChange={setTrackingInput}
+          onSubmit={submitTrack}
+        />
+
+        {/* Header row */}
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <h1 className="text-lg md:text-[22px] font-bold tracking-tight text-foreground">
+              My shipments
+              {isLoggedIn && !loading && items.length > 0 && (
+                <span className="ml-2 text-sm font-medium text-muted-foreground tabular-nums">
+                  · {items.length}
+                </span>
+              )}
+            </h1>
+            <p className="text-xs md:text-sm text-muted-foreground mt-0.5">
+              Track your outgoing and incoming shipments.
+            </p>
+          </div>
+          {isLoggedIn && (
             <button
               type="button"
               onClick={handleDownloadCSV}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors border border-border rounded-lg px-3 py-1.5"
+              className="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-semibold rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+              data-testid="button-export-csv"
             >
               <Download className="w-3.5 h-3.5" />
               Export CSV
             </button>
-          ) : null}
+          )}
         </div>
-        <p className="text-sm text-muted-foreground mb-5">
-          Track your outgoing and incoming shipments
-        </p>
 
+        {/* Body */}
         {!isLoggedIn ? (
-          <div className="text-center py-12">
+          <div className="text-center py-16">
             <p className="text-sm text-muted-foreground mb-4">Sign in to view your shipments.</p>
-            <Button className="bg-primary" onClick={() => setLocation('/login')}>
+            <Button className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg" onClick={() => setLocation('/login')}>
               Login
             </Button>
           </div>
         ) : loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-white rounded-xl border border-border p-4 space-y-2">
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-3 w-full" />
-                <Skeleton className="h-3 w-1/2" />
-              </div>
-            ))}
-          </div>
-        ) : items.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="w-16 h-16 bg-gradient-to-br from-primary/12 to-primary/6 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Package className="w-8 h-8 text-primary" />
+          <>
+            {/* Mobile skeleton */}
+            <div className="md:hidden space-y-2.5">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="rounded-2xl border border-[#E2E8F0] bg-white p-4 space-y-2.5 animate-pulse">
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                  </div>
+                  <Skeleton className="h-3.5 w-52" />
+                  <div className="flex items-center justify-between pt-1">
+                    <Skeleton className="h-3 w-28" />
+                    <Skeleton className="h-3.5 w-12" />
+                  </div>
+                </div>
+              ))}
             </div>
-            <h2 className="font-semibold text-foreground mb-2">No shipments yet</h2>
-            <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-              Create your first shipment to get started
+            {/* Desktop skeleton */}
+            <div className="hidden md:block rounded-xl border border-border bg-white overflow-hidden">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className={`px-4 py-3.5 ${i > 1 ? 'border-t border-border' : ''} space-y-2 animate-pulse`}>
+                  <Skeleton className="h-4 w-44" />
+                  <Skeleton className="h-3 w-60" />
+                </div>
+              ))}
+            </div>
+          </>
+        ) : items.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="w-12 h-12 mx-auto rounded-full bg-[#F3F4F6] flex items-center justify-center">
+              <Package className="w-5 h-5 text-muted-foreground" />
+            </div>
+            <h2 className="font-semibold text-foreground mt-4">No shipments yet</h2>
+            <p className="text-sm text-muted-foreground mt-1 leading-relaxed max-w-xs mx-auto">
+              Create your first shipment to get started.
             </p>
             <Button
-              className="bg-primary hover:bg-primary/90 rounded-xl h-11 px-6 shadow-md"
+              className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg h-10 px-5 mt-5"
               onClick={() => setLocation('/create')}
               data-testid="button-orders-create"
             >
               <Send className="w-4 h-4 mr-2" />
-              Create Shipment
+              Create shipment
             </Button>
           </div>
         ) : (
           <>
-            <div className="hidden md:grid md:grid-cols-[2fr_2fr_1.5fr_1fr_auto_auto] md:gap-x-6 md:px-4 md:py-2 md:mb-1 md:text-xs md:font-medium md:text-muted-foreground md:border-b md:border-border">
-              <span>AWB Number</span>
-              <span>Recipient</span>
-              <span>Service</span>
-              <span>Booked</span>
-              <span className="md:text-right">Amount</span>
-              <span>Status</span>
+            {/* Mobile — stack of cards */}
+            <div className="md:hidden space-y-2.5">
+              {items.map((row) => (
+                <ShipmentRow
+                  key={`m-${row.awb_number}-${row.created_at}`}
+                  item={row}
+                  onOpen={openShipment}
+                  onCopy={copyAwb}
+                />
+              ))}
             </div>
-            <div className="space-y-3">
-            {items.map((row) => {
-              const awb = row.awb_number;
-              const amountStr = formatInr(row.total_amount, row.currency);
-              return (
-                <button
-                  key={`${awb}-${row.created_at}`}
-                  type="button"
-                  onClick={() => setLocation(`/shipment/${encodeURIComponent(awb)}`)}
-                  className="w-full text-left card-accent hover:border-primary/25 active:scale-[0.99] transition-all md:grid md:grid-cols-[2fr_2fr_1.5fr_1fr_auto_auto] md:gap-x-6 md:items-center md:rounded-none md:border-0 md:border-b md:border-border md:shadow-none md:bg-transparent md:px-4 md:py-3"
-                  data-testid={`order-card-${awb}`}
-                >
-                  <div className="flex items-center gap-2 min-w-0 mb-2 md:mb-0">
-                    <span className="font-semibold tabular-nums text-sm text-foreground truncate">{awb}</span>
-                    <button
-                      type="button"
-                      onClick={(e) => copyAwb(e, awb)}
-                      className="p-1.5 rounded-lg hover:bg-muted shrink-0"
-                      aria-label="Copy AWB"
-                    >
-                      <Copy className="w-4 h-4 text-muted-foreground" />
-                    </button>
-                    <div className="ml-auto md:hidden">
-                      <StatusBadge
-                        status={row.current_status?.trim() ? getStatusLabel(row.current_status) : 'Unknown'}
-                        tone={row.current_status?.trim() ? getStatusColor(row.current_status) : 'gray'}
-                      />
-                    </div>
-                  </div>
-                  <p className="text-sm text-gray-500 truncate mb-1 md:mb-0">
-                    {row.consignee_name ?? '—'}
-                    {row.consignee_city ? (
-                      <>
-                        {' '}
-                        · {row.consignee_city}
-                      </>
-                    ) : null}
-                  </p>
-                  <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground md:contents">
-                    <span className="truncate md:text-sm">{row.service_name ?? '—'}</span>
-                    <span className="md:text-sm">{formatBookingDate(row.booking_date)}</span>
-                  </div>
-                  <span className="hidden md:block text-sm tabular-nums text-right">
-                    {amountStr ?? '—'}
-                  </span>
-                  <div className="hidden md:flex md:justify-end md:shrink-0">
-                    <StatusBadge
-                      status={row.current_status?.trim() ? getStatusLabel(row.current_status) : 'Unknown'}
-                      tone={row.current_status?.trim() ? getStatusColor(row.current_status) : 'gray'}
-                    />
-                  </div>
-                </button>
-              );
-            })}
+
+            {/* Desktop — single bordered table */}
+            <div className="hidden md:block rounded-xl border border-border bg-white overflow-hidden">
+              <div className="grid grid-cols-[1.6fr_1.7fr_1.2fr_0.9fr_0.7fr_auto] gap-x-6 px-4 py-2.5 text-[10px] font-bold tracking-[0.12em] uppercase text-muted-foreground border-b border-border bg-[#F8F9FA]">
+                <span>AWB number</span>
+                <span>Recipient</span>
+                <span>Service</span>
+                <span>Booked</span>
+                <span className="text-right">Amount</span>
+                <span className="text-right">Status</span>
+              </div>
+              <div className="divide-y divide-border">
+                {items.map((row) => (
+                  <ShipmentRow
+                    key={`d-${row.awb_number}-${row.created_at}`}
+                    item={row}
+                    onOpen={openShipment}
+                    onCopy={copyAwb}
+                  />
+                ))}
+              </div>
             </div>
           </>
+        )}
+
+        {/* Helper footnote */}
+        {!loading && items.length > 0 && (
+          <p className="text-[11px] text-muted-foreground text-center">
+            Showing {items.length} {items.length === 1 ? 'shipment' : 'shipments'} · Tap any row for details
+          </p>
         )}
       </main>
 
       <BottomNav />
 
+      {/* CSV preview overlay (unchanged) */}
       {csvOverlayData && (
-        <div className="fixed inset-0 z-[100] bg-white flex flex-col">
+        <div className="fixed inset-0 z-[100] bg-white flex flex-col" data-testid="csv-preview">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-white safe-top shrink-0">
-            <span className="font-semibold text-sm text-foreground">Shipment Export</span>
+            <span className="font-semibold text-sm text-foreground">Shipment export</span>
             <div className="flex items-center gap-4">
               <button
                 type="button"
                 onClick={() => void handleShareCSV()}
-                className="text-sm text-[#14567C] font-medium"
+                className="text-sm font-medium text-[#F2A123] hover:underline"
               >
                 Share
               </button>
@@ -375,13 +510,13 @@ export default function Orders() {
                   setCsvOverlayData(null);
                   setCsvOverlayBlob(null);
                 }}
-                className="text-sm text-muted-foreground font-medium"
+                className="text-sm font-medium text-foreground hover:underline"
               >
                 Close
               </button>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2.5">
             {(() => {
               const records = parseCsvRecords(csvOverlayData);
               const dataRows = records.slice(1).filter((r) => r.length > 1);
@@ -396,30 +531,25 @@ export default function Orders() {
                 const service = cols[2] ?? '—';
                 const destCity = cols[4] ?? '';
                 const destCountry = cols[5] ?? '';
-                const destination =
-                  [destCity, destCountry].filter(Boolean).join(', ') || '—';
+                const destination = [destCity, destCountry].filter(Boolean).join(', ') || '—';
                 const consignee = cols[6] ?? '—';
                 const rawStatus = cols[12] ?? '—';
                 const hasStatus = rawStatus.trim() !== '' && rawStatus !== '—';
                 return (
                   <div
                     key={`${awb}-${i}`}
-                    className="bg-card rounded-xl border border-border p-3 shadow-sm space-y-2"
+                    className="rounded-lg border border-border p-3 space-y-1.5"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-semibold text-foreground break-all">{awb}</span>
+                      <span className="text-sm font-semibold tabular-nums text-foreground break-all">{awb}</span>
                       <StatusBadge
                         status={hasStatus ? getStatusLabel(rawStatus) : 'Unknown'}
                         tone={hasStatus ? getStatusColor(rawStatus) : 'gray'}
                         className="shrink-0"
                       />
                     </div>
-                    <div className="text-xs text-muted-foreground">To: {destination}</div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-muted-foreground">{service}</span>
-                      <span className="text-xs text-muted-foreground">{booked}</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground">{consignee}</div>
+                    <p className="text-xs text-muted-foreground">{consignee} · {destination}</p>
+                    <p className="text-[11px] text-muted-foreground">{service} · {booked}</p>
                   </div>
                 );
               });
@@ -430,3 +560,4 @@ export default function Orders() {
     </div>
   );
 }
+

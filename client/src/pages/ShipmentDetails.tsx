@@ -13,7 +13,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format, parseISO, isValid } from 'date-fns';
 import { BottomNav } from '@/components/BottomNav';
 import { StatusBadge } from '@/components/StatusBadge';
 import { TrackingTimeline } from '@/components/TrackingTimeline';
@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 
+// ─── Types (unchanged) ──────────────────────────────────────────────────────
 interface DocketEvent {
   id?: string;
   event_at: string;
@@ -42,35 +43,41 @@ interface ITDTrackingResult {
 }
 
 export type TrackingResponse =
-  | {
-      results: ITDTrackingResult[];
-      fromCache: false;
-      lastTrackedAt: string;
-    }
-  | {
-      fromCache: true;
-      lastTrackedAt: string;
-      currentStatus: string;
-      message: string;
-    };
+  | { results: ITDTrackingResult[]; fromCache: false; lastTrackedAt: string }
+  | { fromCache: true; lastTrackedAt: string; currentStatus: string; message: string };
 
+// ─── Small helpers ──────────────────────────────────────────────────────────
 function getDocketValue(docketInfo: [string, string][], label: string): string {
   const entry = docketInfo.find(([key]) => key.trim() === label);
   return entry?.[1]?.trim() ?? '';
 }
 
 function joinLocationParts(...parts: string[]): string {
-  return parts.map((part) => part.trim()).filter(Boolean).join(', ');
-}
-
-function formatFieldValue(value: string): string {
-  return value.trim();
+  return parts.map((p) => p.trim()).filter(Boolean).join(', ');
 }
 
 function withKg(value: string): string {
-  const trimmed = value.trim();
+  let trimmed = value.trim();
   if (!trimmed) return '';
+  // Drop trailing zeros: "2.000" -> "2", "2.50" -> "2.5"
+  const num = parseFloat(trimmed.replace(/[^0-9.]/g, ''));
+  if (Number.isFinite(num)) {
+    const hasKg = /\bkg\b/i.test(trimmed);
+    trimmed = num.toString();
+    return hasKg || !/^\d/.test(value) ? `${trimmed} kg` : `${trimmed} kg`;
+  }
   return /\bkg\b/i.test(trimmed) ? trimmed : `${trimmed} kg`;
+}
+
+/** Format "2026-05-17" or "2026-05-17T..." -> "17 May 2026". Falls back to original if unparseable. */
+function formatNiceDate(value: string): string {
+  if (!value) return '';
+  const trimmed = value.trim();
+  // Try ISO/date-only first, with a noon stamp to avoid TZ flips on date-only strings
+  const candidate = trimmed.length <= 10 ? `${trimmed}T12:00:00Z` : trimmed;
+  const d = parseISO(candidate);
+  if (isValid(d)) return format(d, 'dd MMM yyyy');
+  return trimmed;
 }
 
 function mapEvents(docketEvents: DocketEvent[]): TrackingEvent[] {
@@ -99,6 +106,216 @@ function isTrackingResponse(body: unknown): body is TrackingResponse {
   return false;
 }
 
+// ─── Reusable shell pieces ──────────────────────────────────────────────────
+function PageShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-shipment">
+      <main className="max-w-3xl mx-auto px-5 md:px-0 pt-4 pb-10 md:pt-6 md:pb-14">
+        {children}
+      </main>
+      <BottomNav />
+    </div>
+  );
+}
+
+function TopBar({
+  onBack,
+  onRefresh,
+  isFetching,
+}: {
+  onBack: () => void;
+  onRefresh?: () => void;
+  isFetching?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between mb-7 md:mb-10">
+      <button
+        type="button"
+        onClick={onBack}
+        className="-ml-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-lg"
+        data-testid="button-back"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Back
+      </button>
+      {onRefresh && (
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={isFetching}
+          className="-mr-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1.5 rounded-lg disabled:opacity-50"
+          aria-label="Refresh tracking"
+          data-testid="button-refresh-tracking"
+        >
+          <RefreshCw className={cn('w-3.5 h-3.5', isFetching && 'animate-spin')} />
+          {isFetching ? 'Refreshing' : 'Refresh'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Hero: AWB · Status · Route ──────────────────────────────────────────────
+function ShipmentHero({
+  awb,
+  copied,
+  onCopy,
+  statusLabel,
+  statusTone,
+  fromLine,
+  toLine,
+}: {
+  awb: string;
+  copied: boolean;
+  onCopy: () => void;
+  statusLabel: string;
+  statusTone: ReturnType<typeof getStatusColor>;
+  fromLine?: string;
+  toLine?: string;
+}) {
+  return (
+    <section className="space-y-6 md:space-y-7">
+      {/* SHIPMENT eyebrow + amber gradient line */}
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#F2A123]">Shipment</span>
+        <span className="h-px flex-1 bg-gradient-to-r from-[#F2A123]/30 to-transparent" aria-hidden />
+      </div>
+
+      {/* AWB block — number left, status right, both vertically aligned */}
+      <div className="flex items-end justify-between gap-4 flex-wrap -mt-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
+            AWB number
+          </p>
+          <div className="flex items-center gap-2 mt-1.5">
+            <h1
+              className="text-2xl md:text-[28px] font-bold tabular-nums tracking-tight text-[#112330]"
+              data-testid="text-awb"
+            >
+              {awb}
+            </h1>
+            <button
+              type="button"
+              onClick={onCopy}
+              className="p-1.5 rounded-md hover:bg-muted/80 transition-colors text-muted-foreground"
+              aria-label="Copy AWB number"
+              data-testid="button-copy-awb"
+            >
+              {copied ? (
+                <Check className="w-4 h-4 text-emerald-600" />
+              ) : (
+                <Copy className="w-4 h-4" />
+              )}
+            </button>
+          </div>
+        </div>
+        <StatusBadge status={statusLabel} tone={statusTone} className="shrink-0 mb-1" />
+      </div>
+
+      {/* Route — bigger, visual lane with dot ··· plane ··· dot */}
+      {(fromLine || toLine) && (
+        <div className="rounded-xl bg-gradient-to-br from-[#F8F9FA] to-white border border-[#E2E8F0] p-4 md:p-5">
+          <div className="flex items-center gap-3 md:gap-5">
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
+                From
+              </p>
+              <p className="text-[15px] md:text-[16px] font-semibold mt-1.5 truncate text-[#112330]">
+                {fromLine || '—'}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0" aria-hidden>
+              <span className="w-1.5 h-1.5 rounded-full bg-[#F2A123]" />
+              <span className="block h-px w-6 md:w-10 bg-gradient-to-r from-[#F2A123]/60 to-[#F2A123]/20" />
+              <Plane className="w-4 h-4 rotate-45 text-[#F2A123]" />
+              <span className="block h-px w-6 md:w-10 bg-gradient-to-r from-[#F2A123]/20 to-[#F2A123]/60" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#F2A123]" />
+            </div>
+            <div className="flex-1 min-w-0 text-right">
+              <p className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
+                To
+              </p>
+              <p className="text-[15px] md:text-[16px] font-semibold mt-1.5 truncate text-[#112330]">
+                {toLine || '—'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─── Definition list row ────────────────────────────────────────────────────
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] text-muted-foreground">{label}</dt>
+      <dd className="text-sm font-medium text-[#112330] mt-1 break-words">{value}</dd>
+    </div>
+  );
+}
+
+// ─── Action row (Label · Invoice · WhatsApp · Call) ────────────────────────
+function ActionRow({
+  onDownloadLabel,
+  onDownloadInvoice,
+  showLabel,
+}: {
+  onDownloadLabel: () => void;
+  onDownloadInvoice?: () => void;
+  showLabel: boolean;
+}) {
+  return (
+    <section className="mt-10 md:mt-12 pt-6 border-t border-border">
+      <div className="flex flex-wrap items-center gap-2">
+        {showLabel && (
+          <button
+            type="button"
+            onClick={onDownloadLabel}
+            className="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[lab(34.0831_-9.57756_-27.7093)] text-white text-sm font-semibold hover:bg-[#2F4468] transition-colors"
+            data-testid="button-download-label"
+          >
+            <Download className="w-4 h-4" />
+            Download label
+          </button>
+        )}
+        {onDownloadInvoice && (
+          <button
+            type="button"
+            onClick={onDownloadInvoice}
+            className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:border-foreground/30 hover:bg-muted/40 transition-colors"
+            data-testid="button-download-invoice"
+          >
+            <FileText className="w-4 h-4 text-muted-foreground" />
+            Invoice
+          </button>
+        )}
+        <div className="flex-1" />
+        <a
+          href="https://api.whatsapp.com/send?phone=917045999553"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 h-10 px-3.5 rounded-lg border border-border text-sm font-medium text-foreground hover:border-emerald-200 hover:bg-emerald-50/40 transition-colors"
+          data-testid="button-whatsapp"
+        >
+          <img src={whatsAppLogo} alt="" className="w-4 h-4 object-contain" aria-hidden />
+          WhatsApp
+        </a>
+        <a
+          href="tel:+912266400000"
+          className="inline-flex items-center gap-2 h-10 px-3.5 rounded-lg border border-border text-sm font-medium text-foreground hover:border-foreground/30 hover:bg-muted/60 transition-colors"
+          data-testid="button-call"
+        >
+          <Phone className="w-4 h-4 text-muted-foreground" />
+          Call
+        </a>
+      </div>
+    </section>
+  );
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
 export default function ShipmentDetails() {
   const [, params] = useRoute('/shipment/:awb');
   const [, setLocation] = useLocation();
@@ -142,6 +359,15 @@ export default function ShipmentDetails() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const invalidateTrack = () => {
+    void queryClient.invalidateQueries({ queryKey: ['/api/track', awb] });
+  };
+
+  const handleBack = () => {
+    if (window.history.length > 1) window.history.back();
+    else setLocation('/home');
+  };
+
   const handleDownloadLabel = async () => {
     try {
       const res = await fetch(`/api/shipments/${encodeURIComponent(awb)}/label`, {
@@ -155,7 +381,6 @@ export default function ShipmentDetails() {
         });
         return;
       }
-
       const { label } = (await res.json()) as { label: string };
       const dataUrl =
         `data:application/pdf;base64,${label}`;
@@ -198,24 +423,15 @@ export default function ShipmentDetails() {
     }
   };
 
-  const handleShareLabel = async (
-    dataUrl: string
-  ) => {
+  const handleShareLabel = async (dataUrl: string) => {
     try {
       const base64 = dataUrl.split(',')[1];
       const binary = atob(base64);
-      const bytes = new Uint8Array(
-        binary.length
-      );
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      const blob = new Blob([bytes], {
-        type: 'application/pdf',
-      });
-      const isInvoice = pdfTitle.includes('Invoice');
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const isInvoice = pdfTitle.toLowerCase().includes('invoice');
       const fileName = isInvoice ? 'shipment-invoice.pdf' : 'shipment-label.pdf';
-      const shareTitle = pdfTitle;
       const file = new File([blob], fileName, { type: 'application/pdf' });
 
       if (
@@ -223,10 +439,7 @@ export default function ShipmentDetails() {
         typeof navigator.canShare === 'function' &&
         navigator.canShare({ files: [file] })
       ) {
-        await navigator.share({
-          files: [file],
-          title: shareTitle,
-        });
+        await navigator.share({ files: [file], title: pdfTitle });
       } else {
         toast({
           title: 'Sharing not supported',
@@ -245,211 +458,118 @@ export default function ShipmentDetails() {
     }
   };
 
-  const invalidateTrack = () => {
-    void queryClient.invalidateQueries({ queryKey: ['/api/track', awb] });
-  };
-
-  const headerRefresh = (
-    <button
-      type="button"
-      onClick={() => invalidateTrack()}
-      disabled={isFetching}
-      className="ml-auto p-2 rounded-full hover:bg-black/5 transition-colors disabled:opacity-50"
-      aria-label="Refresh tracking"
-      data-testid="button-refresh-tracking"
-    >
-      <RefreshCw
-        size={18}
-        className={cn('text-gray-600', isFetching && 'animate-spin')}
-      />
-    </button>
-  );
-
+  // ─── Loading ─────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-shipment-loading">
-        <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
-          <div className="flex items-center h-14 px-4 max-w-md mx-auto">
-            <button
-              type="button"
-              onClick={() => window.history.back()}
-              className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <h1 className="ml-2 font-semibold text-sm flex-1">Shipment Details</h1>
-            {headerRefresh}
+      <PageShell>
+        <TopBar onBack={handleBack} />
+        <div className="space-y-6 animate-pulse">
+          <div>
+            <div className="h-3 w-16 bg-muted rounded" />
+            <div className="h-8 w-56 bg-muted rounded mt-2" />
           </div>
-        </header>
-        <main className="flex items-center justify-center py-24">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        </main>
-        <BottomNav />
-      </div>
+          <div className="flex items-center gap-4">
+            <div className="flex-1 space-y-2">
+              <div className="h-3 w-10 bg-muted rounded" />
+              <div className="h-4 w-40 bg-muted rounded" />
+            </div>
+            <div className="w-4 h-4 bg-muted rounded" />
+            <div className="flex-1 space-y-2">
+              <div className="h-3 w-10 bg-muted rounded ml-auto" />
+              <div className="h-4 w-40 bg-muted rounded ml-auto" />
+            </div>
+          </div>
+          <div className="pt-4 border-t border-border">
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto mt-6" />
+          </div>
+        </div>
+      </PageShell>
     );
   }
 
+  // ─── Error / Not found ───────────────────────────────────────────────────
   if (error || !data) {
     return (
-      <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-shipment-not-found">
-        <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
-          <div className="flex items-center h-14 px-4 max-w-md mx-auto">
-            <button
-              type="button"
-              onClick={() => setLocation('/receive')}
-              className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <h1 className="ml-2 font-semibold text-sm flex-1">Shipment Details</h1>
-            {awb ? headerRefresh : null}
+      <PageShell>
+        <TopBar onBack={handleBack} onRefresh={awb ? invalidateTrack : undefined} isFetching={isFetching} />
+        <section className="py-10 text-center">
+          <div className="w-12 h-12 mx-auto rounded-full bg-red-50 text-red-500 flex items-center justify-center">
+            <AlertTriangle className="w-6 h-6" />
           </div>
-        </header>
-        <main className="px-4 py-12 max-w-md mx-auto text-center">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <AlertTriangle className="w-8 h-8 text-red-500" />
-          </div>
-          <h2 className="text-lg font-semibold text-foreground mb-2">Shipment Not Found</h2>
-          <p className="text-sm text-muted-foreground mb-6">AWB: {awb}</p>
-          <p className="text-sm text-muted-foreground">
-            {error instanceof Error ? error.message.replace(/^\d+:\s*/, '') : 'No tracking data available'}
+          <h2 className="text-base font-semibold mt-4">Shipment not found</h2>
+          {awb && (
+            <p className="text-sm text-muted-foreground mt-1 tabular-nums">AWB {awb}</p>
+          )}
+          <p className="text-xs text-muted-foreground mt-3 max-w-xs mx-auto leading-relaxed">
+            {error instanceof Error
+              ? error.message.replace(/^\d+:\s*/, '')
+              : 'No tracking data available for this number.'}
           </p>
-        </main>
-        <BottomNav />
-      </div>
+        </section>
+      </PageShell>
     );
   }
 
+  // ─── Cached (tracking temporarily unavailable) ───────────────────────────
   if (data.fromCache) {
     const rawState = data.currentStatus;
     return (
-      <div className="min-h-[100dvh] bg-background pb-nav-strip" data-testid="screen-shipment-cached">
-        <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
-          <div className="flex items-center h-14 px-4 max-w-md mx-auto">
-            <button
-              type="button"
-              onClick={() => window.history.back()}
-              className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
-              data-testid="button-back"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <h1 className="ml-2 font-semibold text-sm flex-1">Shipment Details</h1>
-            {headerRefresh}
-          </div>
-        </header>
+      <PageShell>
+        <TopBar onBack={handleBack} onRefresh={invalidateTrack} isFetching={isFetching} />
 
-        <main className="max-w-md mx-auto">
-          <div className="mx-4 mt-4 rounded-xl p-4 border border-amber-200 bg-amber-50">
-            <p className="text-sm font-medium text-amber-800">Tracking temporarily unavailable</p>
-            <p className="text-sm text-amber-700 mt-1">
-              Last known status: {getStatusLabel(rawState)} · updated{' '}
-              {formatDistanceToNow(new Date(data.lastTrackedAt), { addSuffix: true })}
-            </p>
-            <p className="text-xs text-amber-600 mt-1">{data.message}</p>
-            <p className="text-xs text-amber-600 mt-1">Please check back later</p>
-          </div>
+        <ShipmentHero
+          awb={awb}
+          copied={copied}
+          onCopy={copyAWB}
+          statusLabel={getStatusLabel(rawState)}
+          statusTone={getStatusColor(rawState)}
+        />
 
-          <div className="px-4 py-5">
-            <div className="bg-card rounded-2xl border border-border p-4 mb-4 shadow-sm">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-lg">{awb}</span>
-                    <button
-                      type="button"
-                      onClick={copyAWB}
-                      className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-                      data-testid="button-copy-awb"
-                    >
-                      {copied ? (
-                        <Check className="w-4 h-4 text-green-600" />
-                      ) : (
-                        <Copy className="w-4 h-4 text-muted-foreground" />
-                      )}
-                    </button>
-                  </div>
-                  <StatusBadge
-                    status={getStatusLabel(rawState)}
-                    tone={getStatusColor(rawState)}
-                    className="mt-2"
-                  />
-                </div>
-              </div>
+        <div className="mt-8 rounded-lg border border-amber-200 bg-amber-50/60 p-4">
+          <div className="flex gap-3">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-semibold text-amber-900">Tracking temporarily unavailable</p>
+              <p className="text-xs text-amber-800/90 mt-1 leading-relaxed">{data.message}</p>
+              <p className="text-[11px] text-amber-700 mt-2">
+                Last updated {formatDistanceToNow(new Date(data.lastTrackedAt), { addSuffix: true })} ·{' '}
+                <button
+                  type="button"
+                  onClick={invalidateTrack}
+                  className="text-amber-900 font-semibold hover:underline"
+                >
+                  Refresh
+                </button>
+              </p>
             </div>
-            <p className="text-xs text-amber-700 text-center">
-              Last updated{' '}
-              {formatDistanceToNow(new Date(data.lastTrackedAt), { addSuffix: true })}{' '}
-              ·{' '}
-              <button
-                type="button"
-                onClick={() => invalidateTrack()}
-                className="text-primary font-medium"
-              >
-                Refresh
-              </button>
-            </p>
-          </div>
-        </main>
-
-        <div className="fixed left-0 right-0 z-40 bg-white border-t border-border p-4 safe-bottom bottom-[var(--nav-stack)]">
-          <div className="flex justify-end gap-2 max-w-md mx-auto">
-            <a
-              href="https://api.whatsapp.com/send?phone=917045999553"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-11 h-11 bg-green-50 border border-green-200 rounded-xl flex items-center justify-center hover:bg-green-100 transition-colors"
-              data-testid="button-whatsapp"
-            >
-              <img src={whatsAppLogo} alt="WhatsApp" className="w-5 h-5 object-contain" />
-            </a>
-            <a
-              href="tel:+912266400000"
-              className="w-11 h-11 bg-primary/10 border border-primary/20 rounded-xl flex items-center justify-center hover:bg-primary/20 transition-colors"
-              data-testid="button-call"
-            >
-              <Phone className="w-5 h-5 text-primary" />
-            </a>
           </div>
         </div>
-        <BottomNav />
-      </div>
+
+        <ActionRow onDownloadLabel={() => void handleDownloadLabel()} showLabel={false} />
+      </PageShell>
     );
   }
 
+  // ─── Full result ─────────────────────────────────────────────────────────
   const trackingData = data.results[0];
   if (!trackingData || data.results.length === 0 || trackingData.errors) {
     return (
-      <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-shipment-not-found">
-        <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
-          <div className="flex items-center h-14 px-4 max-w-md mx-auto">
-            <button
-              type="button"
-              onClick={() => setLocation('/receive')}
-              className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <h1 className="ml-2 font-semibold text-sm flex-1">Shipment Details</h1>
-            {headerRefresh}
+      <PageShell>
+        <TopBar onBack={handleBack} onRefresh={invalidateTrack} isFetching={isFetching} />
+        <section className="py-10 text-center">
+          <div className="w-12 h-12 mx-auto rounded-full bg-red-50 text-red-500 flex items-center justify-center">
+            <AlertTriangle className="w-6 h-6" />
           </div>
-        </header>
-        <main className="px-4 py-12 max-w-md mx-auto text-center">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <AlertTriangle className="w-8 h-8 text-red-500" />
-          </div>
-          <h2 className="text-lg font-semibold text-foreground mb-2">Shipment Not Found</h2>
-          <p className="text-sm text-muted-foreground mb-6">AWB: {awb}</p>
-          <p className="text-sm text-muted-foreground">No tracking data available</p>
-        </main>
-        <BottomNav />
-      </div>
+          <h2 className="text-base font-semibold mt-4">Shipment not found</h2>
+          <p className="text-sm text-muted-foreground mt-1 tabular-nums">AWB {awb}</p>
+          <p className="text-xs text-muted-foreground mt-3">No tracking data available.</p>
+        </section>
+      </PageShell>
     );
   }
 
-  const result = trackingData;
-  const info = result.docket_info ?? [];
-  const docketEvents = result.docket_events ?? [];
+  const info = trackingData.docket_info ?? [];
+  const docketEvents = trackingData.docket_events ?? [];
   const events = mapEvents(docketEvents);
   const lastEv = docketEvents.length > 0 ? docketEvents[docketEvents.length - 1] : undefined;
   const rawStateForBadge =
@@ -461,9 +581,11 @@ export default function ShipmentDetails() {
   const toCountry = getDocketValue(info, 'Destination');
   const fromCity = getDocketValue(info, 'Shipper City');
   const toCity = getDocketValue(info, 'Consignee City');
-  const bookingDate = getDocketValue(info, 'Booking Date') || getDocketValue(info, 'Created');
+  const bookingDate = formatNiceDate(getDocketValue(info, 'Booking Date') || getDocketValue(info, 'Created'));
   const serviceName = getDocketValue(info, 'Service Name');
-  const chargeableWeight = withKg(result.chargeable_weight || getDocketValue(info, 'Chargeable Weight'));
+  const chargeableWeight = withKg(
+    trackingData.chargeable_weight || getDocketValue(info, 'Chargeable Weight')
+  );
   const shipperName = getDocketValue(info, 'Shipper Name');
   const shipperCompany = getDocketValue(info, 'Shipper Company');
   const consigneeName = getDocketValue(info, 'Consignee Name');
@@ -474,237 +596,149 @@ export default function ShipmentDetails() {
   const toLine = joinLocationParts(toCity, toCountry);
   const consigneeLocation = joinLocationParts(toCity, consigneeState, consigneeCountry);
   const isHoldOrException = currentStatus === 'Customs Hold' || currentStatus === 'Exception';
+  const forwardingNo = trackingData.forwarding_no?.trim() ?? '';
 
-  const shipmentInfoFields = [
-    { label: 'AWB No.', value: formatFieldValue(getDocketValue(info, 'AWB No.') || result.tracking_no || awb) },
-    { label: 'Booking Date', value: formatFieldValue(bookingDate) },
-    { label: 'Service Name', value: formatFieldValue(serviceName) },
-    { label: 'Status', value: formatFieldValue(currentStatus) },
-    { label: 'Chargeable Weight', value: formatFieldValue(chargeableWeight) },
-  ].filter((field) => field.value);
+  const shipmentFields = [
+    { label: 'Booking date', value: bookingDate },
+    { label: 'Service', value: serviceName },
+    { label: 'Chargeable weight', value: chargeableWeight },
+    { label: 'Forwarding no.', value: forwardingNo },
+  ].filter((f) => f.value);
 
   const partyFields = [
-    { label: 'Shipper Name', value: formatFieldValue(shipperName) },
-    { label: 'Shipper Company', value: formatFieldValue(shipperCompany) },
-    { label: 'Shipper City', value: formatFieldValue(fromCity) },
-    { label: 'Consignee Name', value: formatFieldValue(consigneeName) },
-    { label: 'Consignee Company', value: formatFieldValue(consigneeCompany) },
-    { label: 'Consignee Location', value: formatFieldValue(consigneeLocation) },
-  ].filter((field) => field.value);
+    { label: 'Shipper', value: shipperName },
+    { label: 'Shipper company', value: shipperCompany },
+    { label: 'Shipper city', value: fromCity },
+    { label: 'Consignee', value: consigneeName },
+    { label: 'Consignee company', value: consigneeCompany },
+    { label: 'Consignee location', value: consigneeLocation },
+  ].filter((f) => f.value);
 
   return (
-    <div className="min-h-[100dvh] bg-background pb-nav-strip" data-testid="screen-shipment-details">
-      <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
-        <div className="flex items-center h-14 px-4 max-w-md mx-auto">
-          <button
-            type="button"
-            onClick={() => window.history.back()}
-            className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
-            data-testid="button-back"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <h1 className="ml-2 font-semibold text-sm flex-1">Shipment Details</h1>
-          {headerRefresh}
-        </div>
-      </header>
+    <PageShell>
+      <TopBar onBack={handleBack} onRefresh={invalidateTrack} isFetching={isFetching} />
 
-      <main className="px-4 py-5 max-w-md mx-auto">
-        <div className="bg-card rounded-2xl border border-border p-4 mb-4 animate-fade-in shadow-sm">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-lg">{awb}</span>
-                <button
-                  type="button"
-                  onClick={copyAWB}
-                  className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-                  data-testid="button-copy-awb"
-                >
-                  {copied ? (
-                    <Check className="w-4 h-4 text-green-600" />
-                  ) : (
-                    <Copy className="w-4 h-4 text-muted-foreground" />
-                  )}
-                </button>
-              </div>
-              <StatusBadge
-                status={getStatusLabel(rawStateForBadge)}
-                tone={getStatusColor(rawStateForBadge)}
-                className="mt-2"
-              />
-            </div>
-          </div>
-        </div>
+      <ShipmentHero
+        awb={awb}
+        copied={copied}
+        onCopy={copyAWB}
+        statusLabel={getStatusLabel(rawStateForBadge)}
+        statusTone={getStatusColor(rawStateForBadge)}
+        fromLine={fromLine}
+        toLine={toLine}
+      />
 
-        <div className="bg-card rounded-2xl border border-border p-4 mb-4 animate-fade-in shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="flex-1">
-              <p className="text-[10px] text-muted-foreground">From</p>
-              <p className="font-semibold text-sm">{fromLine || '—'}</p>
-            </div>
-            <div className="w-11 h-11 bg-primary/10 rounded-xl flex items-center justify-center">
-              <Plane className="w-5 h-5 text-primary rotate-45" />
-            </div>
-            <div className="flex-1 text-right">
-              <p className="text-[10px] text-muted-foreground">To</p>
-              <p className="font-semibold text-sm">{toLine || '—'}</p>
-            </div>
-          </div>
-        </div>
-
-        {isHoldOrException && (
-          <div className="bg-red-50 rounded-xl border border-red-200 p-4 mb-4 animate-slide-up">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                <AlertTriangle className="w-5 h-5 text-red-500" />
-              </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-red-700 text-sm">{currentStatus}</h3>
-                <p className="text-xs text-red-600 mt-1">Contact support for details.</p>
-                <a
-                  href="https://api.whatsapp.com/send?phone=917045999553"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold text-red-700"
-                  data-testid="link-support-hold"
-                >
-                  <img src={whatsAppLogo} alt="WhatsApp" className="w-3.5 h-3.5 object-contain" />
-                  Contact Support
-                </a>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {events.length > 0 && (
-          <div className="bg-card rounded-xl border border-border p-4 mb-4 shadow-sm">
-            <h2 className="font-semibold text-sm text-foreground mb-3">Tracking History</h2>
-            <TrackingTimeline events={events} currentStatus={currentStatus} />
-            <p className="text-xs text-muted-foreground text-center mt-3">
-              Last updated {formatDistanceToNow(new Date(data.lastTrackedAt), { addSuffix: true })} ·{' '}
-              <button
-                type="button"
-                onClick={() => invalidateTrack()}
-                className="text-primary font-medium"
+      {isHoldOrException && (
+        <div className="mt-8 rounded-lg border border-red-200 bg-red-50/60 p-4">
+          <div className="flex gap-3">
+            <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-semibold text-red-700">{currentStatus}</p>
+              <p className="text-xs text-red-600/90 mt-1 leading-relaxed">
+                Please contact support for details on this shipment.
+              </p>
+              <a
+                href="https://api.whatsapp.com/send?phone=917045999553"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold text-red-700 hover:underline"
+                data-testid="link-support-hold"
               >
-                Refresh
-              </button>
-            </p>
+                <img src={whatsAppLogo} alt="" className="w-3.5 h-3.5 object-contain" aria-hidden />
+                Contact support
+              </a>
+            </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {events.length === 0 && (
-          <p className="text-xs text-muted-foreground text-center mb-4">
-            Last updated {formatDistanceToNow(new Date(data.lastTrackedAt), { addSuffix: true })} ·{' '}
+      {/* Tracking history */}
+      <section className="mt-10 md:mt-12 pt-8 border-t border-border">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
+            Tracking history
+          </h2>
+          <p className="text-[11px] text-muted-foreground">
+            Updated {formatDistanceToNow(new Date(data.lastTrackedAt), { addSuffix: true })} ·{' '}
             <button
               type="button"
-              onClick={() => invalidateTrack()}
-              className="text-primary font-medium"
+              onClick={invalidateTrack}
+              className="font-semibold text-foreground hover:underline"
+              data-testid="button-refresh-tracking-inline"
             >
               Refresh
             </button>
           </p>
+        </div>
+        {events.length > 0 ? (
+          <TrackingTimeline events={events} currentStatus={currentStatus} />
+        ) : (
+          <p className="text-sm text-muted-foreground">No tracking events yet.</p>
         )}
+      </section>
 
-        <div className="bg-card rounded-2xl border border-border p-4 mb-4 shadow-sm">
-          <h2 className="font-semibold text-sm text-foreground mb-4">Shipment Info</h2>
-          <div className="space-y-3">
-            {shipmentInfoFields.map((field) => (
-              <div key={field.label}>
-                <p className="text-[11px] text-muted-foreground">{field.label}</p>
-                <p className="text-sm text-foreground mt-0.5">{field.value}</p>
-              </div>
-            ))}
-            {result.forwarding_no?.trim() && (
-              <div>
-                <p className="text-[11px] text-muted-foreground">Forwarding No.</p>
-                <p className="text-sm text-foreground mt-0.5">{result.forwarding_no.trim()}</p>
-              </div>
-            )}
+      {/* Details — asymmetric panels (4-field meta + 6-field parties) */}
+      <section className="mt-10 md:mt-12 grid grid-cols-1 md:grid-cols-[5fr_7fr] gap-4 md:gap-5">
+        <div className="relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_12px_28px_-14px_lab(34.0831_-9.57756_-27.7093_/_0.16)] p-5 md:p-6">
+          <div className="flex items-center gap-2 mb-5">
+            <span className="block w-1 h-3.5 rounded-sm bg-[#F2A123]" aria-hidden />
+            <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
+              Shipment
+            </h2>
           </div>
-        </div>
-
-        <div className="bg-card rounded-2xl border border-border p-4 shadow-sm">
-          <h2 className="font-semibold text-sm text-foreground mb-4">Parties</h2>
-          <div className="space-y-3">
-            {partyFields.map((field) => (
-              <div key={field.label}>
-                <p className="text-[11px] text-muted-foreground">{field.label}</p>
-                <p className="text-sm text-foreground mt-0.5">{field.value}</p>
-              </div>
+          <dl className="grid grid-cols-2 md:grid-cols-1 gap-x-4 gap-y-5 md:gap-y-4">
+            {shipmentFields.map((f) => (
+              <Field key={f.label} label={f.label} value={f.value} />
             ))}
+          </dl>
+        </div>
+        <div className="relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_12px_28px_-14px_lab(34.0831_-9.57756_-27.7093_/_0.16)] p-5 md:p-6">
+          <div className="flex items-center gap-2 mb-5">
+            <span className="block w-1 h-3.5 rounded-sm bg-[#F2A123]" aria-hidden />
+            <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
+              Parties
+            </h2>
           </div>
+          <dl className="grid grid-cols-2 md:grid-cols-2 gap-x-6 gap-y-5 md:gap-y-5">
+            {partyFields.map((f) => (
+              <Field key={f.label} label={f.label} value={f.value} />
+            ))}
+          </dl>
         </div>
-      </main>
+      </section>
 
-      <div className="fixed left-0 right-0 z-40 bg-white border-t border-border p-4 safe-bottom bottom-[var(--nav-stack)]">
-        <div className="flex justify-end gap-2 max-w-md mx-auto">
-          <a
-            href="https://api.whatsapp.com/send?phone=917045999553"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-11 h-11 bg-green-50 border border-green-200 rounded-xl flex items-center justify-center hover:bg-green-100 transition-colors"
-            data-testid="button-whatsapp"
-          >
-            <img src={whatsAppLogo} alt="WhatsApp" className="w-5 h-5 object-contain" />
-          </a>
-          <a
-            href="tel:+912266400000"
-            className="w-11 h-11 bg-primary/10 border border-primary/20 rounded-xl flex items-center justify-center hover:bg-primary/20 transition-colors"
-            data-testid="button-call"
-          >
-            <Phone className="w-5 h-5 text-primary" />
-          </a>
-        </div>
-      </div>
-      <button
-        type="button"
-        className="fixed right-4 bottom-[calc(var(--nav-stack)+9.5rem)] z-40 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-[0_8px_24px_rgba(0,0,0,0.2)]"
-        onClick={() => void handleDownloadInvoice()}
-        data-testid="button-download-invoice"
-      >
-        <FileText className="w-4 h-4" />
-        Invoice
-      </button>
-      <button
-        type="button"
-        className="fixed right-4 bottom-[calc(var(--nav-stack)+5.5rem)] z-40 inline-flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground shadow-[0_8px_24px_rgba(0,0,0,0.2)]"
-        onClick={() => void handleDownloadLabel()}
-        data-testid="button-download-label"
-      >
-        <Download className="w-4 h-4" />
-        Label
-      </button>
+      <ActionRow
+        onDownloadLabel={() => void handleDownloadLabel()}
+        onDownloadInvoice={() => void handleDownloadInvoice()}
+        showLabel
+      />
+
+      {/* PDF preview overlay (label or invoice) */}
       {pdfDataUrl && (
-        <div className="fixed inset-0 z-[100] bg-white flex flex-col">
+        <div className="fixed inset-0 z-[100] bg-white flex flex-col" data-testid="label-preview">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-white safe-top">
-            <span className="font-semibold text-sm text-foreground">
-              {pdfTitle}
-            </span>
-            <button
-              type="button"
-              onClick={() => void handleShareLabel(pdfDataUrl)}
-              className="text-sm text-[#14567C] font-medium"
-            >
-              Share
-            </button>
-            <button
-              type="button"
-              onClick={() => setPdfDataUrl(null)}
-              className="text-sm text-[#14567C] font-medium"
-            >
-              Close
-            </button>
+            <span className="font-semibold text-sm text-foreground">{pdfTitle}</span>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => void handleShareLabel(pdfDataUrl)}
+                className="text-sm font-medium text-[#F2A123] hover:underline"
+              >
+                Share
+              </button>
+              <button
+                type="button"
+                onClick={() => setPdfDataUrl(null)}
+                className="text-sm font-medium text-foreground hover:underline"
+              >
+                Close
+              </button>
+            </div>
           </div>
-          <iframe
-            src={pdfDataUrl}
-            className="flex-1 w-full border-0"
-            title={pdfTitle}
-          />
+          <iframe src={pdfDataUrl} className="flex-1 w-full border-0" title={pdfTitle} />
         </div>
       )}
-      <BottomNav />
-    </div>
+    </PageShell>
   );
 }
+

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useLayoutEffect, type CSSProperties } from 'react';
+﻿import { useState, useEffect, useMemo, useLayoutEffect, type CSSProperties } from 'react';
 import confetti from 'canvas-confetti';
 import {
   ArrowLeft,
@@ -673,7 +673,7 @@ export default function CreateShipment() {
   if (!isLoggedIn) {
     return (
       <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create-login-required">
-        <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
+        <header className="sticky top-0 z-50 bg-white border-b border-[#E2E8F0] safe-top md:hidden">
           <div className="flex items-center h-14 px-4 max-w-md mx-auto">
             <button
               onClick={() => setLocation('/home')}
@@ -685,17 +685,17 @@ export default function CreateShipment() {
           </div>
         </header>
 
-        <main className="px-4 py-12 max-w-md mx-auto text-center">
-          <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Send className="w-8 h-8 text-primary" />
+        <main className="flex flex-col items-center justify-center min-h-[60vh] max-w-md mx-auto px-4 text-center">
+          <div className="w-16 h-16 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Send className="w-8 h-8 text-[lab(34.0831_-9.57756_-27.7093)]" />
           </div>
-          <h2 className="text-lg font-semibold text-foreground mb-2">Please login to continue</h2>
+          <h2 className="text-lg font-semibold text-[lab(34.0831_-9.57756_-27.7093)] mb-2">Please login to continue</h2>
           <p className="text-sm text-muted-foreground mb-6">
             Sign in to create and manage your shipments
           </p>
           <Button
             onClick={() => setLocation('/login?redirect=/create')}
-            className="bg-primary hover:bg-primary/90 h-12 px-8 rounded-xl shadow-md"
+            className="bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-12 px-8 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
             data-testid="button-login-to-create"
           >
             Login
@@ -1092,8 +1092,8 @@ export default function CreateShipment() {
 
   return (
     <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create">
-      <header className="sticky top-0 z-50 bg-white border-b-2 border-primary/20 safe-top">
-        <div className="flex items-center h-14 px-4 max-w-md mx-auto">
+      <header className="sticky top-0 z-50 bg-white border-b border-[#E2E8F0] safe-top md:hidden">
+        <div className="flex items-center h-14 px-4 w-full max-w-6xl mx-auto md:px-6">
           <button
             onClick={handleBack}
             className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
@@ -1105,20 +1105,79 @@ export default function CreateShipment() {
         </div>
       </header>
 
-      <div className="px-4 py-3 bg-white border-b border-border">
-        <div className="flex items-center justify-between max-w-md mx-auto">
+      {/* Desktop title bar — Booking eyebrow + H1 + segmented stepper */}
+      <div className="hidden md:block bg-background border-b border-[#E2E8F0]/60">
+        <div className="w-full max-w-6xl mx-auto px-4 md:px-6 pt-6 pb-5">
+          <div className="flex items-start justify-between gap-6 flex-wrap">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#F2A123]">Booking</span>
+                <span className="h-px w-24 bg-gradient-to-r from-[#F2A123]/30 to-transparent" aria-hidden />
+              </div>
+              <h1 className="text-[26px] font-bold tracking-[-0.02em] text-[lab(34.0831_-9.57756_-27.7093)] leading-tight">Create shipment</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Step <span className="text-[lab(34.0831_-9.57756_-27.7093)] font-semibold tabular-nums">{currentStep < 4 ? currentStep : steps.length}</span> of <span className="tabular-nums">{steps.length}</span> · {steps[Math.min(currentStep, steps.length) - 1]?.title}
+              </p>
+            </div>
+
+            {/* Desktop segmented stepper */}
+            <div className="flex items-center gap-0 pt-1 shrink-0">
+              {steps.map((step, index) => {
+                const isActive = currentStep === step.id;
+                const isCompleted = currentStep > step.id;
+                return (
+                  <div key={step.id} className="flex items-center">
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={cn(
+                          'w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-bold tabular-nums transition-all shrink-0',
+                          isActive && 'bg-[#F2A123] text-[lab(34.0831_-9.57756_-27.7093)] shadow-[0_0_0_3px_rgba(242,161,35,0.18)]',
+                          isCompleted && 'bg-[lab(34.0831_-9.57756_-27.7093)] text-white',
+                          !isActive && !isCompleted && 'bg-[#F3F4F6] text-muted-foreground border border-[#E2E8F0]'
+                        )}
+                      >
+                        {isCompleted ? <Check className="w-3.5 h-3.5" strokeWidth={2.5} /> : step.id}
+                      </div>
+                      <span
+                        className={cn(
+                          'text-[13px] font-medium whitespace-nowrap transition-colors',
+                          isActive ? 'text-[lab(34.0831_-9.57756_-27.7093)] font-semibold' : isCompleted ? 'text-[lab(34.0831_-9.57756_-27.7093)]/70' : 'text-muted-foreground'
+                        )}
+                      >
+                        {step.title}
+                      </span>
+                    </div>
+                    {index < steps.length - 1 && (
+                      <div
+                        className={cn(
+                          'h-px w-10 mx-3 transition-colors',
+                          isCompleted ? 'bg-[lab(34.0831_-9.57756_-27.7093)]/40' : 'bg-[#E2E8F0]'
+                        )}
+                        aria-hidden
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 py-3 bg-white border-b border-[#E2E8F0] md:hidden">
+        <div className="flex items-center w-full max-w-6xl mx-auto">
           {steps.map((step, index) => {
             const Icon = step.icon;
             const isActive = currentStep === step.id;
             const isCompleted = currentStep > step.id;
 
             return (
-              <div key={step.id} className="flex items-center">
+              <div key={step.id} className="flex items-center flex-1 last:flex-none">
                 <div className="flex flex-col items-center">
                   <div
                     className={cn(
                       'w-10 h-10 rounded-xl flex items-center justify-center transition-all',
-                      isActive && 'bg-primary text-white',
+                      isActive && 'bg-[#F2A123] text-[lab(34.0831_-9.57756_-27.7093)]',
                       isCompleted && 'bg-green-500 text-white',
                       !isActive && !isCompleted && 'bg-muted text-muted-foreground'
                     )}
@@ -1126,16 +1185,16 @@ export default function CreateShipment() {
                     {isCompleted ? <Check className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
                   </div>
                   <span className={cn(
-                    'text-[10px] mt-1',
-                    isActive ? 'text-primary font-semibold' : 'text-muted-foreground'
+                    'text-[10px] mt-1 whitespace-nowrap',
+                    isActive ? 'text-[lab(34.0831_-9.57756_-27.7093)] font-semibold' : 'text-muted-foreground'
                   )}>
                     {step.title}
                   </span>
                 </div>
                 {index < steps.length - 1 && (
                   <div className={cn(
-                    'w-10 h-0.5 mx-1',
-                    currentStep > step.id ? 'bg-green-500' : 'bg-muted'
+                    'flex-1 h-0.5 mx-2',
+                    currentStep > step.id ? 'bg-green-500' : 'bg-[#E2E8F0]'
                   )} />
                 )}
               </div>
@@ -1144,7 +1203,8 @@ export default function CreateShipment() {
         </div>
       </div>
 
-      <main className="px-4 py-5 max-w-md mx-auto">
+      <main className="max-w-6xl mx-auto w-full px-4 md:px-6 py-4 md:py-6 lg:grid lg:grid-cols-12 lg:gap-8 lg:items-start">
+        <div className="lg:col-span-7 min-w-0">
         {currentStep === 1 && (
           <div className="space-y-4 animate-fade-in">
             <CorridorRouteInfo originOnly />
@@ -1163,7 +1223,7 @@ export default function CreateShipment() {
               }}
             />
 
-            <div className="bg-card rounded-xl border border-border p-4 space-y-3 shadow-sm">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
               <div>
                 <Label className="text-xs text-muted-foreground">Full Name <span className="text-red-400">*</span></Label>
                 <Input
@@ -1302,7 +1362,7 @@ export default function CreateShipment() {
 
             <Button
               onClick={handleNext}
-              className="w-full h-12 bg-primary hover:bg-primary/90 text-sm font-semibold rounded-xl shadow-md"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
               data-testid="button-next-step"
             >
               Continue
@@ -1319,7 +1379,7 @@ export default function CreateShipment() {
                 ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry
               )}
             />
-            <div className="bg-card rounded-xl border border-border p-4 shadow-sm space-y-2">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-2">
               <Label className="text-xs text-muted-foreground">Destination Country</Label>
               <CountryCombobox
                 value={destinationCountry}
@@ -1357,7 +1417,7 @@ export default function CreateShipment() {
               }}
             />
 
-            <div className="bg-card rounded-xl border border-border p-4 space-y-3 shadow-sm">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
               <div>
                 <Label className="text-xs text-muted-foreground">Receiver Name</Label>
                 <Input
@@ -1495,7 +1555,7 @@ export default function CreateShipment() {
 
             <Button
               onClick={handleNext}
-              className="w-full h-12 bg-primary hover:bg-primary/90 text-sm font-semibold rounded-xl shadow-md"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
               data-testid="button-next-step"
             >
               Continue
@@ -1506,7 +1566,7 @@ export default function CreateShipment() {
 
         {currentStep === 3 && (
           <div className="space-y-4 animate-fade-in">
-            <div className="bg-card rounded-xl border border-border p-4 shadow-sm">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
               <ShipmentContentSearch
                 value={shipmentContent}
                 onChange={(v) => {
@@ -1526,7 +1586,7 @@ export default function CreateShipment() {
               )}
             </div>
 
-            <div className="bg-card rounded-xl border border-border p-4 shadow-sm">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
               <div className="flex items-center justify-between mb-3">
                 <Label className="text-sm font-semibold">Weight</Label>
                 <div className="flex bg-muted rounded-lg p-0.5">
@@ -1586,7 +1646,7 @@ export default function CreateShipment() {
               </p>
             </div>
 
-            <div className="bg-card rounded-xl border border-border p-4 shadow-sm">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
               <div className="flex items-center justify-between mb-3">
                 <Label className="text-sm font-semibold">
                   Dimensions <span className="text-red-400">*</span>
@@ -1704,7 +1764,7 @@ export default function CreateShipment() {
               </div>
             </div>
 
-            <div className="bg-card rounded-xl border border-border p-4 shadow-sm">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
               <Label className="text-sm font-semibold mb-3 block">Shipment Value</Label>
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2">
@@ -1770,7 +1830,7 @@ export default function CreateShipment() {
 
             <Button
               onClick={handleNext}
-              className="w-full h-12 bg-primary hover:bg-primary/90 text-sm font-semibold rounded-xl shadow-md"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
               data-testid="button-next-step"
             >
               Continue
@@ -1785,7 +1845,7 @@ export default function CreateShipment() {
               Required for Indian customs clearance. These details appear on the commercial invoice.
             </div>
 
-            <div className="bg-card rounded-xl border border-border p-4 shadow-sm">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
               <Label className="text-sm font-semibold mb-3 block">Service Details</Label>
               <div className="space-y-2">
                 <div className="space-y-1">
@@ -2129,11 +2189,12 @@ export default function CreateShipment() {
               </div>
             </div>
 
+            <div className="lg:hidden space-y-4">
             <Button
               type="button"
               onClick={handleGetRates}
               disabled={!productType.trim() || rateMutation.isPending}
-              className="w-full h-12 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-xl shadow-md disabled:opacity-70 flex items-center justify-center gap-2"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
               data-testid="button-get-rates-invoice"
             >
               {rateMutation.isPending ? (
@@ -2152,6 +2213,7 @@ export default function CreateShipment() {
                 <p className="text-xs text-red-600">{ratesError}</p>
               </div>
             ) : null}
+            </div>
 
             {rateResults !== null ? (
               <div
@@ -2202,25 +2264,25 @@ export default function CreateShipment() {
                               }
                             }}
                             className={cn(
-                              'rounded-[14px] border-[0.5px] border-[var(--color-border-tertiary)] bg-[var(--color-background-primary)] overflow-hidden relative outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer',
-                              isSelected && 'ring-2 ring-primary border-primary'
+                              'rounded-xl border border-[#E2E8F0] bg-white overflow-hidden relative outline-none focus-visible:ring-2 focus-visible:ring-[#2F4468] cursor-pointer shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]',
+                              isSelected && 'ring-2 ring-[#F2A123] border-[#F2A123]'
                             )}
                             data-testid={`invoice-rate-card-${idx}`}
                           >
                             {isSelected ? (
-                              <div className="absolute top-3 right-3 z-10 rounded-full bg-primary p-0.5 text-white">
+                              <div className="absolute top-3 right-3 z-10 rounded-full bg-[#F2A123] p-0.5 text-[lab(34.0831_-9.57756_-27.7093)]">
                                 <Check className="w-3.5 h-3.5" strokeWidth={3} aria-hidden />
                               </div>
                             ) : null}
                             <div className="flex items-center gap-3 px-4 pt-[14px] pb-3">
                               <div
                                 className="w-[34px] h-[34px] shrink-0 rounded-[10px] flex items-center justify-center text-[13px] font-medium text-white"
-                                style={{ backgroundColor: isBest ? BEST_GREEN : BOMBINO_BLUE }}
+                                style={{ backgroundColor: isBest ? BEST_GREEN : '#2F4468' }}
                               >
                                 {letter}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <p className="text-[13px] font-medium text-foreground leading-snug">
+                                <p className="text-[13px] font-semibold text-[lab(34.0831_-9.57756_-27.7093)] leading-snug">
                                   {displayName}
                                 </p>
                                 <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
@@ -2238,17 +2300,14 @@ export default function CreateShipment() {
                                 </div>
                               </div>
                               <div className="shrink-0 text-right pr-6">
-                                <p
-                                  className="text-[20px] font-medium tabular-nums"
-                                  style={{ color: BOMBINO_BLUE }}
-                                >
+                                <p className="text-[20px] font-semibold tabular-nums font-mono text-[#2F4468]">
                                   {formatInr(service.total)}
                                 </p>
                                 <p className="text-[10px] text-muted-foreground">incl. GST</p>
                               </div>
                             </div>
 
-                            <div className="h-[0.5px] bg-[var(--color-border-tertiary)]" />
+                            <div className="h-[0.5px] bg-[#E2E8F0]" />
 
                             <button
                               type="button"
@@ -2307,7 +2366,7 @@ export default function CreateShipment() {
                                   ) : null}
                                 </div>
 
-                                <div className="my-3 h-[0.5px] bg-[var(--color-border-tertiary)]" />
+                                <div className="my-3 h-[0.5px] bg-[#E2E8F0]" />
 
                                 <div className="space-y-2">
                                   {service.sub_total !== 0 ? (
@@ -2328,14 +2387,11 @@ export default function CreateShipment() {
                                   ) : null}
                                 </div>
 
-                                <div className="my-3 h-px bg-[var(--color-border-tertiary)] opacity-80" />
+                                <div className="my-3 h-px bg-[#E2E8F0] opacity-80" />
 
                                 <div className="flex justify-between gap-3 items-baseline">
                                   <span className="text-[11px] text-muted-foreground">Total payable</span>
-                                  <span
-                                    className="text-[13px] font-medium tabular-nums"
-                                    style={{ color: BOMBINO_BLUE }}
-                                  >
+                                  <span className="text-[13px] font-semibold tabular-nums font-mono text-[#2F4468]">
                                     {formatInr(service.total)}
                                   </span>
                                 </div>
@@ -2365,7 +2421,7 @@ export default function CreateShipment() {
               </div>
             ) : null}
 
-            <div className="bg-card rounded-xl border border-border p-4 space-y-3 shadow-sm">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
               <Label className="text-sm font-semibold">Invoice Item</Label>
               <div>
                 <Label className="text-xs text-muted-foreground">Description</Label>
@@ -2438,6 +2494,7 @@ export default function CreateShipment() {
               )}
             </div>
 
+            <div className="lg:hidden space-y-4">
             {submitError && (
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
                 <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
@@ -2448,7 +2505,7 @@ export default function CreateShipment() {
             <Button
               onClick={handleSubmit}
               disabled={createMutation.isPending}
-              className="w-full h-12 bg-primary hover:bg-primary/90 text-sm font-semibold rounded-xl shadow-md disabled:opacity-70"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
               data-testid="button-submit-shipment"
             >
               {createMutation.isPending ? (
@@ -2457,8 +2514,174 @@ export default function CreateShipment() {
                 'Create Shipment'
               )}
             </Button>
+            </div>
           </div>
         )}
+        </div>{/* end lg:col-span-7 */}
+
+        {/* RIGHT PANE — desktop only */}
+        <div className="hidden lg:block lg:col-span-5">
+          <div className="sticky top-6 space-y-4">
+            {currentStep < 4 && (
+              <div className="bg-white rounded-2xl border border-[#E2E8F0] overflow-hidden shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+                <div className="px-5 py-3.5 border-b border-[#E2E8F0] flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-[#F2A123]">Draft</span>
+                    <span className="text-[11px] text-muted-foreground tabular-nums">{currentStep}/{steps.length}</span>
+                  </div>
+                  <span className="text-[11px] text-muted-foreground">Auto-saved</span>
+                </div>
+
+                {/* Sender section */}
+                <div className="px-5 py-4 border-b border-[#E2E8F0]">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={cn(
+                      'w-5 h-5 rounded-full flex items-center justify-center shrink-0',
+                      senderName.trim() ? 'bg-emerald-500 text-white' : currentStep === 1 ? 'bg-[#F2A123]/15 text-[#F2A123] border border-[#F2A123]/30' : 'bg-[#F3F4F6] text-muted-foreground'
+                    )}>
+                      {senderName.trim() ? <Check className="w-3 h-3" strokeWidth={3} /> : <span className="text-[10px] font-bold tabular-nums">1</span>}
+                    </div>
+                    <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground">Sender</p>
+                  </div>
+                  <div className="pl-7">
+                    {senderName.trim() ? (
+                      <>
+                        <p className="text-sm font-semibold text-foreground truncate">{senderName}</p>
+                        <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                          {[senderCity, senderState].filter(Boolean).join(', ') || 'India'}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-[12px] text-muted-foreground italic">Pickup address — not added yet</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Receiver section */}
+                <div className="px-5 py-4 border-b border-[#E2E8F0]">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={cn(
+                      'w-5 h-5 rounded-full flex items-center justify-center shrink-0',
+                      receiverName.trim() ? 'bg-emerald-500 text-white' : currentStep === 2 ? 'bg-[#F2A123]/15 text-[#F2A123] border border-[#F2A123]/30' : 'bg-[#F3F4F6] text-muted-foreground'
+                    )}>
+                      {receiverName.trim() ? <Check className="w-3 h-3" strokeWidth={3} /> : <span className="text-[10px] font-bold tabular-nums">2</span>}
+                    </div>
+                    <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground">Receiver</p>
+                  </div>
+                  <div className="pl-7">
+                    {receiverName.trim() ? (
+                      <>
+                        <p className="text-sm font-semibold text-foreground truncate">{receiverName}</p>
+                        <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                          {[receiverCity, destinationCountry].filter(Boolean).join(' · ') || 'Destination not set'}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-[12px] text-muted-foreground italic">Delivery address — not added yet</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Package section */}
+                <div className="px-5 py-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={cn(
+                      'w-5 h-5 rounded-full flex items-center justify-center shrink-0',
+                      (weight && parseFloat(weight) > 0) ? 'bg-emerald-500 text-white' : currentStep === 3 ? 'bg-[#F2A123]/15 text-[#F2A123] border border-[#F2A123]/30' : 'bg-[#F3F4F6] text-muted-foreground'
+                    )}>
+                      {(weight && parseFloat(weight) > 0) ? <Check className="w-3 h-3" strokeWidth={3} /> : <span className="text-[10px] font-bold tabular-nums">3</span>}
+                    </div>
+                    <p className="text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground">Package</p>
+                  </div>
+                  <div className="pl-7 space-y-1.5">
+                    {(weight && parseFloat(weight) > 0) ? (
+                      <>
+                        <p className="text-sm font-semibold text-foreground tabular-nums">
+                          {weight} {weightUnit}
+                          {dimL && dimW && dimH ? <span className="text-muted-foreground font-medium"> · {dimL}×{dimW}×{dimH}{dimUnit}</span> : null}
+                        </p>
+                        {shipmentValue ? (
+                          <p className="text-[11px] text-muted-foreground tabular-nums">Value: {selectedCurrency} {shipmentValue}</p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p className="text-[12px] text-muted-foreground italic">Weight, dimensions &amp; value — not set</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="px-5 py-3 bg-[#F8F9FA] border-t border-[#E2E8F0]">
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Complete all three steps to get a live rate quote.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {currentStep === 4 && (
+              <div className="space-y-4">
+                <Button
+                  type="button"
+                  onClick={handleGetRates}
+                  disabled={!productType.trim() || rateMutation.isPending}
+                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
+                >
+                  {rateMutation.isPending ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4 shrink-0" aria-hidden />
+                      Get Rates
+                    </>
+                  )}
+                </Button>
+
+                {ratesError ? (
+                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
+                    <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-red-600">{ratesError}</p>
+                  </div>
+                ) : null}
+
+                {selectedService && (
+                  <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-1.5 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06)]">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Selected service</p>
+                    <p className="font-semibold text-sm text-[lab(34.0831_-9.57756_-27.7093)]">{selectedService.internal_api_service_code || selectedService.code}</p>
+                    <p className="font-mono text-lg font-semibold text-[#2F4468]">{formatInr(selectedService.total)}</p>
+                    <p className="text-[10px] text-muted-foreground">incl. GST · estimated</p>
+                  </div>
+                )}
+
+                {serviceSelectionError ? (
+                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
+                    <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-red-600">{serviceSelectionError}</p>
+                  </div>
+                ) : null}
+
+                {submitError && (
+                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
+                    <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-red-600">{submitError}</p>
+                  </div>
+                )}
+
+                <Button
+                  onClick={handleSubmit}
+                  disabled={createMutation.isPending}
+                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+                  data-testid="button-submit-shipment-desktop"
+                >
+                  {createMutation.isPending ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    'Create Shipment'
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
       </main>
 
       <BottomNav />
@@ -2530,3 +2753,4 @@ export default function CreateShipment() {
     </div>
   );
 }
+
