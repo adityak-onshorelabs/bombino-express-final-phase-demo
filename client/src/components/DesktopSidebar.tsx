@@ -6,7 +6,7 @@ import {
   PackageSearch,
   MapPin,
   User,
-  HelpCircle,
+  Bot,
   Bell,
   LogOut,
   LogIn,
@@ -27,7 +27,7 @@ const MAIN_NAV = [
 
 const ACCOUNT_NAV = [
   { label: 'My Profile', icon: User, path: '/profile', authRequired: true as const },
-  { label: 'Help & FAQ', icon: HelpCircle, path: '/help' },
+  { label: 'Ask BIA', icon: Bot, path: '/help' },
 ] as const;
 
 function NavItem({

@@ -1,4 +1,4 @@
-import { X, User, LogOut, LogIn, HelpCircle, Phone } from 'lucide-react';
+import { X, User, LogOut, LogIn, Bot, Phone } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { apiRequest } from '@/lib/queryClient';
@@ -129,9 +129,9 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
               data-testid="link-help"
             >
               <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
-                <HelpCircle className="w-5 h-5 text-muted-foreground" />
+                <Bot className="w-5 h-5 text-muted-foreground" />
               </div>
-              <span className="font-medium">Help & FAQ</span>
+              <span className="font-medium">Ask BIA</span>
             </Link>
           </nav>
 
