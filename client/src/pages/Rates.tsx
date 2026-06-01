@@ -193,6 +193,8 @@ export default function Rates() {
   const [weightUnit, setWeightUnit] = useState<'lb' | 'kg'>('kg');
   const [weight, setWeight] = useState('2');
   const [pieces, setPieces] = useState('1');
+  const [originPincode, setOriginPincode] = useState('');
+  const [destPincode, setDestPincode] = useState('');
 
   const [rateResults, setRateResults] = useState<ITDRateRow[] | null>(null);
   const [shipmentMeta, setShipmentMeta] = useState<ShipmentMeta | null>(null);
@@ -209,6 +211,8 @@ export default function Rates() {
     setSelectedRate(null);
     setApiError('');
     setExpandedById({});
+    setOriginPincode('');
+    setDestPincode('');
   };
 
   const handleOriginChange = (code: string): void => {
@@ -280,7 +284,8 @@ export default function Rates() {
       pcs: String(parseInt(pieces) || 1),
       actual_weight: String(weightKg.toFixed(2)),
       ori_city: 'MUMBAI',
-      ori_pincode: '400001',
+      ori_pincode: originPincode.trim() || '400001',
+      ...(destPincode.trim() ? { dest_pincode: destPincode.trim() } : {}),
     });
   };
 
@@ -632,6 +637,46 @@ export default function Rates() {
                   className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl md:h-12 md:text-base md:font-semibold md:tabular-nums"
                   min="1"
                   data-testid="input-pieces"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Optional pincodes */}
+          <div className="bg-card rounded-xl border border-border p-4 shadow-sm md:p-5 md:rounded-2xl md:border-[#E2E8F0] md:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)]">
+            <div className="flex items-center gap-1.5 mb-3">
+              <Info className="w-3.5 h-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              <p className="text-xs text-muted-foreground">
+                Enter pincodes for more accurate rates (optional)
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 md:gap-4">
+              <div>
+                <Label className="text-[10px] text-muted-foreground md:text-[10px] md:font-bold md:uppercase md:tracking-[0.12em]">
+                  From Pincode
+                </Label>
+                <Input
+                  type="text"
+                  value={originPincode}
+                  onChange={(e) => setOriginPincode(e.target.value)}
+                  placeholder="e.g. 400001"
+                  maxLength={10}
+                  className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl md:h-12"
+                  data-testid="input-origin-pincode"
+                />
+              </div>
+              <div>
+                <Label className="text-[10px] text-muted-foreground md:text-[10px] md:font-bold md:uppercase md:tracking-[0.12em]">
+                  To Pincode
+                </Label>
+                <Input
+                  type="text"
+                  value={destPincode}
+                  onChange={(e) => setDestPincode(e.target.value)}
+                  placeholder="e.g. 10001"
+                  maxLength={10}
+                  className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl md:h-12"
+                  data-testid="input-dest-pincode"
                 />
               </div>
             </div>
