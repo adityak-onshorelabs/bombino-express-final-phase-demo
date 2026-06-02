@@ -21,6 +21,12 @@ import type { TrackingEvent } from '@/lib/mockData';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import {
+  base64ToPdfFile,
+  canSharePdfFile,
+  downloadPdfBlob,
+  openPdfOverlayOrDownload,
+} from '@/lib/pdfUtils';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 
 // ─── Types (unchanged) ──────────────────────────────────────────────────────
@@ -382,10 +388,13 @@ export default function ShipmentDetails() {
         return;
       }
       const { label } = (await res.json()) as { label: string };
-      const dataUrl =
-        `data:application/pdf;base64,${label}`;
-      setPdfTitle('Shipment Label');
-      setPdfDataUrl(dataUrl);
+      openPdfOverlayOrDownload(
+        label,
+        'shipment-label.pdf',
+        'Shipment Label',
+        setPdfTitle,
+        setPdfDataUrl
+      );
     } catch {
       toast({
         title: 'Download failed',
@@ -411,9 +420,13 @@ export default function ShipmentDetails() {
       }
 
       const { invoice } = (await res.json()) as { invoice: string };
-      const dataUrl = `data:application/pdf;base64,${invoice}`;
-      setPdfTitle('Shipment Invoice');
-      setPdfDataUrl(dataUrl);
+      openPdfOverlayOrDownload(
+        invoice,
+        'shipment-invoice.pdf',
+        'Shipment Invoice',
+        setPdfTitle,
+        setPdfDataUrl
+      );
     } catch {
       toast({
         title: 'Download failed',
@@ -426,26 +439,14 @@ export default function ShipmentDetails() {
   const handleShareLabel = async (dataUrl: string) => {
     try {
       const base64 = dataUrl.split(',')[1];
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], { type: 'application/pdf' });
       const isInvoice = pdfTitle.toLowerCase().includes('invoice');
       const fileName = isInvoice ? 'shipment-invoice.pdf' : 'shipment-label.pdf';
-      const file = new File([blob], fileName, { type: 'application/pdf' });
+      const file = base64ToPdfFile(base64, fileName);
 
-      if (
-        typeof navigator.share === 'function' &&
-        typeof navigator.canShare === 'function' &&
-        navigator.canShare({ files: [file] })
-      ) {
+      if (canSharePdfFile(file)) {
         await navigator.share({ files: [file], title: pdfTitle });
       } else {
-        toast({
-          title: 'Sharing not supported',
-          description: 'Please use the browser download option instead.',
-          variant: 'destructive',
-        });
+        downloadPdfBlob(file, fileName);
       }
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {
