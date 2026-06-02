@@ -1,3 +1,5 @@
+import { isAndroid } from './platform';
+
 export function base64ToPdfFile(base64: string, fileName: string): File {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -7,11 +9,15 @@ export function base64ToPdfFile(base64: string, fileName: string): File {
 }
 
 export function canSharePdfFile(file: File): boolean {
-  return (
-    typeof navigator.share === 'function' &&
-    typeof navigator.canShare === 'function' &&
-    navigator.canShare({ files: [file] })
-  );
+  try {
+    return (
+      typeof navigator.share === 'function' &&
+      typeof navigator.canShare === 'function' &&
+      navigator.canShare({ files: [file] })
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function downloadPdfBlob(blob: Blob, fileName: string): void {
@@ -33,7 +39,7 @@ export function openPdfOverlayOrDownload(
   setPdfDataUrl: (u: string) => void
 ): void {
   const file = base64ToPdfFile(base64, fileName);
-  if (canSharePdfFile(file)) {
+  if (isAndroid() || canSharePdfFile(file)) {
     setPdfTitle(overlayTitle);
     setPdfDataUrl(`data:application/pdf;base64,${base64}`);
   } else {

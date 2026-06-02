@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useRoute, useLocation } from 'wouter';
 import {
   ArrowLeft,
@@ -27,7 +27,10 @@ import {
   downloadPdfBlob,
   openPdfOverlayOrDownload,
 } from '@/lib/pdfUtils';
+import { isAndroid } from '@/lib/platform';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
+
+const PdfCanvasViewer = lazy(() => import('@/components/PdfCanvasViewer'));
 
 // ─── Types (unchanged) ──────────────────────────────────────────────────────
 interface DocketEvent {
@@ -445,9 +448,10 @@ export default function ShipmentDetails() {
 
       if (canSharePdfFile(file)) {
         await navigator.share({ files: [file], title: pdfTitle });
-      } else {
+      } else if (!isAndroid()) {
         downloadPdfBlob(file, fileName);
       }
+      // Android (canShare false): no-op — PDF already viewable inline
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {
         toast({
@@ -736,7 +740,19 @@ export default function ShipmentDetails() {
               </button>
             </div>
           </div>
-          <iframe src={pdfDataUrl} className="flex-1 w-full border-0" title={pdfTitle} />
+          {isAndroid() ? (
+            <Suspense
+              fallback={
+                <div className="flex-1 grid place-items-center text-sm text-muted-foreground">
+                  Loading PDF…
+                </div>
+              }
+            >
+              <PdfCanvasViewer base64={pdfDataUrl.split(',')[1]} title={pdfTitle} />
+            </Suspense>
+          ) : (
+            <iframe src={pdfDataUrl} className="flex-1 w-full border-0" title={pdfTitle} />
+          )}
         </div>
       )}
     </PageShell>

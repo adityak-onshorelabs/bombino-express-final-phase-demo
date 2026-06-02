@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo, useLayoutEffect, type CSSProperties } from 'react';
+﻿import { lazy, Suspense, useState, useEffect, useMemo, useLayoutEffect, type CSSProperties } from 'react';
 import confetti from 'canvas-confetti';
 import {
   ArrowLeft,
@@ -43,6 +43,7 @@ import {
   downloadPdfBlob,
   openPdfOverlayOrDownload,
 } from '@/lib/pdfUtils';
+import { isAndroid } from '@/lib/platform';
 import { getHsnCode } from '@/lib/hsnData';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -64,6 +65,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+
+const PdfCanvasViewer = lazy(() => import('@/components/PdfCanvasViewer'));
 
 interface FreeFormLineItem {
   total: string;
@@ -657,9 +660,10 @@ export default function CreateShipment() {
           files: [file],
           title: shareTitle,
         });
-      } else {
+      } else if (!isAndroid()) {
         downloadPdfBlob(file, fileName);
       }
+      // Android (canShare false): no-op — PDF already viewable inline
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {
         toast({
@@ -745,11 +749,23 @@ export default function CreateShipment() {
                 Close
               </button>
             </div>
-            <iframe
-              src={pdfDataUrl}
-              className="flex-1 w-full border-0"
-              title={pdfTitle}
-            />
+            {isAndroid() ? (
+              <Suspense
+                fallback={
+                  <div className="flex-1 grid place-items-center text-sm text-muted-foreground">
+                    Loading PDF…
+                  </div>
+                }
+              >
+                <PdfCanvasViewer base64={pdfDataUrl.split(',')[1]} title={pdfTitle} />
+              </Suspense>
+            ) : (
+              <iframe
+                src={pdfDataUrl}
+                className="flex-1 w-full border-0"
+                title={pdfTitle}
+              />
+            )}
           </div>
         )}
         <main className="px-4 py-12 max-w-md mx-auto text-center">
