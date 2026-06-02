@@ -44,6 +44,7 @@ import {
   openPdfOverlayOrDownload,
 } from '@/lib/pdfUtils';
 import { isAndroid } from '@/lib/platform';
+import { shareViaCapacitor } from '@/lib/nativeShare';
 import { getHsnCode } from '@/lib/hsnData';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -653,6 +654,12 @@ export default function CreateShipment() {
       const isInvoice = pdfTitle.includes('Invoice');
       const fileName = isInvoice ? 'shipment-invoice.pdf' : 'shipment-label.pdf';
       const shareTitle = pdfTitle;
+
+      if (isAndroid()) {
+        const ok = await shareViaCapacitor(base64, fileName, shareTitle);
+        if (ok) return;
+      }
+
       const file = base64ToPdfFile(base64, fileName);
 
       if (canSharePdfFile(file)) {
@@ -663,7 +670,7 @@ export default function CreateShipment() {
       } else if (!isAndroid()) {
         downloadPdfBlob(file, fileName);
       }
-      // Android (canShare false): no-op — PDF already viewable inline
+      // Android with no native plugin: silent no-op (as today)
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {
         toast({

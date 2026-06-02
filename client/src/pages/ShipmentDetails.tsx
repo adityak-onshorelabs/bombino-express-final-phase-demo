@@ -28,6 +28,7 @@ import {
   openPdfOverlayOrDownload,
 } from '@/lib/pdfUtils';
 import { isAndroid } from '@/lib/platform';
+import { shareViaCapacitor } from '@/lib/nativeShare';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 
 const PdfCanvasViewer = lazy(() => import('@/components/PdfCanvasViewer'));
@@ -444,6 +445,12 @@ export default function ShipmentDetails() {
       const base64 = dataUrl.split(',')[1];
       const isInvoice = pdfTitle.toLowerCase().includes('invoice');
       const fileName = isInvoice ? 'shipment-invoice.pdf' : 'shipment-label.pdf';
+
+      if (isAndroid()) {
+        const ok = await shareViaCapacitor(base64, fileName, pdfTitle);
+        if (ok) return;
+      }
+
       const file = base64ToPdfFile(base64, fileName);
 
       if (canSharePdfFile(file)) {
@@ -451,7 +458,7 @@ export default function ShipmentDetails() {
       } else if (!isAndroid()) {
         downloadPdfBlob(file, fileName);
       }
-      // Android (canShare false): no-op — PDF already viewable inline
+      // Android with no native plugin: silent no-op (as today)
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') {
         toast({
