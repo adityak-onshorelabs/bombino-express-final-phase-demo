@@ -30,6 +30,7 @@ import {
 import { isAndroid } from '@/lib/platform';
 import { shareViaCapacitor } from '@/lib/nativeShare';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
+import { openThreeCXCall } from '@/lib/threecx';
 
 const PdfCanvasViewer = lazy(() => import('@/components/PdfCanvasViewer'));
 
@@ -312,14 +313,15 @@ function ActionRow({
           <img src={whatsAppLogo} alt="" className="w-4 h-4 object-contain" aria-hidden />
           WhatsApp
         </a>
-        <a
-          href="tel:+912266400000"
+        <button
+          type="button"
+          onClick={() => openThreeCXCall()}
           className="inline-flex items-center gap-2 h-10 px-3.5 rounded-lg border border-border text-sm font-medium text-foreground hover:border-foreground/30 hover:bg-muted/60 transition-colors"
           data-testid="button-call"
         >
           <Phone className="w-4 h-4 text-muted-foreground" />
           Call
-        </a>
+        </button>
       </div>
     </section>
   );

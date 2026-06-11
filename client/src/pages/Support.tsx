@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { parseAssistantMessage } from "@/lib/supportMessage";
 import { useAppStore } from "@/lib/store";
+import { openThreeCXCall } from "@/lib/threecx";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -411,13 +412,14 @@ export default function Support() {
                           >
                             WhatsApp Us
                           </a>
-                          <a
-                            href="tel:+912266400000"
+                          <button
+                            type="button"
+                            onClick={() => openThreeCXCall()}
                             className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2 px-3 text-sm font-medium border border-amber-400/40 text-amber-100/90 bg-amber-500/10"
                           >
                             <Phone className="w-3.5 h-3.5 shrink-0" aria-hidden />
                             Call Us
-                          </a>
+                          </button>
                         </div>
                       )}
                     </div>

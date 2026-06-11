@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
+import { openThreeCXCall } from '@/lib/threecx';
 import { COUNTRY_LIST, COUNTRY_MAP, isBookableCorridor } from '@/lib/countryData';
 import { lbToKg, kgToLb } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
@@ -370,13 +371,14 @@ export default function Rates() {
                         <img src={whatsAppLogo} alt="" className="w-4 h-4 object-contain" />
                         WhatsApp
                       </a>
-                      <a
-                        href="tel:+912266400000"
+                      <button
+                        type="button"
+                        onClick={() => openThreeCXCall()}
                         className="flex-1 flex items-center justify-center gap-2 h-10 rounded-lg border border-amber-300 bg-white text-amber-950 text-xs font-medium hover:bg-amber-100/80 active:scale-[0.98] transition-colors"
                       >
                         <Phone className="w-4 h-4" aria-hidden />
                         Call
-                      </a>
+                      </button>
                     </div>
                   </div>
                 </div>

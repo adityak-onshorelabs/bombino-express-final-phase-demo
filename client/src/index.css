@@ -596,3 +596,9 @@ input[type="number"] {
   margin-left: auto;
   margin-right: auto;
 }
+
+/* 3CX widget — always hidden; opened programmatically only */
+#tcx-call-us {
+  display: none !important;
+  z-index: 52;
+}
