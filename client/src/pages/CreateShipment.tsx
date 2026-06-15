@@ -47,6 +47,7 @@ import { isAndroid } from '@/lib/platform';
 import { shareViaCapacitor } from '@/lib/nativeShare';
 import { getHsnCode } from '@/lib/hsnData';
 import { useToast } from '@/hooks/use-toast';
+import { usePincodeLookup } from '@/hooks/usePincodeLookup';
 import {
   ITD_COUNTRY_LIST,
   ITD_COUNTRY_MAP,
@@ -406,6 +407,9 @@ export default function CreateShipment() {
 
   const [stepError, setStepError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
+
+  const { hint: senderPincodeHint, lookup: lookupSenderPincode } = usePincodeLookup();
+  const { hint: receiverPincodeHint, lookup: lookupReceiverPincode } = usePincodeLookup();
 
   const clearFieldError = (key: string) => {
     setFieldErrors((prev) => {
@@ -1314,7 +1318,36 @@ export default function CreateShipment() {
                   <p className="text-xs text-red-600 mt-1">This field is required</p>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Pincode</Label>
+                  <Input
+                    value={senderZip}
+                    onChange={(e) => {
+                      setSenderZip(e.target.value);
+                      clearFieldError('senderZip');
+                    }}
+                    onBlur={() => {
+                      void lookupSenderPincode(senderZip, 'IN', ({ city, state }) => {
+                        setSenderCity(city);
+                        setSenderState(state);
+                        clearFieldError('senderCity');
+                        clearFieldError('senderState');
+                      });
+                    }}
+                    maxLength={6}
+                    className={fieldBorderClass('senderZip')}
+                    data-testid="input-sender-zip"
+                  />
+                  {senderPincodeHint && (
+                    <p className="text-[0.65rem] leading-tight whitespace-nowrap mt-0.5 text-muted-foreground">
+                      {senderPincodeHint}
+                    </p>
+                  )}
+                  {fieldErrors.senderZip && (
+                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                  )}
+                </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">City</Label>
                   <Input
@@ -1342,22 +1375,6 @@ export default function CreateShipment() {
                     data-testid="input-sender-state"
                   />
                   {fieldErrors.senderState && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
-                  )}
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Pincode</Label>
-                  <Input
-                    value={senderZip}
-                    onChange={(e) => {
-                      setSenderZip(e.target.value);
-                      clearFieldError('senderZip');
-                    }}
-                    maxLength={6}
-                    className={fieldBorderClass('senderZip')}
-                    data-testid="input-sender-zip"
-                  />
-                  {fieldErrors.senderZip && (
                     <p className="text-xs text-red-600 mt-1">This field is required</p>
                   )}
                 </div>
@@ -1516,7 +1533,35 @@ export default function CreateShipment() {
                   <p className="text-xs text-red-600 mt-1">This field is required</p>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Postal Code</Label>
+                  <Input
+                    value={receiverZip}
+                    onChange={(e) => {
+                      setReceiverZip(e.target.value);
+                      clearFieldError('receiverZip');
+                    }}
+                    onBlur={() => {
+                      void lookupReceiverPincode(receiverZip, destinationCountry, ({ city, state }) => {
+                        setReceiverCity(city);
+                        setReceiverState(state);
+                        clearFieldError('receiverCity');
+                        clearFieldError('receiverState');
+                      });
+                    }}
+                    className={fieldBorderClass('receiverZip')}
+                    data-testid="input-receiver-pincode"
+                  />
+                  {receiverPincodeHint && (
+                    <p className="text-[0.65rem] leading-tight whitespace-nowrap mt-0.5 text-muted-foreground">
+                      {receiverPincodeHint}
+                    </p>
+                  )}
+                  {fieldErrors.receiverZip && (
+                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                  )}
+                </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">City</Label>
                   <Input
@@ -1544,21 +1589,6 @@ export default function CreateShipment() {
                     data-testid="input-receiver-state"
                   />
                   {fieldErrors.receiverState && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
-                  )}
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">Postal Code</Label>
-                  <Input
-                    value={receiverZip}
-                    onChange={(e) => {
-                      setReceiverZip(e.target.value);
-                      clearFieldError('receiverZip');
-                    }}
-                    className={fieldBorderClass('receiverZip')}
-                    data-testid="input-receiver-pincode"
-                  />
-                  {fieldErrors.receiverZip && (
                     <p className="text-xs text-red-600 mt-1">This field is required</p>
                   )}
                 </div>

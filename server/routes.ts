@@ -35,6 +35,7 @@ import { handleChat } from "./supportAgent";
 import { supportChatRateLimit } from "./supportRateLimit.js";
 import type { ChatMessage } from "./supportTypes";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
+import { lookupPostal } from "./postalLookup.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
   SUPPORT_CHAT_MAX_CONTENT_LENGTH,
@@ -473,6 +474,32 @@ export async function registerRoutes(
         res.status(502).json({
           message: "Tracking unavailable. Please try again later.",
         });
+      }
+    }
+  );
+
+  // ── Postal lookup (pincode → city/state) ─────────────────────────────────
+
+  app.get(
+    "/api/postal-lookup",
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const parseQuery = z
+        .object({
+          country: z.string().min(1),
+          code: z.string().min(1),
+        })
+        .safeParse(req.query);
+
+      if (!parseQuery.success) {
+        return res.status(400).json({ message: "country and code are required" });
+      }
+
+      try {
+        const result = await lookupPostal(parseQuery.data.country, parseQuery.data.code);
+        return res.json(result);
+      } catch {
+        return res.json({ found: false, city: "", state: "" });
       }
     }
   );
