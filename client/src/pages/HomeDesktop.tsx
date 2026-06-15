@@ -16,7 +16,6 @@ import { useAppStore } from '@/lib/store';
 import { StatusBadge } from '@/components/StatusBadge';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
-import { openThreeCXCall } from '@/lib/threecx';
 import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
 
 interface HomeNotificationRow {
@@ -373,9 +372,8 @@ function SupportWidget() {
           </div>
           <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-emerald-600 transition-colors" />
         </a>
-        <button
-          type="button"
-          onClick={() => openThreeCXCall()}
+        <a
+          href="tel:+912266400000"
           className="group flex items-center gap-3 p-3 rounded-xl border border-[#E2E8F0] hover:border-[lab(34.0831_-9.57756_-27.7093)]/30 hover:bg-[#F8F9FA] transition-colors"
           data-testid="button-call-desktop"
         >
@@ -384,10 +382,10 @@ function SupportWidget() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold leading-tight text-foreground">Call us</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">Via 3CX • VoIP call</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">+91 22 6640 0000</p>
           </div>
           <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
-        </button>
+        </a>
         <div className="pt-3 mt-2 border-t border-[#E2E8F0] flex items-center justify-between text-[11px]">
           <span className="text-muted-foreground">Mon–Sat, 9:00 AM – 7:00 PM IST</span>
           <Link href="/help" className="text-[#F2A123] font-semibold hover:underline">

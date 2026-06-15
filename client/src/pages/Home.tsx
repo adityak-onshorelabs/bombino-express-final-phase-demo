@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useIsMobile } from '@/hooks/use-mobile';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
-import { openThreeCXCall } from '@/lib/threecx';
 import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
 import HomeDesktop from '@/pages/HomeDesktop';
@@ -265,31 +264,34 @@ function HomeMobile() {
           </div>
         )}
 
-        {/* ZONE 4: Support */}
-        {/* Support Pills */}
-        <div className="flex gap-3" data-testid="zone-support">
-          <a
-            href="https://api.whatsapp.com/send?phone=917045999553"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-green-700 text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-green-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
-            data-testid="button-whatsapp-home"
-          >
-            <img src={whatsAppLogo} alt="WhatsApp" className="w-4 h-4 object-contain" />
-            WhatsApp
-          </a>
-          <button
-            type="button"
-            onClick={() => openThreeCXCall()}
-            className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-foreground text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-primary/20 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
-            data-testid="button-call-home"
-          >
-            <Phone className="w-4 h-4 text-muted-foreground" />
-            Call Us
-          </button>
-        </div>
+        {/* ZONE 4: Support + Trust (Guest Only) */}
+        {!isLoggedIn && (
+          <>
+            {/* Support Pills - refined */}
+            <div className="flex gap-3" data-testid="zone-support">
+              <a
+                href="https://api.whatsapp.com/send?phone=917045999553"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-green-700 text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-green-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
+                data-testid="button-whatsapp-home"
+              >
+                <img src={whatsAppLogo} alt="WhatsApp" className="w-4 h-4 object-contain" />
+                WhatsApp
+              </a>
+              <a
+                href="tel:+912266400000"
+                className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-foreground text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-primary/20 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
+                data-testid="button-call-home"
+              >
+                <Phone className="w-4 h-4 text-muted-foreground" />
+                Call Us
+              </a>
+            </div>
 
-        {!isLoggedIn && <WhyBombinoSection />}
+            <WhyBombinoSection />
+          </>
+        )}
 
         {isLoggedIn && (
           <div className="space-y-7 md:space-y-0 md:grid md:grid-cols-[1fr_320px] md:gap-8 md:items-start">

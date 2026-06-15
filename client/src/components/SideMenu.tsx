@@ -1,10 +1,9 @@
-import { X, User, LogOut, LogIn, Bot, Phone, MessageCircle } from 'lucide-react';
+import { X, User, LogOut, LogIn, Bot, Phone } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { apiRequest } from '@/lib/queryClient';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
-import { openThreeCXChat, openThreeCXCall } from '@/lib/threecx';
 
 interface SideMenuProps {
   isOpen: boolean;
@@ -112,9 +111,8 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
               <span className="font-medium">WhatsApp Support</span>
             </a>
 
-            <button
-              type="button"
-              onClick={() => { openThreeCXCall(); onClose(); }}
+            <a
+              href="tel:+912266400000"
               className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
               data-testid="link-call"
             >
@@ -122,19 +120,7 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
                 <Phone className="w-5 h-5 text-blue-600" />
               </div>
               <span className="font-medium">Call Support</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { openThreeCXChat(); onClose(); }}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
-              data-testid="link-message-us"
-            >
-              <div className="w-10 h-10 rounded-xl bg-purple-100 flex items-center justify-center">
-                <MessageCircle className="w-5 h-5 text-purple-600" />
-              </div>
-              <span className="font-medium">Message Us</span>
-            </button>
+            </a>
 
             <Link
               href="/help"

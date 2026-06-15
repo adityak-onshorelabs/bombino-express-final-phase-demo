@@ -15,7 +15,6 @@ import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
-import { openThreeCXCall } from '@/lib/threecx';
 import { BottomNav } from '@/components/BottomNav';
 
 function formatMemberSince(iso: string | undefined | null): string | null {
@@ -204,9 +203,8 @@ export default function Profile() {
                   <p className="text-xs text-muted-foreground">Chat with us instantly</p>
                 </div>
               </a>
-              <button
-                type="button"
-                onClick={() => openThreeCXCall()}
+              <a
+                href="tel:+912266400000"
                 className="flex items-center gap-3 p-4 hover:bg-[#F8F9FA] transition-colors rounded-b-2xl"
                 data-testid="link-profile-call"
               >
@@ -215,9 +213,9 @@ export default function Profile() {
                 </div>
                 <div className="flex-1">
                   <p className="font-medium text-sm text-[lab(34.0831_-9.57756_-27.7093)]">Call Support</p>
-                  <p className="text-xs text-muted-foreground">VoIP • via 3CX</p>
+                  <p className="text-xs text-muted-foreground">+91 22 6640 0000</p>
                 </div>
-              </button>
+              </a>
             </div>
 
             {/* Sign out */}
