@@ -1,7 +1,7 @@
 import redisClient from "./redisClient.js";
 
 const INDIA_PINCODE_URL = "https://api.postalpincode.in/pincode";
-const US_ZIP_URL = "https://api.zippopotam.us/us";
+const ZIPPOTAM_BASE_URL = "https://api.zippopotam.us";
 const UPSTREAM_TIMEOUT_MS = 4000;
 const CACHE_TTL_SECONDS = 60 * 60 * 24 * 30;
 
@@ -26,25 +26,11 @@ interface IndiaPostalResponse {
 interface ZippopotamPlace {
   "place name"?: string;
   "state abbreviation"?: string;
+  state?: string;
 }
 
 interface ZippopotamResponse {
   places?: ZippopotamPlace[];
-}
-
-function normalizeUSZip(code: string): string | null {
-  const trimmed = code.trim();
-  if (!trimmed) return null;
-
-  let candidate: string;
-  if (trimmed.includes("-")) {
-    candidate = trimmed.split("-")[0] ?? "";
-  } else {
-    const digits = trimmed.match(/\d+/);
-    candidate = digits ? digits[0].slice(0, 5) : trimmed;
-  }
-
-  return /^\d{5}$/.test(candidate) ? candidate : null;
 }
 
 function cacheKey(country: string, code: string): string {
@@ -136,17 +122,20 @@ async function lookupIndia(code: string): Promise<PostalLookupResult> {
   return result;
 }
 
-async function fetchUSFromUpstream(code: string): Promise<PostalLookupResult> {
+async function fetchZippopotamFromUpstream(
+  countryCode: string,
+  code: string
+): Promise<PostalLookupResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
 
   try {
-    const res = await fetch(`${US_ZIP_URL}/${code}`, {
+    const res = await fetch(`${ZIPPOTAM_BASE_URL}/${countryCode.toLowerCase()}/${code}`, {
       signal: controller.signal,
     });
 
     if (!res.ok) {
-      console.warn(`[postalLookup] US upstream HTTP ${res.status}`);
+      console.warn(`[postalLookup] ${countryCode} upstream HTTP ${res.status}`);
       return NOT_FOUND;
     }
 
@@ -157,7 +146,7 @@ async function fetchUSFromUpstream(code: string): Promise<PostalLookupResult> {
 
     const place = data.places[0];
     const city = place["place name"]?.trim() ?? "";
-    const state = place["state abbreviation"]?.trim() ?? "";
+    const state = (place["state abbreviation"] ?? place.state ?? "").trim();
 
     if (!city || !state) {
       return NOT_FOUND;
@@ -165,26 +154,21 @@ async function fetchUSFromUpstream(code: string): Promise<PostalLookupResult> {
 
     return { found: true, city, state };
   } catch (err) {
-    console.warn("[postalLookup] US upstream fetch failed:", err);
+    console.warn(`[postalLookup] ${countryCode} upstream fetch failed:`, err);
     return NOT_FOUND;
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
-async function lookupUS(code: string): Promise<PostalLookupResult> {
-  const normalized = normalizeUSZip(code);
-  if (!normalized) {
-    return NOT_FOUND;
-  }
-
-  const key = cacheKey("US", normalized);
+async function lookupZippopotam(countryCode: string, code: string): Promise<PostalLookupResult> {
+  const key = cacheKey(countryCode, code);
   const cached = await readCache(key);
   if (cached) {
     return cached;
   }
 
-  const result = await fetchUSFromUpstream(normalized);
+  const result = await fetchZippopotamFromUpstream(countryCode, code);
   await writeCache(key, result);
   return result;
 }
@@ -201,11 +185,7 @@ export async function lookupPostal(
       return await lookupIndia(codeNorm);
     }
 
-    if (countryNorm === "US") {
-      return await lookupUS(codeNorm);
-    }
-
-    return NOT_FOUND;
+    return await lookupZippopotam(countryNorm, codeNorm);
   } catch (err) {
     console.warn("[postalLookup] lookupPostal failed:", err);
     return NOT_FOUND;

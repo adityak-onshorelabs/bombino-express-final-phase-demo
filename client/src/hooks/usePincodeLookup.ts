@@ -32,7 +32,8 @@ function normalizeCodeForCountry(country: string, code: string): string | null {
   if (country === "US") {
     return normalizeUSZip(code);
   }
-  return null;
+  const trimmed = code.trim();
+  return trimmed.length >= 3 ? trimmed : null;
 }
 
 export function usePincodeLookup(): {
