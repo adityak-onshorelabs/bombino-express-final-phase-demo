@@ -4,6 +4,23 @@ import redisClient from "./redisClient.js";
 const LOGGED_IN_LIMIT = 20;
 const GUEST_LIMIT = 10;
 const WINDOW_SECONDS = 3600; // 1 hour
+const REDIS_OP_TIMEOUT_MS = 1500;
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(
+        () => reject(new Error(`${label} timed out after ${ms}ms`)),
+        ms
+      );
+    }),
+  ]);
+}
 
 export async function supportChatRateLimit(
   req: Request,
@@ -22,11 +39,17 @@ export async function supportChatRateLimit(
 
     const limit = isLoggedIn ? LOGGED_IN_LIMIT : GUEST_LIMIT;
 
-    const count = await redisClient.incr(key);
-
-    if (count === 1) {
-      await redisClient.expire(key, WINDOW_SECONDS);
-    }
+    const count = await withTimeout(
+      (async () => {
+        const n = await redisClient.incr(key);
+        if (n === 1) {
+          await redisClient.expire(key, WINDOW_SECONDS);
+        }
+        return n;
+      })(),
+      REDIS_OP_TIMEOUT_MS,
+      "Redis rate limit"
+    );
 
     if (count > limit) {
       res.status(200).json({

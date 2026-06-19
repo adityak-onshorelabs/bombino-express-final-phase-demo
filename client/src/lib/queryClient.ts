@@ -1,5 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+const SUPPORT_CHAT_TIMEOUT_MS = 60_000;
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -12,15 +14,28 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  const isSupportChat =
+    method === "POST" && url.includes("/api/support/chat");
 
-  await throwIfResNotOk(res);
-  return res;
+  const controller = isSupportChat ? new AbortController() : null;
+  const timeoutId =
+    controller &&
+    setTimeout(() => controller.abort(), SUPPORT_CHAT_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: data ? { "Content-Type": "application/json" } : {},
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+      signal: controller?.signal,
+    });
+
+    await throwIfResNotOk(res);
+    return res;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";

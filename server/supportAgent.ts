@@ -463,7 +463,7 @@ function getOpenAIClient(): OpenAI | null {
     }),
   }).catch(() => {});
   // #endregion
-  return new OpenAI({ apiKey: key });
+  return new OpenAI({ apiKey: key, timeout: 30_000 });
 }
 
 const SUPPORT_SYSTEM_PROMPT = `You are BIA — the Bombino Intelligence Assistant, 
