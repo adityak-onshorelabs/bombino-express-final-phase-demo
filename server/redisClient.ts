@@ -5,6 +5,7 @@ const redisClient = createClient({
   disableOfflineQueue: true,
   socket: {
     connectTimeout: 3000,
+    family: 0, // allow IPv6 (redis.railway.internal) under ipv4-first DNS
   },
 });
 

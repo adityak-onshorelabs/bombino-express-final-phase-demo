@@ -64,24 +64,95 @@ app.set('trust proxy', 1);
 const httpServer = createServer(app);
 
 // ─── Session + Auth ───────────────────────────────────────────────────────────
-async function buildSessionStore() {
-  if (process.env.REDIS_URL) {
-    try {
-      const { RedisStore } = await import("connect-redis");
-      const redisModule = await import("./redisClient.js");
-      const client = redisModule.default;
-      // Wait briefly for Redis to connect before committing to it
-      await new Promise<void>((resolve) => setTimeout(resolve, 500));
-      if (client.isReady) {
-        console.log("[session] using RedisStore");
-        return new RedisStore({ client });
+const REDIS_READY_WAIT_MS = 5000; // > redis socket.connectTimeout (3000)
+
+async function waitForRedisReady(
+  client: {
+    isReady: boolean;
+    isOpen: boolean;
+    on(event: "ready", listener: () => void): void;
+    off(event: "ready", listener: () => void): void;
+  },
+  timeoutMs = REDIS_READY_WAIT_MS
+): Promise<boolean> {
+  if (client.isReady) return true;
+
+  return new Promise((resolve) => {
+    const onReady = () => {
+      cleanup();
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve(false);
+    }, timeoutMs);
+    const cleanup = () => {
+      clearTimeout(timer);
+      client.off("ready", onReady);
+    };
+    client.on("ready", onReady);
+  });
+}
+
+function makeSessionStoreFailOpen(base: session.Store): session.Store {
+  base.on("error", (err: Error) =>
+    console.warn("[session] store error (non-fatal):", err?.message ?? err));
+
+  const origGet = base.get.bind(base);
+  base.get = (sid, cb) =>
+    origGet(sid, (err, sess) => {
+      if (err) {
+        console.warn("[session] get failed, treating as no session:", err.message);
+        return cb(null, null);
       }
-    } catch (e) {
-      console.warn("[session] RedisStore init failed, falling back to MemoryStore:", e);
-    }
+      cb(null, sess);
+    });
+
+  const origSet = base.set.bind(base);
+  base.set = (sid, sess, cb) =>
+    origSet(sid, sess, (err?: unknown) => {
+      if (err) console.warn("[session] set failed:", String(err));
+      if (cb) cb();
+    });
+
+  if (typeof base.touch === "function") {
+    const origTouch = base.touch.bind(base);
+    base.touch = (sid, sess, cb) =>
+      origTouch(sid, sess, (err?: unknown) => {
+        if (err) console.warn("[session] touch failed:", String(err));
+        if (cb) cb();
+      });
   }
-  console.log("[session] using MemoryStore (set REDIS_URL to enable Redis sessions)");
-  return undefined; // express-session defaults to MemoryStore
+
+  return base;
+}
+
+async function buildSessionStore(): Promise<session.Store | undefined> {
+  if (!process.env.REDIS_URL) {
+    console.log("[session] using MemoryStore (REDIS_URL not set)");
+    return undefined;
+  }
+
+  try {
+    const { RedisStore } = await import("connect-redis");
+    const { default: client } = await import("./redisClient.js");
+
+    const ready = await waitForRedisReady(client);
+    if (!ready) {
+      console.warn(
+        `[session] using MemoryStore (Redis not ready within ${REDIS_READY_WAIT_MS}ms; ` +
+          `isOpen=${client.isOpen}, isReady=${client.isReady})`
+      );
+      return undefined;
+    }
+
+    const baseStore = new RedisStore({ client });
+    console.log("[session] using RedisStore");
+    return makeSessionStoreFailOpen(baseStore);
+  } catch (e) {
+    console.warn("[session] using MemoryStore (RedisStore init failed):", e);
+    return undefined;
+  }
 }
 
 declare module "http" {
@@ -162,6 +233,7 @@ app.use((req, res, next) => {
       secret: process.env.SESSION_SECRET ?? "dev-secret",
       resave: false,
       saveUninitialized: false,
+      rolling: true,
       cookie: {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",

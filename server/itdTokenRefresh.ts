@@ -9,6 +9,16 @@ import { itdClient } from "./itd.js";
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+const ITD_LOGIN_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
 
 /**
  * For logged-in users only: refresh ITD token in session + Supabase when expiry is within 2 hours or unknown.
@@ -76,7 +86,11 @@ export async function refreshItdTokenIfNeeded(
       return;
     }
 
-    const { token } = await itdClient.loginUser(req.session.user.email, plainPassword);
+    const { token } = await withTimeout(
+      itdClient.loginUser(req.session.user.email, plainPassword),
+      ITD_LOGIN_TIMEOUT_MS,
+      "ITD loginUser (refresh)"
+    );
     const expiresAtIso = new Date(Date.now() + TWENTY_FOUR_HOURS_MS).toISOString();
     await updateItdUserTokenById(dbUserId, token, expiresAtIso);
 
