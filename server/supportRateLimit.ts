@@ -10,6 +10,13 @@ export async function supportChatRateLimit(
   res: Response,
   next: NextFunction
 ): Promise<void> {
+  // A never-connected node-redis client queues commands instead of rejecting, so
+  // awaiting one would hang the request forever and the catch below would never run.
+  if (!redisClient.isReady) {
+    next();
+    return;
+  }
+
   try {
     const dbUserId = req.session.dbUserId;
     const isLoggedIn = !!dbUserId;

@@ -3,8 +3,6 @@
  * All executors return safe strings; handleChat returns a final assistant message or fallback.
  */
 
-import fs from "fs";
-import path from "path";
 import OpenAI from "openai";
 import { getRecentShipmentsByUserId } from "./appDb.js";
 import { itdClient } from "./itd";
@@ -400,69 +398,12 @@ export async function dispatchTool(
 
 // ─── OpenAI orchestration ────────────────────────────────────────────────────
 
-// #region agent log
-const DEBUG_LOG = path.join(process.cwd(), ".cursor", "debug-643d35.log");
-function debugLog(payload: Record<string, unknown>) {
-  try {
-    fs.mkdirSync(path.dirname(DEBUG_LOG), { recursive: true });
-    fs.appendFileSync(DEBUG_LOG, JSON.stringify(payload) + "\n");
-  } catch (_) {}
-}
-// #endregion
-
 function getOpenAIClient(): OpenAI | null {
   const key = process.env.OPENAI_API_KEY;
   if (!key || typeof key !== "string" || key.trim() === "") {
-    // #region agent log
-    debugLog({
-      sessionId: "643d35",
-      runId: "request",
-      hypothesisId: "H4_no_client",
-      location: "supportAgent.ts:getOpenAIClient",
-      message: "fallback path: no client created",
-      data: { keyFalsy: !key, keyType: typeof key, keyTrimEmpty: typeof key === "string" ? key.trim() === "" : "n/a" },
-      timestamp: Date.now(),
-    });
-    fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" },
-      body: JSON.stringify({
-        sessionId: "643d35",
-        runId: "request",
-        hypothesisId: "H4_no_client",
-        location: "supportAgent.ts:getOpenAIClient",
-        message: "fallback path: no client created",
-        data: { keyFalsy: !key, keyType: typeof key, keyTrimEmpty: typeof key === "string" ? key.trim() === "" : "n/a" },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
+    console.warn("[supportAgent] OPENAI_API_KEY missing — BIA will return the fallback reply");
     return null;
   }
-  // #region agent log
-  debugLog({
-    sessionId: "643d35",
-    runId: "request",
-    hypothesisId: "H4_client_created",
-    location: "supportAgent.ts:getOpenAIClient",
-    message: "OpenAI client created",
-    data: {},
-    timestamp: Date.now(),
-  });
-  fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" },
-    body: JSON.stringify({
-      sessionId: "643d35",
-      runId: "request",
-      hypothesisId: "H4_client_created",
-      location: "supportAgent.ts:getOpenAIClient",
-      message: "OpenAI client created",
-      data: {},
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   return new OpenAI({ apiKey: key });
 }
 
@@ -705,18 +646,6 @@ export async function handleChat(
 ): Promise<string> {
   const client = getOpenAIClient();
   if (!client) {
-    // #region agent log
-    debugLog({
-      sessionId: "643d35",
-      runId: "request",
-      hypothesisId: "H5_fallback_branch",
-      location: "supportAgent.ts:handleChat",
-      message: "fallback: no client",
-      data: { branch: "no_client" },
-      timestamp: Date.now(),
-    });
-    fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: no client", data: { branch: "no_client" }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
     return FALLBACK_CHAT;
   }
 
@@ -736,10 +665,6 @@ export async function handleChat(
   try {
     while (iteration < SUPPORT_CHAT_MAX_TOOL_ITERATIONS) {
       iteration += 1;
-      // #region agent log
-      debugLog({ sessionId: "643d35", runId: "request", hypothesisId: "H6_openai_call", location: "supportAgent.ts:handleChat", message: "OpenAI API call start", data: { iteration }, timestamp: Date.now() });
-      fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H6_openai_call", location: "supportAgent.ts:handleChat", message: "OpenAI API call start", data: { iteration }, timestamp: Date.now() }) }).catch(() => {});
-      // #endregion
       const response = await client.chat.completions.create({
         model: "gpt-4o-mini",
         messages: currentMessages,
@@ -749,10 +674,6 @@ export async function handleChat(
 
       const choice = response.choices?.[0];
       if (!choice) {
-        // #region agent log
-        debugLog({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: no choices", data: { branch: "no_choice", choicesLength: response.choices?.length ?? 0 }, timestamp: Date.now() });
-        fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: no choices", data: { branch: "no_choice", choicesLength: response.choices?.length ?? 0 }, timestamp: Date.now() }) }).catch(() => {});
-        // #endregion
         return FALLBACK_CHAT;
       }
 
@@ -761,19 +682,8 @@ export async function handleChat(
 
       if (!toolCalls || toolCalls.length === 0) {
         const content = message.content;
-        const isString = typeof content === "string";
-        if (!isString) {
-          // #region agent log
-          debugLog({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: final content not string", data: { branch: "content_not_string", contentType: typeof content }, timestamp: Date.now() });
-          fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: final content not string", data: { branch: "content_not_string", contentType: typeof content }, timestamp: Date.now() }) }).catch(() => {});
-          // #endregion
-        }
         return typeof content === "string" ? content : FALLBACK_CHAT;
       }
-      // #region agent log
-      debugLog({ sessionId: "643d35", runId: "request", hypothesisId: "H6_tool_loop", location: "supportAgent.ts:handleChat", message: "tool calls returned", data: { iteration, toolCallsCount: toolCalls.length }, timestamp: Date.now() });
-      fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H6_tool_loop", location: "supportAgent.ts:handleChat", message: "tool calls returned", data: { iteration, toolCallsCount: toolCalls.length }, timestamp: Date.now() }) }).catch(() => {});
-      // #endregion
 
       const assistantMsg: OpenAI.Chat.Completions.ChatCompletionMessageParam = {
         role: "assistant",
@@ -805,25 +715,10 @@ export async function handleChat(
       currentMessages = [...currentMessages, assistantMsg, ...toolResults];
     }
 
-    // #region agent log
-    debugLog({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: loop exhausted", data: { branch: "loop_exhausted", iteration }, timestamp: Date.now() });
-    fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H5_fallback_branch", location: "supportAgent.ts:handleChat", message: "fallback: loop exhausted", data: { branch: "loop_exhausted", iteration }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
     return FALLBACK_CHAT;
   } catch (err) {
-    // #region agent log
     const e = err as Error;
-    debugLog({
-      sessionId: "643d35",
-      runId: "request",
-      hypothesisId: "H5_openai_throw",
-      location: "supportAgent.ts:handleChat",
-      message: "fallback: catch",
-      data: { branch: "catch", errName: e?.name, errMessage: e?.message?.slice(0, 200) ?? String(e).slice(0, 200) },
-      timestamp: Date.now(),
-    });
-    fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" }, body: JSON.stringify({ sessionId: "643d35", runId: "request", hypothesisId: "H5_openai_throw", location: "supportAgent.ts:handleChat", message: "fallback: catch", data: { branch: "catch", errName: e?.name, errMessage: e?.message?.slice(0, 200) ?? String(e).slice(0, 200) }, timestamp: Date.now() }) }).catch(() => {});
-    // #endregion
+    console.error("[supportAgent] handleChat failed:", e?.name, e?.message);
     const msg = e?.message ?? "";
     if (msg.includes("429") || /quota|rate limit/i.test(msg)) {
       return "Our AI support is temporarily at capacity. Please try again in a few minutes or contact support from the app menu.";
