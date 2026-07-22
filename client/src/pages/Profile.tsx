@@ -11,11 +11,14 @@ import {
   Calendar,
 } from 'lucide-react';
 import { useLocation } from 'wouter';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { BottomNav } from '@/components/BottomNav';
+import { KycUpload } from '@/components/KycUpload';
+import { KycOnFileBadge } from '@/components/KycOnFileBadge';
 
 function formatMemberSince(iso: string | undefined | null): string | null {
   if (!iso) return null;
@@ -28,6 +31,19 @@ export default function Profile() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, logout } = useAppStore();
   const [profile, setProfile] = useState<any>(null);
+  const queryClient = useQueryClient();
+
+  const { data: kycOnFile, refetch: refetchKyc } = useQuery({
+    queryKey: ['/api/kyc/me'],
+    queryFn: async () => {
+      const res = await fetch('/api/kyc/me', { credentials: 'include' });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error('Failed to load KYC status');
+      return res.json() as Promise<{ document_type: string; last_four: string }>;
+    },
+    enabled: isLoggedIn,
+    retry: false,
+  });
 
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -184,6 +200,46 @@ export default function Profile() {
                   <p className="font-medium text-sm truncate text-[lab(34.0831_-9.57756_-27.7093)]">{displayRole}</p>
                 </div>
               </div>
+            </div>
+
+            {/* Identity document (KYC) */}
+            <div
+              id="kyc"
+              className="bg-white rounded-2xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-3"
+              data-testid="profile-kyc-section"
+            >
+              <div>
+                <h3 className="text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">Identity document</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Required for Indian customs. Upload once — reused on every shipment.
+                </p>
+              </div>
+              {kycOnFile ? (
+                <>
+                  <KycOnFileBadge
+                    documentType={kycOnFile.document_type}
+                    lastFour={kycOnFile.last_four}
+                  />
+                  <p className="text-xs text-muted-foreground">Replace your document below if your details have changed.</p>
+                  <KycUpload
+                    onValidChange={(result) => {
+                      if (result) {
+                        void queryClient.invalidateQueries({ queryKey: ['/api/kyc/me'] });
+                        void refetchKyc();
+                      }
+                    }}
+                  />
+                </>
+              ) : (
+                <KycUpload
+                  onValidChange={(result) => {
+                    if (result) {
+                      void queryClient.invalidateQueries({ queryKey: ['/api/kyc/me'] });
+                      void refetchKyc();
+                    }
+                  }}
+                />
+              )}
             </div>
 
             {/* Support card */}

@@ -1,5 +1,5 @@
--- Run once on Postgres/Supabase if KYC upload returns "Failed to save KYC document."
--- (Drizzle expects this table; it was missing from the initial Supabase schema.)
+-- Superseded by migrations/kyc_persist_foundation.sql for schema additions.
+-- Retained for reference on initial table creation.
 
 CREATE TABLE IF NOT EXISTS public.kyc_documents (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

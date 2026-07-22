@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, uuid, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -17,18 +17,30 @@ export const insertUserSchema = createInsertSchema(users).pick({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
-export const kycDocuments = pgTable("kyc_documents", {
-  id:               uuid("id").primaryKey().defaultRandom(),
-  documentType:     text("document_type").notNull(),
-  documentNo:       text("document_no").notNull(),
-  originalFilename: text("original_filename").notNull(),
-  mimeType:         text("mime_type").notNull(),
-  fileSizeBytes:    integer("file_size_bytes").notNull(),
-  fileData:         text("file_data").notNull(),
-  createdAt:        timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const kycDocuments = pgTable(
+  "kyc_documents",
+  {
+    id:               uuid("id").primaryKey().defaultRandom(),
+    userId:           uuid("user_id").notNull(),
+    capabilityId:     uuid("capability_id").notNull(),
+    documentType:     text("document_type").notNull(),
+    documentNo:       text("document_no").notNull(),
+    originalFilename: text("original_filename").notNull(),
+    mimeType:         text("mime_type").notNull(),
+    fileSizeBytes:    integer("file_size_bytes").notNull(),
+    fileData:         text("file_data").notNull(),
+    createdAt:        timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt:        timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("kyc_documents_user_id_key").on(table.userId),
+    uniqueIndex("kyc_documents_capability_id_key").on(table.capabilityId),
+  ],
+);
 
 export const insertKycDocumentSchema = createInsertSchema(kycDocuments).omit({ id: true, createdAt: true });
 export type InsertKycDocument = z.infer<typeof insertKycDocumentSchema>;

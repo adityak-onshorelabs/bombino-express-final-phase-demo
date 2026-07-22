@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
 import {
   Search,
   ArrowRight,
@@ -397,6 +398,67 @@ function SupportWidget() {
   );
 }
 
+function KycHomeTip() {
+  const { data: kycOnFile } = useQuery({
+    queryKey: ['/api/kyc/me'],
+    queryFn: async () => {
+      const res = await fetch('/api/kyc/me', { credentials: 'include' });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error('Failed to load KYC status');
+      return res.json() as Promise<{ document_type: string; last_four: string }>;
+    },
+    retry: false,
+  });
+
+  if (kycOnFile) {
+    return (
+      <section className="rounded-2xl bg-white border border-green-200 bg-green-50/30 shadow-sm p-4">
+        <div className="flex items-start gap-3">
+          <div className="w-8 h-8 rounded-lg bg-green-100 text-green-700 flex items-center justify-center flex-shrink-0">
+            <ShieldCheck className="w-4 h-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-semibold text-foreground">KYC complete</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {kycOnFile.document_type} ••{kycOnFile.last_four}
+            </p>
+            <Link
+              href="/profile#kyc"
+              className="text-[11px] font-semibold text-[#F2A123] hover:underline mt-1 inline-block"
+              data-testid="tip-kyc-manage"
+            >
+              Manage document →
+            </Link>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-sm p-4">
+      <div className="flex items-start gap-3">
+        <div className="w-8 h-8 rounded-lg bg-[#FFF6E5] text-[#F2A123] flex items-center justify-center flex-shrink-0">
+          <ShieldCheck className="w-4 h-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold text-foreground">Complete your KYC</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+            Upload your identity document once — reused on every shipment.
+          </p>
+          <Link
+            href="/profile#kyc"
+            className="text-[11px] font-semibold text-[#F2A123] hover:underline mt-1 inline-block"
+            data-testid="tip-kyc-upload"
+          >
+            Upload in profile →
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // ─── Tips widget (right rail, guest / pre-KYC users) ───
 function TipsWidget() {
   return (
@@ -413,14 +475,14 @@ function TipsWidget() {
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold leading-snug text-foreground">Complete your KYC</p>
             <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-              Unlock door-to-door pickup and saved addresses.
+              Sign in and upload your identity document once for all shipments.
             </p>
             <Link
-              href="/profile"
+              href="/login?redirect=/profile%23kyc"
               className="text-[11px] font-semibold text-[#F2A123] hover:underline mt-1 inline-block"
               data-testid="tip-kyc"
             >
-              Upload documents →
+              Sign in to upload →
             </Link>
           </div>
         </li>
@@ -689,7 +751,10 @@ export default function HomeDesktop() {
         <aside className="col-span-12 lg:col-span-4 space-y-5">
           <SupportWidget />
           {isLoggedIn ? (
-            <RecentUpdates notifications={apiNotifications} loading={shipmentsLoading} />
+            <>
+              <KycHomeTip />
+              <RecentUpdates notifications={apiNotifications} loading={shipmentsLoading} />
+            </>
           ) : (
             <TipsWidget />
           )}

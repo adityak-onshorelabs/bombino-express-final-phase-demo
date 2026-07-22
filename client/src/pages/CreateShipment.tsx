@@ -18,11 +18,12 @@ import {
   X,
 } from 'lucide-react';
 import { useLocation } from 'wouter';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { BottomNav } from '@/components/BottomNav';
 import { CorridorRouteInfo } from '@/components/CorridorRouteInfo';
 import { AddressPicker, type SavedAddress } from '@/components/AddressPicker';
 import { KycUpload, type KycUploadResult } from '@/components/KycUpload';
+import { KycOnFileBadge } from '@/components/KycOnFileBadge';
 import { ShipmentContentSearch } from '@/components/ShipmentContentSearch';
 import {
   DimensionPresetSheet,
@@ -323,17 +324,6 @@ function getDispatchType(serviceCode: string): string | undefined {
   return undefined;
 }
 
-function getGstinType(documentType: string): string {
-  const map: Record<string, string> = {
-    'Aadhaar Number': 'AADHAAR NUMBER',
-    'PAN Number': 'PAN NUMBER',
-    'Passport Number': 'PASSPORT NUMBER',
-    'Driving Licence': 'DRIVING LICENCE',
-    'GSTIN (Normal)': 'GSTIN (NORMAL)',
-  };
-  return map[documentType] ?? 'AADHAAR NUMBER';
-}
-
 export default function CreateShipment() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, addShipment, addNotification, logout } = useAppStore();
@@ -404,6 +394,18 @@ export default function CreateShipment() {
   const [expandedById, setExpandedById] = useState<Record<string, boolean>>({});
 
   const [kycResult, setKycResult] = useState<KycUploadResult | null>(null);
+
+  const { data: kycOnFile } = useQuery({
+    queryKey: ['/api/kyc/me'],
+    queryFn: async () => {
+      const res = await fetch('/api/kyc/me', { credentials: 'include' });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error('Failed to load KYC status');
+      return res.json() as Promise<{ document_type: string; last_four: string }>;
+    },
+    enabled: isLoggedIn,
+    retry: false,
+  });
 
   const [stepError, setStepError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
@@ -869,7 +871,7 @@ export default function CreateShipment() {
       if (!senderCity.trim()) e.senderCity = true;
       if (!senderState.trim()) e.senderState = true;
       if (!senderZip.trim()) e.senderZip = true;
-      if (!kycResult) e.kycMissing = true;
+      if (!kycOnFile && !kycResult) e.kycMissing = true;
       if (Object.keys(e).length) {
         setFieldErrors(e);
         return;
@@ -1061,15 +1063,6 @@ export default function CreateShipment() {
       shipper_state: senderState,
       shipper_country: 'IN',
       shipper_zip_code: senderZip,
-      shipper_gstin_type: getGstinType(kycResult!.document_type),
-      shipper_gstin_no: kycResult!.document_no,
-      kyc_details: [{
-        document_type:     kycResult!.document_type,
-        document_no:       kycResult!.document_no,
-        document_sub_type: 'doc_1',
-        document_name:     '',
-        file_path:         kycResult!.file_path,
-      }],
       consignee_name: receiverName,
       consignee_company_name: receiverCompany || receiverName,
       consignee_contact_no:
@@ -1381,13 +1374,20 @@ export default function CreateShipment() {
               </div>
             </div>
 
-            <KycUpload
-              onValidChange={setKycResult}
-              fieldErrors={{
-                document_no: !!fieldErrors.kycMissing,
-                file: !!fieldErrors.kycMissing,
-              }}
-            />
+            {kycOnFile ? (
+              <KycOnFileBadge
+                documentType={kycOnFile.document_type}
+                lastFour={kycOnFile.last_four}
+              />
+            ) : (
+              <KycUpload
+                onValidChange={setKycResult}
+                fieldErrors={{
+                  document_no: !!fieldErrors.kycMissing,
+                  file: !!fieldErrors.kycMissing,
+                }}
+              />
+            )}
 
             {stepError && (
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">

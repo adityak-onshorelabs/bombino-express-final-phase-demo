@@ -15,9 +15,7 @@ export const KYC_DOCUMENT_TYPE = 'Aadhaar Number';
 
 export interface KycUploadResult {
   document_type: string;
-  document_no: string;
-  document_id: string;
-  file_path: string;
+  last_four: string;
 }
 
 type UploadStatus = 'idle' | 'pending' | 'uploading' | 'success' | 'error';
@@ -103,7 +101,7 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
   const [docNoDisplay, setDocNoDisplay] = useState('');
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
   const [uploadError, setUploadError] = useState('');
-  const [uploadResult, setUploadResult] = useState<{ id: string; file_path: string } | null>(null);
+  const [uploadResult, setUploadResult] = useState<KycUploadResult | null>(null);
   const [selectedFileName, setSelectedFileName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   /** File chosen before document number is valid — upload runs once number is complete */
@@ -115,15 +113,13 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
 
   function syncToParent(
     raw: string,
-    result: { id: string; file_path: string } | null,
+    result: KycUploadResult | null,
     docType: string,
   ): void {
     if (DOC_TYPES[docType].validate(raw) && result) {
       onValidChange({
-        document_type: docType,
-        document_no: raw,
-        document_id: result.id,
-        file_path: result.file_path,
+        document_type: result.document_type,
+        last_four: result.last_four,
       });
     } else {
       onValidChange(null);
@@ -162,17 +158,29 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
         credentials: 'include',
       });
 
+      if (res.status === 401) {
+        throw new Error('Please log in to upload your identity document.');
+      }
+
       if (!res.ok) {
         const body = await res.json().catch(() => ({ message: 'Upload failed.' })) as { message: string };
         throw new Error(body.message);
       }
 
-      const data = await res.json() as { id: string; file_path: string };
-      setUploadResult(data);
+      const data = await res.json() as {
+        capability_id: string;
+        document_type: string;
+        last_four: string;
+      };
+      const result: KycUploadResult = {
+        document_type: data.document_type,
+        last_four: data.last_four,
+      };
+      setUploadResult(result);
       setUploadStatus('success');
       pendingFileRef.current = null;
       lastUploadedDocNoRef.current = documentNo;
-      syncToParent(documentNo, data, selectedDocType);
+      syncToParent(documentNo, result, selectedDocType);
     } catch (err) {
       setUploadStatus('error');
       setUploadError(err instanceof Error ? err.message : 'Upload failed. Please try again.');

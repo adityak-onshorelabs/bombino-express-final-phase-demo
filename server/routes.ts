@@ -37,6 +37,15 @@ import type { ChatMessage } from "./supportTypes";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import { lookupPostal } from "./postalLookup.js";
 import {
+  getKycByCapabilityId,
+  getKycByUserId,
+  upsertKycDocument,
+} from "./kycDb.js";
+import {
+  buildItdKycPayload,
+  toKycSummary,
+} from "../shared/kyc.js";
+import {
   SUPPORT_CHAT_MAX_MESSAGES,
   SUPPORT_CHAT_MAX_CONTENT_LENGTH,
 } from "./supportTypes";
@@ -53,17 +62,6 @@ const kycUpload = multer({
     }
   },
 });
-
-const kycMemStore = new Map<
-  string,
-  {
-    buffer: Buffer;
-    mimeType: string;
-    originalFilename: string;
-    documentType: string;
-    documentNo: string;
-  }
->();
 
 function requireUser(req: Request, res: Response, next: NextFunction): void {
   if (!req.session.user) {
@@ -792,12 +790,39 @@ export async function registerRoutes(
       return;
     }
 
+    if (!req.session.dbUserId) {
+      res.status(401).json({ message: "User profile not found. Please log in again." });
+      return;
+    }
+
     const payload = req.body as CreateShipmentPayload;
 
     if (!payload.product_code || !payload.destination_code || !payload.actual_weight) {
       res.status(400).json({ message: "product_code, destination_code, and actual_weight are required" });
       return;
     }
+
+    const kyc = await getKycByUserId(req.session.dbUserId);
+    if (!kyc) {
+      res.status(422).json({
+        message: "KYC required. Upload your identity document before creating a shipment.",
+      });
+      return;
+    }
+
+    const publicUrl =
+      process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 5000}`;
+    const kycPayload = buildItdKycPayload(
+      {
+        document_type: kyc.document_type,
+        document_no: kyc.document_no,
+        capability_id: kyc.capability_id,
+      },
+      publicUrl
+    );
+    payload.kyc_details = kycPayload.kyc_details;
+    payload.shipper_gstin_type = kycPayload.shipper_gstin_type;
+    payload.shipper_gstin_no = kycPayload.shipper_gstin_no;
 
     try {
       const token = req.session.itdToken;
@@ -827,11 +852,39 @@ export async function registerRoutes(
 
   // ── KYC: Upload document ──────────────────────────────────────────────────
 
-  // POST /api/kyc/upload — upload KYC document; returns { id, file_path }
+  // GET /api/kyc/me — masked summary of stored KYC for the logged-in user
+  app.get(
+    "/api/kyc/me",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        res.status(401).json({ message: "Not authenticated" });
+        return;
+      }
+
+      const kyc = await getKycByUserId(req.session.dbUserId);
+      if (!kyc) {
+        res.status(404).json({ message: "KYC not on file" });
+        return;
+      }
+
+      res.json(toKycSummary(kyc));
+    }
+  );
+
+  // POST /api/kyc/upload — upload KYC document; upserts one row per user
   app.post(
     "/api/kyc/upload",
+    requireUser,
+    ensureDbUser,
     kycUpload.single("file"),
     async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        res.status(401).json({ message: "Not authenticated" });
+        return;
+      }
+
       if (!req.file) {
         res.status(400).json({ message: "No file uploaded." });
         return;
@@ -887,17 +940,30 @@ export async function registerRoutes(
           : documentNo.toUpperCase();
 
       try {
-        const id = crypto.randomUUID();
-        kycMemStore.set(id, {
-          buffer: req.file.buffer,
-          mimeType: req.file.mimetype,
-          originalFilename: req.file.originalname,
-          documentType,
-          documentNo: normalizedDocumentNo,
+        const existing = await getKycByUserId(req.session.dbUserId);
+        const capabilityId = existing?.capability_id ?? crypto.randomUUID();
+        const fileDataBase64 = req.file.buffer.toString("base64");
+
+        const saved = await upsertKycDocument({
+          user_id: req.session.dbUserId,
+          capability_id: capabilityId,
+          document_type: documentType,
+          document_no: normalizedDocumentNo,
+          original_filename: req.file.originalname,
+          mime_type: req.file.mimetype,
+          file_size_bytes: req.file.size,
+          file_data: fileDataBase64,
         });
 
-        const base = (process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 5000}`).replace(/\/$/, "");
-        res.json({ id, file_path: `${base}/api/kyc/documents/${id}/file` });
+        if (!saved) {
+          res.status(500).json({ message: "Failed to save KYC document." });
+          return;
+        }
+
+        res.json({
+          capability_id: saved.capability_id,
+          ...toKycSummary(saved),
+        });
       } catch (err) {
         console.error("KYC upload full error:", JSON.stringify(err, Object.getOwnPropertyNames(err as object)));
         res.status(500).json({ message: "Failed to save KYC document." });
@@ -908,18 +974,20 @@ export async function registerRoutes(
   // GET /api/kyc/documents/:id/file — serve KYC document (no auth; ITD must be able to fetch)
   app.get("/api/kyc/documents/:id/file", async (req: Request, res: Response) => {
     try {
-      const doc = kycMemStore.get(req.params.id);
+      const doc = await getKycByCapabilityId(req.params.id);
       if (!doc) {
         res.status(404).json({ message: "Document not found." });
         return;
       }
+
+      const buffer = Buffer.from(doc.file_data, "base64");
       res.set({
-        "Content-Type":        doc.mimeType,
-        "Content-Length":      String(doc.buffer.length),
-        "Cache-Control":       "private, max-age=3600",
-        "Content-Disposition": `inline; filename="${doc.originalFilename}"`,
+        "Content-Type": doc.mime_type,
+        "Content-Length": String(buffer.length),
+        "Cache-Control": "private, max-age=3600",
+        "Content-Disposition": `inline; filename="${doc.original_filename}"`,
       });
-      res.send(doc.buffer);
+      res.send(buffer);
     } catch (err) {
       console.error("[GET /api/kyc/documents/:id/file] failed:", err);
       res.status(500).json({ message: "Failed to retrieve document." });
