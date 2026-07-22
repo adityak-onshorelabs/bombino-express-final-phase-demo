@@ -287,7 +287,7 @@ function ActionRow({
             data-testid="button-download-label"
           >
             <Download className="w-4 h-4" />
-            Download label
+            AWB Label
           </button>
         )}
         {onDownloadInvoice && (
