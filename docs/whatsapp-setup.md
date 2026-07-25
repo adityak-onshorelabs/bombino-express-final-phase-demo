@@ -56,7 +56,7 @@ Treat that whole URL like a password: vault link only, never Slack/WhatsApp/emai
 
 6. **Escalation phone number.** When BIA hands off to a human it prints a number — currently `+91 22 6640 0000`, from the app's Contact menu. Confirm it is still correct.
 
-7. **Production host and public URL.** The webhook needs a stable public HTTPS endpoint. `PUBLIC_URL` must also be set on the server — BIA uses it to build the "Create Shipment" deep link in rate replies.
+7. **Production host and public URL.** The webhook needs a stable public HTTPS endpoint, set as `PUBLIC_URL` on the server (used for KYC file URLs ITD fetches). Customer-facing CTAs are separate: BIA builds the "Create Shipment" deep link from `APP_URL`, which defaults to `https://app.bombinoexp.com`.
 
 8. **Redis must be available in production.** Not optional. Webhook retries are de-duplicated in Redis; without it customers receive every answer two or three times. It also stores conversation memory — without it BIA forgets the previous message and re-asks for details.
 

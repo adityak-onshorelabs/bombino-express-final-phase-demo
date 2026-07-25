@@ -85,6 +85,7 @@ BIA runs on OpenAI (`gpt-4o-mini`) with 5 tools — rates, tracking, guidance, e
   - `server/whatsappFormat.ts` — strips `TAP_*` tokens into buttons/CTAs (mirrors `client/src/lib/supportMessage.ts`)
   - Phase 1 is **guest-only**: no phone→account mapping, so `get_user_shipments` is unavailable there
   - Env: `TATA_WA_TOKEN`, `TATA_WA_WEBHOOK_SECRET` (both required, else the webhook 503s); `TATA_WA_BASE_URL` optional
+  - CTA links come from `APP_URL` (defaults `https://app.bombinoexp.com`), **not** `PUBLIC_URL` — that one is this server's own host and only builds KYC `file_path` URLs for ITD
   - Tata does **not** sign webhooks — the unguessable `:secret` path segment is the only proof of origin
   - Send payloads are Meta Cloud API shaped minus `messaging_product`, plus `source`; `to` needs a leading `+`
   - Inbound is flattened: `{ contacts, messages: {...} }`, *not* Meta's `entry[].changes[].value.messages[]`

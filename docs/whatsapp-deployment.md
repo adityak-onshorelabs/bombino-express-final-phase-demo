@@ -32,7 +32,8 @@ This was a deliberate call — one service, one `PUBLIC_URL`, lower cost. Splitt
 | `TATA_WA_TOKEN` | ✅ | Omni access token — Settings → Channels → WhatsApp |
 | `TATA_WA_WEBHOOK_SECRET` | ✅ | Random string we generate (`openssl rand -hex 24`); becomes the last path segment of the webhook URL |
 | `TATA_WA_BASE_URL` | — | Defaults to `https://wb.omni.tatatelebusiness.com`; only set if Tata gives us a different host |
-| `PUBLIC_URL` | ✅ | **Must include the scheme** (`https://…`). BIA builds the "Create Shipment" deep link as `PUBLIC_URL + /create`; without a scheme that isn't a valid URL. The same var also builds KYC `file_path` URLs sent to ITD |
+| `PUBLIC_URL` | ✅ | This server's own public origin (the Railway URL), **with the scheme** (`https://…`). Only used to build KYC `file_path` URLs that ITD fetches back off us — never for user-facing links |
+| `APP_URL` | — | Customer-facing app origin for CTAs. Defaults to `https://app.bombinoexp.com`; BIA builds the "Create Shipment" deep link as `APP_URL + /create`. Set only to point at staging |
 | `REDIS_URL` | ✅ | Dedupe + conversation memory. Without it replies get sent two or three times |
 | `OPENAI_API_KEY` | ✅ | BIA runs on `gpt-4o-mini` |
 | ITD credentials | ✅ | Rates and tracking |

@@ -13,8 +13,15 @@ export type OutboundPart =
   | { kind: "text"; body: string }
   | { kind: "cta_url"; body: string; buttonLabel: string; url: string };
 
+/**
+ * Where user-facing CTAs point. This is the customer-visible app origin, *not*
+ * PUBLIC_URL — that one is this server's own host (Railway) and only exists so
+ * ITD can fetch KYC files back off it.
+ */
+const DEFAULT_APP_URL = "https://app.bombinoexp.com";
+
 function createShipmentUrl(): string {
-  const base = (process.env.PUBLIC_URL ?? "").replace(/\/+$/, "");
+  const base = (process.env.APP_URL ?? DEFAULT_APP_URL).replace(/\/+$/, "");
   return base ? `${base}/create` : "";
 }
 
@@ -71,7 +78,7 @@ export function buildOutboundParts(content: string): OutboundPart[] {
     ];
   }
 
-  // No PUBLIC_URL configured — fall back to plain text so the reply still lands.
+  // APP_URL explicitly blanked — fall back to plain text so the reply still lands.
   if (hasCreate && !url) {
     text = `${text}\n\nYou can book this shipment in the Bombino Express app.`;
   }
