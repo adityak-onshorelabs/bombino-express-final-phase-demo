@@ -315,20 +315,46 @@ class ITDClient {
     return (await res.json()) as CreateShipmentResponse;
   }
 
-  // POST /docket_api/customer_rate_cals (multipart/form-data, different domain)
+  /**
+   * POST /docket_api/customer_rate_cals (multipart/form-data, different domain).
+   *
+   * Two callers, two identities:
+   * - A logged-in customer passes their own credentials, so they get their own
+   *   contracted rate card.
+   * - Guests (and BIA, which is guest-only) pass nothing and fall back to the
+   *   shared public account below.
+   *
+   * The fallback deliberately uses ITD_RATE_* rather than ITD_EMAIL/ITD_PASSWORD:
+   * those belong to the UAT account used for booking and tracking, and quoting
+   * from it returns raw carrier rates instead of Bombino's own DDU/DDP products.
+   * The public website (website-bombino) quotes from the ITD_RATE_* account, and
+   * these must stay in sync or the two surfaces disagree on price.
+   *
+   * Note the encoding asymmetry: the upstream requires base64 credentials
+   * (plaintext returns an empty body). ITD_EMAIL/ITD_PASSWORD are stored
+   * plaintext and encoded here; ITD_RATE_USERNAME/ITD_RATE_PASSWORD are stored
+   * pre-encoded, matching how the website holds them, and are sent as-is.
+   */
   async getRates(
     params: RateParams,
     userEmail?: string,
     customerCode?: string,
     passwordPlaintext?: string
   ): Promise<unknown> {
-    const username = Buffer.from(
-      userEmail ?? process.env.ITD_EMAIL ?? ""
-    ).toString("base64");
-    const password = Buffer.from(
-      passwordPlaintext ?? process.env.ITD_PASSWORD ?? ""
-    ).toString("base64");
-    const apiCompanyId = process.env.ITD_API_COMPANY_ID ?? "2";
+    const toBase64 = (value: string): string =>
+      Buffer.from(value).toString("base64");
+
+    const username = userEmail
+      ? toBase64(userEmail)
+      : process.env.ITD_RATE_USERNAME ?? toBase64(process.env.ITD_EMAIL ?? "");
+    const password = passwordPlaintext
+      ? toBase64(passwordPlaintext)
+      : process.env.ITD_RATE_PASSWORD ?? toBase64(process.env.ITD_PASSWORD ?? "");
+    const apiCompanyId = userEmail
+      ? process.env.ITD_API_COMPANY_ID ?? "2"
+      : process.env.ITD_RATE_API_COMPANY_ID ??
+        process.env.ITD_API_COMPANY_ID ??
+        "2";
 
     const form = new FormData();
     form.append("product_code", params.product_code);
@@ -337,7 +363,13 @@ class ITDClient {
     form.append("origin_code", params.origin_code);
     form.append("pcs", params.pcs);
     form.append("actual_weight", params.actual_weight);
-    form.append("customer_code", customerCode ?? process.env.ITD_CUSTOMER_CODE ?? "");
+    form.append(
+      "customer_code",
+      customerCode ??
+        process.env.ITD_RATE_CUSTOMER_CODE ??
+        process.env.ITD_CUSTOMER_CODE ??
+        ""
+    );
     form.append("username", username);
     form.append("password", password);
 
