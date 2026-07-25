@@ -1,15 +1,25 @@
 /**
- * WhatsApp Cloud API adapter (Meta Graph API, direct — no BSP).
- * Transport only: signature verification, inbound webhook parsing, and outbound sends.
+ * WhatsApp adapter for the Tata Tele Omni platform (BSP over Meta Cloud API).
+ * Transport only: inbound webhook parsing, outbound sends, read receipts.
  * No BIA/agent logic lives here.
+ *
+ * Docs: https://help.omni.tatatelebusiness.com/pages/session-api
+ *       https://help.omni.tatatelebusiness.com/pages/api-docs
+ *
+ * Payloads are Meta Cloud API shaped minus `messaging_product`, plus Tata's
+ * `source` field. Inbound webhooks are flattened by Tata: a single
+ * `{ contacts, messages, businessPhoneNumber, id }` object rather than Meta's
+ * `entry[].changes[].value.messages[]` envelope.
  */
 
 import crypto from "crypto";
 
-const GRAPH_VERSION = "v21.0";
-const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
+const DEFAULT_BASE_URL = "https://wb.omni.tatatelebusiness.com";
 
-/** Cloud API hard limits. */
+/** Tag on every outbound message so Omni's reports can separate BIA traffic. */
+const MESSAGE_SOURCE = "bombino-bia";
+
+/** WhatsApp hard limits (enforced by Meta, passed through by Tata). */
 export const WHATSAPP_TEXT_MAX_LENGTH = 4096;
 export const WHATSAPP_BUTTON_MAX_COUNT = 3;
 export const WHATSAPP_BUTTON_TITLE_MAX_LENGTH = 20;
@@ -18,21 +28,21 @@ export const WHATSAPP_BODY_MAX_LENGTH = 1024; // interactive messages have a sho
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 export interface WhatsAppConfig {
-  verifyToken: string;
-  appSecret: string;
+  /** Omni access token — Settings › Channels › WhatsApp. Sent as the raw Authorization header. */
   token: string;
-  phoneNumberId: string;
+  /** Our own shared secret; Tata does not sign webhooks, so the URL carries the proof. */
+  webhookSecret: string;
+  baseUrl: string;
 }
 
 /** Returns null when any required env var is missing; callers should 503 rather than crash. */
 export function getWhatsAppConfig(): WhatsAppConfig | null {
-  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
-  const appSecret = process.env.WHATSAPP_APP_SECRET;
-  const token = process.env.WHATSAPP_TOKEN;
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const token = process.env.TATA_WA_TOKEN;
+  const webhookSecret = process.env.TATA_WA_WEBHOOK_SECRET;
+  const baseUrl = (process.env.TATA_WA_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
 
-  if (!verifyToken || !appSecret || !token || !phoneNumberId) return null;
-  return { verifyToken, appSecret, token, phoneNumberId };
+  if (!token || !webhookSecret) return null;
+  return { token, webhookSecret, baseUrl };
 }
 
 export function isWhatsAppConfigured(): boolean {
@@ -42,98 +52,93 @@ export function isWhatsAppConfigured(): boolean {
 // ─── Inbound ─────────────────────────────────────────────────────────────────
 
 export interface InboundMessage {
-  /** Sender's WhatsApp number in E.164 without "+" (Meta's wa_id). */
+  /** Sender's WhatsApp number in E.164 without "+" (Meta's wa_id, passed through by Tata). */
   waId: string;
-  /** Meta message id (wamid...) — used for webhook-retry de-duplication. */
+  /** Meta message id (wamid...) — used for webhook-retry de-duplication and read receipts. */
   messageId: string;
-  /** Unix seconds, as sent by Meta. */
+  /** Unix seconds. */
   timestamp: string;
-  /** Text body, or the id of the tapped button / selected list row. */
+  /** Text body, or the id/payload of the tapped button / selected list row. */
   text: string;
   /** True when this came from an interactive reply rather than free text. */
   isInteractiveReply: boolean;
 }
 
 /**
- * Verify Meta's X-Hub-Signature-256 header against the raw request body.
- * The raw buffer is captured by the express.json({ verify }) hook in server/index.ts.
+ * Constant-time compare of the secret Tata echoes back in the webhook URL.
+ * Tata sends no HMAC signature, so an unguessable path segment is the only
+ * proof-of-origin available — treat it like a bearer token.
  */
-export function verifyWebhookSignature(
-  rawBody: Buffer | undefined,
-  signatureHeader: string | undefined,
-  appSecret: string
+export function verifyWebhookSecret(
+  received: string | undefined,
+  expected: string
 ): boolean {
-  if (!rawBody || !signatureHeader) return false;
-  if (!signatureHeader.startsWith("sha256=")) return false;
+  if (!received) return false;
 
-  const expected = crypto
-    .createHmac("sha256", appSecret)
-    .update(rawBody)
-    .digest("hex");
-  const received = signatureHeader.slice("sha256=".length);
-
-  const expectedBuf = Buffer.from(expected, "utf8");
   const receivedBuf = Buffer.from(received, "utf8");
-  if (expectedBuf.length !== receivedBuf.length) return false;
-  return crypto.timingSafeEqual(expectedBuf, receivedBuf);
+  const expectedBuf = Buffer.from(expected, "utf8");
+  if (receivedBuf.length !== expectedBuf.length) return false;
+  return crypto.timingSafeEqual(receivedBuf, expectedBuf);
 }
 
 /**
- * Extract user-authored messages from a webhook payload.
- * Delivery/read receipts (value.statuses) and unsupported message types are dropped.
+ * Extract user-authored messages from a Tata webhook payload.
+ *
+ * Omni fires three webhook types and may route them all to one URL, so this
+ * must tolerate every shape: delivery callbacks (`statuses`) and
+ * `account_settings_update` events carry no `messages` key and fall out as an
+ * empty array. Unsupported message types (media, location, reactions) are
+ * dropped the same way.
+ *
+ * Returns an array even though Tata delivers one message per call — keeps the
+ * call site unchanged and tolerates a batched payload if Tata ever sends one.
  */
 export function parseInboundMessages(body: unknown): InboundMessage[] {
+  if (!body || typeof body !== "object") return [];
+
+  const raw = (body as Record<string, unknown>).messages;
+  const candidates = Array.isArray(raw) ? raw : raw ? [raw] : [];
+
   const out: InboundMessage[] = [];
-  if (!body || typeof body !== "object") return out;
+  for (const candidate of candidates) {
+    const parsed = parseOneMessage(candidate);
+    if (parsed) out.push(parsed);
+  }
+  return out;
+}
 
-  const entries = (body as Record<string, unknown>).entry;
-  if (!Array.isArray(entries)) return out;
+function parseOneMessage(raw: unknown): InboundMessage | null {
+  if (!raw || typeof raw !== "object") return null;
+  const m = raw as Record<string, any>;
 
-  for (const entry of entries) {
-    const changes = (entry as Record<string, unknown>)?.changes;
-    if (!Array.isArray(changes)) continue;
+  const waId = typeof m.from === "string" ? m.from : "";
+  const messageId = typeof m.id === "string" ? m.id : "";
+  if (!waId || !messageId) return null;
 
-    for (const change of changes) {
-      const value = (change as Record<string, unknown>)?.value as
-        | Record<string, unknown>
-        | undefined;
-      const messages = value?.messages;
-      if (!Array.isArray(messages)) continue;
+  const timestamp = typeof m.timestamp === "string" ? m.timestamp : "";
+  let text = "";
+  let isInteractiveReply = false;
 
-      for (const raw of messages) {
-        const m = raw as Record<string, any>;
-        const waId = typeof m.from === "string" ? m.from : "";
-        const messageId = typeof m.id === "string" ? m.id : "";
-        if (!waId || !messageId) continue;
-
-        const timestamp = typeof m.timestamp === "string" ? m.timestamp : "";
-        let text = "";
-        let isInteractiveReply = false;
-
-        if (m.type === "text") {
-          text = typeof m.text?.body === "string" ? m.text.body : "";
-        } else if (m.type === "interactive") {
-          const interactive = m.interactive ?? {};
-          text =
-            interactive.button_reply?.id ??
-            interactive.button_reply?.title ??
-            interactive.list_reply?.id ??
-            interactive.list_reply?.title ??
-            "";
-          isInteractiveReply = true;
-        } else if (m.type === "button") {
-          // Template quick-reply buttons arrive as type "button".
-          text = typeof m.button?.text === "string" ? m.button.text : "";
-          isInteractiveReply = true;
-        }
-
-        if (typeof text !== "string" || text.trim() === "") continue;
-        out.push({ waId, messageId, timestamp, text: text.trim(), isInteractiveReply });
-      }
-    }
+  if (m.type === "text") {
+    text = typeof m.text?.body === "string" ? m.text.body : "";
+  } else if (m.type === "interactive") {
+    const interactive = m.interactive ?? {};
+    text =
+      interactive.button_reply?.id ??
+      interactive.button_reply?.title ??
+      interactive.list_reply?.id ??
+      interactive.list_reply?.title ??
+      "";
+    isInteractiveReply = true;
+  } else if (m.type === "button") {
+    // Template quick-reply buttons. Tata's payload is an internal routing id,
+    // so the visible label is the only thing BIA can reason about.
+    text = typeof m.button?.text === "string" ? m.button.text : "";
+    isInteractiveReply = true;
   }
 
-  return out;
+  if (typeof text !== "string" || text.trim() === "") return null;
+  return { waId, messageId, timestamp, text: text.trim(), isInteractiveReply };
 }
 
 // ─── Outbound ────────────────────────────────────────────────────────────────
@@ -144,33 +149,65 @@ export interface ReplyButton {
   title: string;
 }
 
+/** Tata requires the recipient in international format *with* the leading "+". */
+function toRecipient(waId: string): string {
+  const digits = waId.replace(/[^\d]/g, "");
+  return `+${digits}`;
+}
+
 class WhatsAppClient {
-  private async post(payload: Record<string, unknown>): Promise<void> {
+  /**
+   * A 2xx here means "Tata accepted the request", NOT "the user received it".
+   * Sends are asynchronous: an unroutable number or a closed 24h session window
+   * still returns 200 with a request id, and the real outcome arrives later on
+   * the Callbacks webhook as status "failed". Returns that request id so the
+   * caller can correlate the two.
+   */
+  private async request(
+    path: string,
+    payload: Record<string, unknown> | undefined
+  ): Promise<string | null> {
     const config = getWhatsAppConfig();
     if (!config) {
       throw new Error("WhatsApp is not configured (missing env vars)");
     }
 
-    const res = await fetch(`${GRAPH_BASE}/${config.phoneNumberId}/messages`, {
+    const res = await fetch(`${config.baseUrl}${path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${config.token}`,
+        Authorization: config.token,
       },
-      body: JSON.stringify({ messaging_product: "whatsapp", ...payload }),
+      body: JSON.stringify(payload ?? {}),
     });
 
+    const raw = await res.text().catch(() => "");
+
     if (!res.ok) {
-      const detail = await res.text().catch(() => "");
       throw new Error(
-        `WhatsApp send failed: ${res.status} ${res.statusText} ${detail.slice(0, 300)}`
+        `WhatsApp send failed: ${res.status} ${res.statusText} ${raw.slice(0, 300)}`
       );
+    }
+
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      const id = (parsed as Record<string, unknown> | null)?.id;
+      return typeof id === "string" ? id : null;
+    } catch {
+      return null;
     }
   }
 
-  async sendText(waId: string, body: string): Promise<void> {
-    await this.post({
-      to: waId,
+  private async send(payload: Record<string, unknown>): Promise<string | null> {
+    return this.request("/whatsapp-cloud/messages", {
+      source: MESSAGE_SOURCE,
+      ...payload,
+    });
+  }
+
+  async sendText(waId: string, body: string): Promise<string | null> {
+    return this.send({
+      to: toRecipient(waId),
       type: "text",
       text: { preview_url: true, body: body.slice(0, WHATSAPP_TEXT_MAX_LENGTH) },
     });
@@ -180,7 +217,7 @@ class WhatsAppClient {
     waId: string,
     body: string,
     buttons: ReplyButton[]
-  ): Promise<void> {
+  ): Promise<string | null> {
     const trimmed = buttons.slice(0, WHATSAPP_BUTTON_MAX_COUNT).map((b) => ({
       type: "reply" as const,
       reply: {
@@ -189,8 +226,8 @@ class WhatsAppClient {
       },
     }));
 
-    await this.post({
-      to: waId,
+    return this.send({
+      to: toRecipient(waId),
       type: "interactive",
       interactive: {
         type: "button",
@@ -209,9 +246,9 @@ class WhatsAppClient {
     body: string,
     buttonLabel: string,
     url: string
-  ): Promise<void> {
-    await this.post({
-      to: waId,
+  ): Promise<string | null> {
+    return this.send({
+      to: toRecipient(waId),
       type: "interactive",
       interactive: {
         type: "cta_url",
@@ -227,9 +264,15 @@ class WhatsAppClient {
     });
   }
 
-  /** Blue ticks on the user's message. Best-effort — failures are non-fatal. */
-  async markAsRead(messageId: string): Promise<void> {
-    await this.post({ status: "read", message_id: messageId });
+  /**
+   * Blue ticks plus a typing indicator on the user's message — the indicator
+   * covers the seconds BIA spends in its tool loop. Best-effort; failures are non-fatal.
+   */
+  async markAsRead(messageId: string): Promise<string | null> {
+    return this.request(
+      `/whatsapp-cloud/messages/${encodeURIComponent(messageId)}`,
+      { typing_indicator: { type: "text" } }
+    );
   }
 }
 

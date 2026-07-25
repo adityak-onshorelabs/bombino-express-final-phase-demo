@@ -11,11 +11,11 @@ const HISTORY_PREFIX = "wa:chat:";
 const DEDUPE_PREFIX = "wa:dedupe:";
 const RATELIMIT_PREFIX = "ratelimit:support:wa:";
 
-/** Sliding window a conversation stays warm; well under Meta's 24h service window. */
+/** Sliding window a conversation stays warm; well under WhatsApp's 24h service window. */
 const HISTORY_TTL_SECONDS = 1800; // 30 minutes
 /** Keep the last N messages (user + assistant), far below SUPPORT_CHAT_MAX_MESSAGES (50). */
 const HISTORY_MAX_MESSAGES = 20;
-/** Meta retries a webhook for minutes; hold message ids longer than that. */
+/** Tata retries a webhook for minutes; hold message ids longer than that. */
 const DEDUPE_TTL_SECONDS = 900; // 15 minutes
 
 const RATE_LIMIT_PER_WINDOW = 10;
@@ -120,7 +120,7 @@ export async function clearHistory(waId: string): Promise<void> {
 // ─── De-duplication ──────────────────────────────────────────────────────────
 
 /**
- * True when this Meta message id has already been processed.
+ * True when this WhatsApp message id (wamid) has already been processed.
  * Uses SET NX so concurrent webhook retries can't both win.
  * Fails open (returns false) when Redis is down — a duplicate reply beats no reply.
  */
@@ -141,7 +141,7 @@ export async function isDuplicateMessage(messageId: string): Promise<boolean> {
 
 /**
  * Per-WhatsApp-number limit. supportChatRateLimit is unusable here: it keys on
- * req.session / req.ip, and every webhook arrives from Meta's IPs with no session,
+ * req.session / req.ip, and every webhook arrives from Tata's IPs with no session,
  * so all users would share a single bucket.
  * Returns true when the caller is over the limit. Fails open if Redis is down.
  */

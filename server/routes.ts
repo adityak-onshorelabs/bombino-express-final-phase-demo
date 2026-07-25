@@ -35,7 +35,7 @@ import { supportChatRateLimit } from "./supportRateLimit.js";
 import {
   getWhatsAppConfig,
   parseInboundMessages,
-  verifyWebhookSignature,
+  verifyWebhookSecret,
 } from "./whatsapp.js";
 import { handleWhatsAppMessage } from "./whatsappBia.js";
 import type { ChatMessage } from "./supportTypes";
@@ -704,48 +704,28 @@ export async function registerRoutes(
     }
   );
 
-  // ── Support: BIA on WhatsApp (Meta Cloud API) ─────────────────────────────
-  // Public endpoints — Meta calls these, there is no session or cookie.
+  // ── Support: BIA on WhatsApp (Tata Tele Omni) ─────────────────────────────
+  // Public endpoint — Tata calls this, there is no session or cookie.
 
-  // GET /api/whatsapp/webhook — Meta's subscription handshake
-  app.get("/api/whatsapp/webhook", (req: Request, res: Response) => {
-    const config = getWhatsAppConfig();
-    if (!config) {
-      res.status(503).send("WhatsApp not configured");
-      return;
-    }
-
-    const mode = req.query["hub.mode"];
-    const token = req.query["hub.verify_token"];
-    const challenge = req.query["hub.challenge"];
-
-    if (mode === "subscribe" && token === config.verifyToken) {
-      // Must echo the raw challenge as text/plain, not JSON.
-      res.status(200).send(String(challenge ?? ""));
-      return;
-    }
-    res.sendStatus(403);
-  });
-
-  // POST /api/whatsapp/webhook — inbound messages
-  app.post("/api/whatsapp/webhook", (req: Request, res: Response) => {
+  // POST /api/whatsapp/webhook/:secret — inbound messages.
+  // Tata does not sign its webhooks, so the secret in the path is the only
+  // proof of origin. Register the full URL in Omni › Settings › Integration.
+  app.post("/api/whatsapp/webhook/:secret", (req: Request, res: Response) => {
     const config = getWhatsAppConfig();
     if (!config) {
       res.status(503).json({ message: "WhatsApp not configured" });
       return;
     }
 
-    const signature = req.get("x-hub-signature-256");
-    const rawBody = req.rawBody as Buffer | undefined;
-    if (!verifyWebhookSignature(rawBody, signature, config.appSecret)) {
+    if (!verifyWebhookSecret(req.params.secret, config.webhookSecret)) {
       res.sendStatus(401);
       return;
     }
 
     const inbound = parseInboundMessages(req.body);
 
-    // Ack immediately: Meta times out around 5s and retries, but the BIA tool
-    // loop can take longer. Everything below runs after the response is sent.
+    // Ack immediately: the platform times out in seconds and retries, but the
+    // BIA tool loop can take longer. Everything below runs after the response.
     res.sendStatus(200);
 
     for (const message of inbound) {

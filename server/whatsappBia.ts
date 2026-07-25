@@ -28,18 +28,27 @@ const GUEST_CONTEXT: SupportChatContext = {
   sessionId: null,
 };
 
-async function deliver(waId: string, content: string): Promise<void> {
+/** Last 4 digits only — full numbers are personal data and don't belong in logs. */
+function maskWaId(waId: string): string {
+  return `…${waId.slice(-4)}`;
+}
+
+/** Returns Tata's request ids, one per part, for correlating with status callbacks. */
+async function deliver(waId: string, content: string): Promise<(string | null)[]> {
+  const ids: (string | null)[] = [];
   for (const part of buildOutboundParts(content)) {
-    if (part.kind === "cta_url") {
-      await whatsappClient.sendCtaUrl(waId, part.body, part.buttonLabel, part.url);
-    } else {
-      await whatsappClient.sendText(waId, part.body);
-    }
+    ids.push(
+      part.kind === "cta_url"
+        ? await whatsappClient.sendCtaUrl(waId, part.body, part.buttonLabel, part.url)
+        : await whatsappClient.sendText(waId, part.body)
+    );
   }
+  return ids;
 }
 
 export async function handleWhatsAppMessage(message: InboundMessage): Promise<void> {
   const { waId, messageId } = message;
+  const startedAt = Date.now();
 
   try {
     if (await isDuplicateMessage(messageId)) return;
@@ -59,7 +68,14 @@ export async function handleWhatsAppMessage(message: InboundMessage): Promise<vo
     const reply = await handleChat(messages, GUEST_CONTEXT);
 
     await appendTurn(waId, text, reply);
-    await deliver(waId, reply);
+    const ids = await deliver(waId, reply);
+
+    // Acceptance, not delivery — Tata reports the real outcome on the Callbacks
+    // webhook. These ids are the only way to tie a failure back to a reply.
+    console.log(
+      `[whatsappBia] replied to ${maskWaId(waId)} in ${Date.now() - startedAt}ms ` +
+        `(${ids.length} part(s), ids: ${ids.join(", ") || "none"})`
+    );
   } catch (err) {
     console.error("[whatsappBia] failed to handle message:", err);
     // Never leave the user hanging — a fallback beats silence.

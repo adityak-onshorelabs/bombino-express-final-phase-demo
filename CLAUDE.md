@@ -78,14 +78,19 @@ No test framework configured yet.
 BIA runs on OpenAI (`gpt-4o-mini`) with 5 tools — rates, tracking, guidance, escalation, shipment history.
 - Agent: `server/supportAgent.ts` (`handleChat(messages, context)`), content in `server/supportContent.ts`
 - **In-app channel**: `POST /api/support/chat` — session-authed, history in Supabase `support_sessions`
-- **WhatsApp channel** (Meta Cloud API, direct): `GET|POST /api/whatsapp/webhook`
-  - `server/whatsapp.ts` — transport: signature verify, inbound parse, sends
+- **WhatsApp channel** (Tata Tele Omni BSP, base `https://wb.omni.tatatelebusiness.com`): `POST /api/whatsapp/webhook/:secret`
+  - `server/whatsapp.ts` — transport: webhook secret check, inbound parse, sends
   - `server/whatsappBia.ts` — inbound → `handleChat` → reply
   - `server/whatsappSession.ts` — Redis history (30 min TTL), webhook dedupe, per-number rate limit
   - `server/whatsappFormat.ts` — strips `TAP_*` tokens into buttons/CTAs (mirrors `client/src/lib/supportMessage.ts`)
   - Phase 1 is **guest-only**: no phone→account mapping, so `get_user_shipments` is unavailable there
-  - Env: `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` (all four required, else the webhook 503s)
-  - Dev: `ngrok http 5000`, then set the callback URL in Meta App Dashboard → WhatsApp → Configuration
+  - Env: `TATA_WA_TOKEN`, `TATA_WA_WEBHOOK_SECRET` (both required, else the webhook 503s); `TATA_WA_BASE_URL` optional
+  - Tata does **not** sign webhooks — the unguessable `:secret` path segment is the only proof of origin
+  - Send payloads are Meta Cloud API shaped minus `messaging_product`, plus `source`; `to` needs a leading `+`
+  - Inbound is flattened: `{ contacts, messages: {...} }`, *not* Meta's `entry[].changes[].value.messages[]`
+  - Free-form replies use Omni's Session API (24h window); templates only needed for outbound
+  - Docs: help.omni.tatatelebusiness.com `/pages/session-api`, `/pages/api-docs`
+  - Dev: `ngrok http 5000`, then set the webhook URL in Omni panel → Integration
 
 ## Coding Conventions
 - **TypeScript strict mode** — no `any`, explicit return types on exports
