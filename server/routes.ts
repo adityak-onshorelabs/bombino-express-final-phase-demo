@@ -733,6 +733,32 @@ export async function registerRoutes(
     }
   });
 
+  // TEMPORARY PROBE — remove once the inbound path is confirmed.
+  // Something is POSTing to the bare path (no secret), and without a route it
+  // fell through to the SPA catch-all and got a misleading 200. Two candidates:
+  // Omni dropping the last path segment, or the old Meta subscription that was
+  // never unregistered and still points here. Meta signs with
+  // X-Hub-Signature-256; Omni signs nothing — so the headers identify the sender.
+  // Logs metadata only: message text is personal data and stays out of the log.
+  app.post("/api/whatsapp/webhook", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    console.log(
+      "[whatsapp-probe]",
+      JSON.stringify({
+        url: req.originalUrl,
+        query: req.query,
+        headerNames: Object.keys(req.headers).sort(),
+        hasMetaSignature: Boolean(req.get("x-hub-signature-256")),
+        userAgent: req.get("user-agent") ?? null,
+        bodyKeys: Object.keys(body).sort(),
+        businessPhoneNumber: body.businessPhoneNumber ?? null,
+        looksLikeMeta: Array.isArray(body.entry),
+        looksLikeOmni: "messages" in body || "statuses" in body,
+      })
+    );
+    res.sendStatus(200);
+  });
+
   // ── ITD: Create Shipment ──────────────────────────────────────────────────
 
   // POST /api/shipments — requires login (session token)
