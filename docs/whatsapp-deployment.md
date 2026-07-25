@@ -2,24 +2,28 @@
 
 ## What this is
 
-The BIA WhatsApp assistant lives in the **same repo** as the main app. We deploy that repo a **second time** as its own service — separate container, separate Redis, separate failure domain from the website at `bombino.onshorelabs.co.in`.
-
-The service runs the whole app but only one route ever receives traffic: `POST /api/whatsapp/webhook/:secret`. Everything else is dormant by design. **This is intentional — do not try to strip the repo down.** The isolation comes from it being a separate service, not from removing code.
+The BIA WhatsApp assistant lives in the **same repo** as the main app, and — as of 2026-07-25 — runs on the **same Railway service** as the website rather than a separate one.
 
 - **Repo:** `github.com/ak-onshore-labs/bombino-express`
 - **Branch:** `aditya/whatsapp-bia`
+- **Railway project:** `zucchini-gratitude` · **service:** `bombino-express`
+- **URL:** `https://bombino-express-production-9e11.up.railway.app`
+- **Redis:** Railway project `abundant-reprieve`, reached over the public TCP proxy (`*.proxy.rlwy.net`) since it lives in a different project
 - **Build:** `npm run build` · **Start:** `npm run start`
 - **Provider:** Tata Tele Omni (BSP) — see `docs/whatsapp-setup.md`
 - **Host requirement:** a platform that runs a **persistent Node process** — Railway / Render / Fly / a VM. **Not Vercel** (serverless drops the after-response work the webhook depends on).
 
+### Known trade-off of the shared service
+
+Running the webhook alongside the website means the process holds `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `ENCRYPTION_KEY` even though the WhatsApp path is guest-only and never reads them. It also shares a failure domain: BIA's tool loop takes ~13s per message on the same process that serves the site.
+
+This was a deliberate call — one service, one `PUBLIC_URL`, lower cost. Splitting the webhook into its own service later is the mitigation if either becomes a problem; nothing in the code assumes co-location.
+
 ## Steps
 
-1. **Create a new service** from the repo above, branch `aditya/whatsapp-bia`. Same build/start commands as the main app.
-2. **Add a Redis instance** to this service — its own, not shared with the website.
-3. **Set the environment variables** (list below).
-4. **Point the subdomain** at this service (e.g. `bia.bombino.onshorelabs.co.in`). Deploy.
-5. **Take the service's URL, set `PUBLIC_URL` to it, redeploy.**
-6. **Smoke check:** `curl -i -X POST https://<url>/api/whatsapp/webhook/wrong-secret` → expect **401** (service is up, secret check working). If you get **503**, a `TATA_WA_*` var is missing. **404** means the deploy is on an older build that still had the Meta-era route.
+1. **Set the environment variables** (list below) on the `bombino-express` service.
+2. **Redeploy.** Railway does *not* restart the container when variables are set with `--skip-deploys`; a new deploy (or `railway redeploy`) is required before the process sees them.
+3. **Smoke check:** `curl -i -X POST https://<url>/api/whatsapp/webhook/wrong-secret` → expect **401** (service is up, secret check working). If you get **503**, a `TATA_WA_*` var is missing from the *running* process — usually means step 2 was skipped. **200 with HTML** means the deploy is on an older build that predates the `:secret` route.
 
 ## Environment variables
 
@@ -28,14 +32,12 @@ The service runs the whole app but only one route ever receives traffic: `POST /
 | `TATA_WA_TOKEN` | ✅ | Omni access token — Settings → Channels → WhatsApp |
 | `TATA_WA_WEBHOOK_SECRET` | ✅ | Random string we generate (`openssl rand -hex 24`); becomes the last path segment of the webhook URL |
 | `TATA_WA_BASE_URL` | — | Defaults to `https://wb.omni.tatatelebusiness.com`; only set if Tata gives us a different host |
-| `PUBLIC_URL` | ✅ | This service's own URL — BIA builds the "Create Shipment" deep link from it |
+| `PUBLIC_URL` | ✅ | **Must include the scheme** (`https://…`). BIA builds the "Create Shipment" deep link as `PUBLIC_URL + /create`; without a scheme that isn't a valid URL. The same var also builds KYC `file_path` URLs sent to ITD |
 | `REDIS_URL` | ✅ | Dedupe + conversation memory. Without it replies get sent two or three times |
 | `OPENAI_API_KEY` | ✅ | BIA runs on `gpt-4o-mini` |
-| ITD credentials | ✅ | Same values as the main app — rates and tracking |
+| ITD credentials | ✅ | Rates and tracking |
 
 Webhook registration in the Omni panel happens after this and is handled with Bombino IT — not a deploy step. See `docs/whatsapp-webhook-registration.md`.
-
-**Do NOT set** `DATABASE_URL`, any Supabase vars, or `SESSION_SECRET` on this service — the WhatsApp path is guest-only and never touches the customer database. Smaller blast radius on purpose.
 
 ## Not deploy work — flag if not done
 
