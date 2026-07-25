@@ -330,10 +330,10 @@ class ITDClient {
    * The public website (website-bombino) quotes from the ITD_RATE_* account, and
    * these must stay in sync or the two surfaces disagree on price.
    *
-   * Note the encoding asymmetry: the upstream requires base64 credentials
-   * (plaintext returns an empty body). ITD_EMAIL/ITD_PASSWORD are stored
-   * plaintext and encoded here; ITD_RATE_USERNAME/ITD_RATE_PASSWORD are stored
-   * pre-encoded, matching how the website holds them, and are sent as-is.
+   * The upstream requires base64 credentials — plaintext returns an empty body,
+   * not an error — so every credential here is stored plaintext and encoded at
+   * call time. Do not pre-encode the env values; that double-encodes and the
+   * failure is silent.
    */
   async getRates(
     params: RateParams,
@@ -344,12 +344,15 @@ class ITDClient {
     const toBase64 = (value: string): string =>
       Buffer.from(value).toString("base64");
 
-    const username = userEmail
-      ? toBase64(userEmail)
-      : process.env.ITD_RATE_USERNAME ?? toBase64(process.env.ITD_EMAIL ?? "");
-    const password = passwordPlaintext
-      ? toBase64(passwordPlaintext)
-      : process.env.ITD_RATE_PASSWORD ?? toBase64(process.env.ITD_PASSWORD ?? "");
+    const username = toBase64(
+      userEmail ?? process.env.ITD_RATE_USERNAME ?? process.env.ITD_EMAIL ?? ""
+    );
+    const password = toBase64(
+      passwordPlaintext ??
+        process.env.ITD_RATE_PASSWORD ??
+        process.env.ITD_PASSWORD ??
+        ""
+    );
     const apiCompanyId = userEmail
       ? process.env.ITD_API_COMPANY_ID ?? "2"
       : process.env.ITD_RATE_API_COMPANY_ID ??
