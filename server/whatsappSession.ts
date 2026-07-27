@@ -19,8 +19,13 @@ const HISTORY_MAX_MESSAGES = 20;
 /** Tata retries a webhook for minutes; hold message ids longer than that. */
 const DEDUPE_TTL_SECONDS = 900; // 15 minutes
 
-const RATE_LIMIT_PER_WINDOW = 10;
-const RATE_LIMIT_WINDOW_SECONDS = 3600; // 1 hour — matches the guest limit for /api/support/chat
+/**
+ * Higher than the app's guest limit (10) on purpose: a rate quote costs 3–4
+ * messages and tracking another 2, so at 10 a customer doing both hit the wall
+ * mid-task — while answering a question BIA had just asked them.
+ */
+const RATE_LIMIT_PER_WINDOW = 30;
+const RATE_LIMIT_WINDOW_SECONDS = 3600; // 1 hour
 
 // ─── History ─────────────────────────────────────────────────────────────────
 
