@@ -10,6 +10,9 @@ export interface ChatMessage {
   content: string;
 }
 
+/** Surfaces BIA answers on. Usage is tracked per channel — see server/biaUsage.ts. */
+export type BiaChannel = "app" | "whatsapp";
+
 export interface ChatRequest {
   messages: ChatMessage[];
 }
@@ -29,6 +32,10 @@ export interface SupportChatContext {
   itdToken: string | null;
   dbUserId: string | null;
   sessionId: string | null;
+  /** Which surface the turn came from. Required so usage is never mis-attributed. */
+  channel: BiaChannel;
+  /** WhatsApp sender's wa_id; null on the app channel. */
+  waId: string | null;
 }
 
 // ─── Tool arguments (LLM → executor) ─────────────────────────────────────────

@@ -38,7 +38,12 @@ import {
   verifyWebhookSecret,
 } from "./whatsapp.js";
 import { handleWhatsAppMessage } from "./whatsappBia.js";
-import type { ChatMessage } from "./supportTypes";
+import type { ChatMessage, SupportChatContext } from "./supportTypes";
+import {
+  getUsageReport,
+  isUsageReportConfigured,
+  verifyUsageSecret,
+} from "./biaUsage.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
@@ -589,11 +594,13 @@ export async function registerRoutes(
       }
     }
 
-    const context = {
+    const context: SupportChatContext = {
       user: req.session.user ?? null,
       itdToken: req.session.itdToken ?? null,
       dbUserId,
       sessionId: activeSessionId,
+      channel: "app",
+      waId: null,
     };
 
     try {
@@ -703,6 +710,23 @@ export async function registerRoutes(
       res.json({ sessionId: created.id });
     }
   );
+
+  // GET /api/support/usage/:secret?days=7 — per-channel BIA usage report.
+  // No admin role exists yet, so this gates on an unguessable path segment like
+  // the WhatsApp webhook does. Unset BIA_USAGE_SECRET ⇒ endpoint stays closed.
+  app.get("/api/support/usage/:secret", async (req: Request, res: Response) => {
+    if (!isUsageReportConfigured()) {
+      res.status(503).json({ message: "Usage reporting not configured" });
+      return;
+    }
+    if (!verifyUsageSecret(req.params.secret)) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+
+    const days = Number(req.query.days);
+    res.json(await getUsageReport(Number.isFinite(days) ? days : undefined));
+  });
 
   // ── Support: BIA on WhatsApp (Tata Tele Omni) ─────────────────────────────
   // Public endpoint — Tata calls this, there is no session or cookie.

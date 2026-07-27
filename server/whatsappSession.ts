@@ -5,6 +5,7 @@
  */
 
 import redisClient from "./redisClient.js";
+import { withRedis } from "./redisSafe.js";
 import type { ChatMessage } from "./supportTypes.js";
 
 const HISTORY_PREFIX = "wa:chat:";
@@ -20,46 +21,6 @@ const DEDUPE_TTL_SECONDS = 900; // 15 minutes
 
 const RATE_LIMIT_PER_WINDOW = 10;
 const RATE_LIMIT_WINDOW_SECONDS = 3600; // 1 hour — matches the guest limit for /api/support/chat
-
-/** Hard ceiling on any single Redis round-trip. */
-const REDIS_TIMEOUT_MS = 1000;
-
-/**
- * Run a Redis command with a fallback value if the cache is unusable.
- *
- * Two failure modes to defend against, not one: when the client has never
- * connected, node-redis v4 *queues* commands instead of rejecting, so a bare
- * try/catch would hang the caller forever rather than throw. Hence the isReady
- * guard plus a timeout race — a slow or dead cache must never stall a reply.
- */
-async function withRedis<T>(
-  label: string,
-  op: () => Promise<T>,
-  fallback: T
-): Promise<T> {
-  if (!redisClient.isReady) return fallback;
-
-  try {
-    let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
-      timer = setTimeout(() => resolve(TIMED_OUT), REDIS_TIMEOUT_MS);
-    });
-
-    const result = await Promise.race([op(), timeout]);
-    if (timer) clearTimeout(timer);
-
-    if (result === TIMED_OUT) {
-      console.warn(`[whatsappSession] ${label} timed out after ${REDIS_TIMEOUT_MS}ms`);
-      return fallback;
-    }
-    return result as T;
-  } catch (err) {
-    console.warn(`[whatsappSession] ${label} failed (non-fatal):`, err);
-    return fallback;
-  }
-}
-
-const TIMED_OUT = Symbol("redis-timeout");
 
 // ─── History ─────────────────────────────────────────────────────────────────
 

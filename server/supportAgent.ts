@@ -5,6 +5,7 @@
 
 import OpenAI from "openai";
 import { getRecentShipmentsByUserId } from "./appDb.js";
+import { actorFor, recordTurn } from "./biaUsage.js";
 import { itdClient } from "./itd";
 import type { ITDTrackingResult } from "./itd";
 import { guidance, escalation } from "./supportContent";
@@ -644,9 +645,34 @@ export async function handleChat(
   messages: ChatMessage[],
   context: SupportChatContext
 ): Promise<string> {
+  const startedAt = Date.now();
+  let promptTokens = 0;
+  let completionTokens = 0;
+  let apiCalls = 0;
+  const toolCalls: string[] = [];
+
+  /**
+   * Single exit point so every return path — including the ones that never reach
+   * OpenAI — lands in the per-channel counters. Fire-and-forget: accounting must
+   * not add latency to the reply.
+   */
+  const finish = (reply: string, ok: boolean): string => {
+    void recordTurn({
+      channel: context.channel,
+      actor: actorFor(context),
+      promptTokens,
+      completionTokens,
+      apiCalls,
+      toolCalls,
+      latencyMs: Date.now() - startedAt,
+      ok,
+    });
+    return reply;
+  };
+
   const client = getOpenAIClient();
   if (!client) {
-    return FALLBACK_CHAT;
+    return finish(FALLBACK_CHAT, false);
   }
 
   const systemPrompt = buildSystemPrompt(context);
@@ -672,31 +698,38 @@ export async function handleChat(
         tool_choice: "auto",
       });
 
+      apiCalls += 1;
+      promptTokens += response.usage?.prompt_tokens ?? 0;
+      completionTokens += response.usage?.completion_tokens ?? 0;
+
       const choice = response.choices?.[0];
       if (!choice) {
-        return FALLBACK_CHAT;
+        return finish(FALLBACK_CHAT, false);
       }
 
       const message = choice.message;
-      const toolCalls = message.tool_calls;
+      const turnToolCalls = message.tool_calls;
 
-      if (!toolCalls || toolCalls.length === 0) {
+      if (!turnToolCalls || turnToolCalls.length === 0) {
         const content = message.content;
-        return typeof content === "string" ? content : FALLBACK_CHAT;
+        return typeof content === "string"
+          ? finish(content, true)
+          : finish(FALLBACK_CHAT, false);
       }
 
       const assistantMsg: OpenAI.Chat.Completions.ChatCompletionMessageParam = {
         role: "assistant",
         content: message.content ?? null,
-        tool_calls: toolCalls.map((tc) => ({
+        tool_calls: turnToolCalls.map((tc) => ({
           id: tc.id,
           type: "function" as const,
           function: { name: tc.function?.name ?? "", arguments: tc.function?.arguments ?? "" },
         })),
       };
       const toolResults: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = await Promise.all(
-        toolCalls.map(async (tc) => {
+        turnToolCalls.map(async (tc) => {
           const name = tc.function?.name ?? "";
+          toolCalls.push(name || "unknown");
           const argsStr = tc.function?.arguments ?? "{}";
           let args: unknown = {};
           try {
@@ -715,14 +748,17 @@ export async function handleChat(
       currentMessages = [...currentMessages, assistantMsg, ...toolResults];
     }
 
-    return FALLBACK_CHAT;
+    return finish(FALLBACK_CHAT, false);
   } catch (err) {
     const e = err as Error;
     console.error("[supportAgent] handleChat failed:", e?.name, e?.message);
     const msg = e?.message ?? "";
     if (msg.includes("429") || /quota|rate limit/i.test(msg)) {
-      return "Our AI support is temporarily at capacity. Please try again in a few minutes or contact support from the app menu.";
+      return finish(
+        "Our AI support is temporarily at capacity. Please try again in a few minutes or contact support from the app menu.",
+        false
+      );
     }
-    return FALLBACK_CHAT;
+    return finish(FALLBACK_CHAT, false);
   }
 }

@@ -4,6 +4,7 @@
  * unavailable and BIA tells the user to log in to the app for that.
  */
 
+import { recordWhatsAppEvent } from "./biaUsage.js";
 import { handleChat } from "./supportAgent.js";
 import type { ChatMessage, SupportChatContext } from "./supportTypes.js";
 import { SUPPORT_CHAT_MAX_CONTENT_LENGTH } from "./supportTypes.js";
@@ -21,12 +22,16 @@ const FALLBACK_REPLY =
   "I'm having trouble responding right now. Please try again in a moment.";
 
 /** Guest context: itdClient falls back to the shared company token for rates/tracking. */
-const GUEST_CONTEXT: SupportChatContext = {
-  user: null,
-  itdToken: null,
-  dbUserId: null,
-  sessionId: null,
-};
+function guestContext(waId: string): SupportChatContext {
+  return {
+    user: null,
+    itdToken: null,
+    dbUserId: null,
+    sessionId: null,
+    channel: "whatsapp",
+    waId,
+  };
+}
 
 /** Last 4 digits only — full numbers are personal data and don't belong in logs. */
 function maskWaId(waId: string): string {
@@ -43,6 +48,8 @@ async function deliver(waId: string, content: string): Promise<(string | null)[]
         : await whatsappClient.sendText(waId, part.body)
     );
   }
+  // Parts, not turns, are what Tata actually transmits — track them separately.
+  void recordWhatsAppEvent({ kind: "parts_sent", count: ids.length });
   return ids;
 }
 
@@ -51,13 +58,17 @@ export async function handleWhatsAppMessage(message: InboundMessage): Promise<vo
   const startedAt = Date.now();
 
   try {
-    if (await isDuplicateMessage(messageId)) return;
+    if (await isDuplicateMessage(messageId)) {
+      void recordWhatsAppEvent({ kind: "duplicate" });
+      return;
+    }
 
     const text = message.text.slice(0, SUPPORT_CHAT_MAX_CONTENT_LENGTH);
 
     void whatsappClient.markAsRead(messageId).catch(() => {});
 
     if (await isRateLimited(waId)) {
+      void recordWhatsAppEvent({ kind: "rate_limited" });
       await deliver(waId, RATE_LIMITED_MESSAGE);
       return;
     }
@@ -65,7 +76,7 @@ export async function handleWhatsAppMessage(message: InboundMessage): Promise<vo
     const history = await getHistory(waId);
     const messages: ChatMessage[] = [...history, { role: "user", content: text }];
 
-    const reply = await handleChat(messages, GUEST_CONTEXT);
+    const reply = await handleChat(messages, guestContext(waId));
 
     await appendTurn(waId, text, reply);
     const ids = await deliver(waId, reply);
