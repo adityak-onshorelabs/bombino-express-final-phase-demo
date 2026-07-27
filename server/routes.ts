@@ -44,6 +44,7 @@ import {
   isUsageReportConfigured,
   verifyUsageSecret,
 } from "./biaUsage.js";
+import { renderUsageDashboard } from "./usageDashboard.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
@@ -726,6 +727,27 @@ export async function registerRoutes(
 
     const days = Number(req.query.days);
     res.json(await getUsageReport(Number.isFinite(days) ? days : undefined));
+  });
+
+  // GET /api/support/usage/:secret/view?days=7 — same data, rendered.
+  // no-store + noindex: the URL itself is the credential.
+  app.get("/api/support/usage/:secret/view", async (req: Request, res: Response) => {
+    if (!isUsageReportConfigured()) {
+      res.status(503).send("Usage reporting not configured");
+      return;
+    }
+    if (!verifyUsageSecret(req.params.secret)) {
+      res.status(404).send("Not found");
+      return;
+    }
+
+    const days = Number(req.query.days);
+    const report = await getUsageReport(Number.isFinite(days) ? days : undefined);
+    res
+      .status(200)
+      .set({ "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" })
+      .type("html")
+      .send(renderUsageDashboard(report));
   });
 
   // ── Support: BIA on WhatsApp (Tata Tele Omni) ─────────────────────────────

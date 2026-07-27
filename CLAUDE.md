@@ -99,7 +99,8 @@ Every `handleChat` turn records tokens, OpenAI round-trips, tool names, latency,
 - Keys: `bia:usage:<channel>:<IST date>` (hash), `:tools` (histogram), `:actors` (set → uniques). 35-day TTL
 - Actors: `dbUserId` or `"guest"` on the app — **all app guests collapse into one bucket**, so app `uniqueActors` ≈ logged-in users + 1; WhatsApp uses a truncated SHA-256 of the number (phone numbers must not sit in Redis for weeks), so its count is exact and proxies Tata conversation billing
 - WhatsApp-only counters (no app equivalent): `parts_sent` (what Tata actually transmits — one reply can split), `rate_limited`, `duplicate`
-- Report: `GET /api/support/usage/:secret?days=7` gated by `BIA_USAGE_SECRET` (unset ⇒ 503); cost from `OPENAI_PRICE_*_PER_M` env, defaults $0.15/$0.60 per 1M
+- Report: `GET /api/support/usage/:secret?days=7` (JSON) and `…/:secret/view` (dashboard, `server/usageDashboard.ts`) — both gated by `BIA_USAGE_SECRET` (unset ⇒ 503); cost from `OPENAI_PRICE_*_PER_M` env, defaults $0.15/$0.60 per 1M
+- Dashboard is one self-contained server-rendered file: inline CSS/SVG, no deps, no build step. Series colour tracks the channel (app blue / WhatsApp orange, CVD-validated in light **and** dark); range presets are plain relative links, so the secret never appears in the markup
 - Redis down ⇒ counters no-op, but the `[biaUsage] {json}` log line is always emitted first, so Railway logs stay a complete record
 - `withRedis` lives in `server/redisSafe.ts` — shared with `whatsappSession.ts`
 
