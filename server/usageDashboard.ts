@@ -316,6 +316,7 @@ function renderChannelPanel(
       ${sparkline(turnsSeries, channel)}
     </div>
     <div class="tiles">
+      ${tile("Conversations", compact(totals.conversations), channel === "whatsapp" ? "24h windows" : "30 min idle gap")}
       ${tile("Turns", compact(totals.turns))}
       ${tile(
         "Fallbacks",
@@ -504,6 +505,7 @@ th[scope="row"], thead th:first-child { text-align: left; }
 tbody th { font-weight: 400; color: var(--ink-2); }
 footer.page { color: var(--muted); font-size: 12px; margin-top: 24px; }
 footer.page code { font-size: 11px; }
+footer.page a { color: var(--ink-2); }
 `;
 
 const SCRIPT = `
@@ -678,7 +680,7 @@ export function renderUsageDashboard(report: UsageReport): string {
     Cost is list-price arithmetic at ${esc(
       `$${report.pricePerMillionUsd.input}/$${report.pricePerMillionUsd.output} per 1M tokens`
     )} — OpenAI's own usage page is the billing truth, and WhatsApp carries separate Tata conversation charges.
-    Same data as JSON: drop <code>/view</code> from this URL.
+    Same data as JSON: drop <code>/view</code> from this URL. Monthly billing summary: <a href="billing">/billing</a>.
   </footer>
 </div>
 <script id="chart-data" type="application/json">${jsonScript(chartData)}</script>

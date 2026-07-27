@@ -5,7 +5,7 @@
 
 import OpenAI from "openai";
 import { getRecentShipmentsByUserId } from "./appDb.js";
-import { actorFor, recordTurn } from "./biaUsage.js";
+import { recordTurn } from "./biaUsage.js";
 import { itdClient } from "./itd";
 import type { ITDTrackingResult } from "./itd";
 import { guidance, escalation } from "./supportContent";
@@ -659,7 +659,7 @@ export async function handleChat(
   const finish = (reply: string, ok: boolean): string => {
     void recordTurn({
       channel: context.channel,
-      actor: actorFor(context),
+      actor: context.actorKey,
       promptTokens,
       completionTokens,
       apiCalls,

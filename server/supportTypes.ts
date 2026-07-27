@@ -34,8 +34,11 @@ export interface SupportChatContext {
   sessionId: string | null;
   /** Which surface the turn came from. Required so usage is never mis-attributed. */
   channel: BiaChannel;
-  /** WhatsApp sender's wa_id; null on the app channel. */
-  waId: string | null;
+  /**
+   * Opaque, already-hashed id for the person on the other end — the unit both
+   * unique-user counts and conversation billing key on. Never a raw phone number.
+   */
+  actorKey: string;
 }
 
 // ─── Tool arguments (LLM → executor) ─────────────────────────────────────────

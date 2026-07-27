@@ -15,17 +15,39 @@
 import nodeCrypto from "crypto";
 import redisClient from "./redisClient.js";
 import { withRedis } from "./redisSafe.js";
-import type { BiaChannel, SupportChatContext } from "./supportTypes.js";
+import type { BiaChannel } from "./supportTypes.js";
 
 export type { BiaChannel };
 
 const KEY_PREFIX = "bia:usage:";
-/** Keep a rolling month-plus so month-end reporting always has full coverage. */
-const RETENTION_SECONDS = 60 * 60 * 24 * 35;
+const CONV_PREFIX = "bia:conv:";
+/**
+ * Counters back client invoices, so they outlive the operational view by a long
+ * way — a dispute over March needs March's numbers, not a rolling month.
+ */
+const RETENTION_SECONDS = 60 * 60 * 24 * 400;
 /** Reporting timezone — the team reads these numbers in IST, not UTC. */
 const REPORT_TIME_ZONE = "Asia/Kolkata";
 const DEFAULT_REPORT_DAYS = 7;
 const MAX_REPORT_DAYS = 35;
+
+/**
+ * How long a "conversation" stays open per channel — the unit the client is
+ * billed on, so each mirrors that channel's own reality:
+ * - WhatsApp: a fixed 24h window from the customer's first message, which is
+ *   exactly how Tata bills us. Not sliding — a window never extends.
+ * - App: 30 minutes of inactivity, sliding, matching the WhatsApp history TTL
+ *   and how people actually use an in-app chat widget.
+ */
+const CONVERSATION_WINDOW_SECONDS: Record<BiaChannel, number> = {
+  whatsapp: 60 * 60 * 24,
+  app: 60 * 30,
+};
+/** Only the app window slides; extending a WhatsApp window would undercount billing. */
+const CONVERSATION_SLIDES: Record<BiaChannel, boolean> = {
+  whatsapp: false,
+  app: true,
+};
 
 /**
  * gpt-4o-mini list price in USD per 1M tokens (input / output). Env-overridable
@@ -63,26 +85,51 @@ export function hashActor(raw: string): string {
 }
 
 /**
- * Opaque actor id for unique-user counting.
+ * Mark a conversation as open, returning true only for the message that started
+ * it — i.e. exactly once per billable conversation. SET NX so two concurrent
+ * messages can't both count as a start.
  *
- * App guests all collapse into a single "guest" bucket — they have no stable id
- * of any kind server-side, so `uniqueActors` on the app channel counts logged-in
- * users plus at most one for all guest traffic. WhatsApp always has a wa_id, so
- * its unique count is exact and doubles as a proxy for Tata's per-conversation
- * billing.
+ * Fails *closed* when Redis is down (returns false): a missed conversation is a
+ * number we under-bill, while a double count is a number the client disputes.
  */
-export function actorFor(context: SupportChatContext): string {
-  if (context.channel === "whatsapp") {
-    return context.waId ? `wa_${hashActor(context.waId)}` : "wa_unknown";
+export async function startConversation(
+  channel: BiaChannel,
+  actorKey: string
+): Promise<boolean> {
+  const key = `${CONV_PREFIX}${channel}:${actorKey}`;
+  const window = CONVERSATION_WINDOW_SECONDS[channel];
+
+  const stored = await withRedis(
+    "conversation open",
+    () => redisClient.set(key, "1", { NX: true, EX: window }),
+    null
+  );
+
+  if (stored === null) {
+    // Window already open. The app's window slides with activity; WhatsApp's does not.
+    if (CONVERSATION_SLIDES[channel]) {
+      await withRedis("conversation extend", () => redisClient.expire(key, window), 0);
+    }
+    return false;
   }
-  return context.dbUserId ?? "guest";
+  if (stored !== "OK") return false;
+
+  const date = usageDateKey();
+  const day = dayKey(channel, date);
+  await withRedis(
+    "conversation count",
+    () => redisClient.multi().hIncrBy(day, "conversations", 1).expire(day, RETENTION_SECONDS).exec(),
+    null
+  );
+  console.log(`[biaUsage] conversation started {"channel":"${channel}","date":"${date}"}`);
+  return true;
 }
 
 // ─── Recording ───────────────────────────────────────────────────────────────
 
 export interface TurnUsage {
   channel: BiaChannel;
-  /** Opaque per-user id: dbUserId or "guest" on the app, hashed wa_id on WhatsApp. */
+  /** Opaque per-user id — see SupportChatContext.actorKey. */
   actor: string;
   promptTokens: number;
   completionTokens: number;
@@ -185,6 +232,8 @@ export async function recordWhatsAppEvent(event: WhatsAppUsageEvent): Promise<vo
 
 export interface UsageDay {
   date: string;
+  /** Billable conversations *started* that day — see startConversation. */
+  conversations: number;
   turns: number;
   failedTurns: number;
   apiCalls: number;
@@ -205,6 +254,7 @@ export interface UsageDay {
 export interface UsageChannelReport {
   days: UsageDay[];
   totals: {
+    conversations: number;
     turns: number;
     failedTurns: number;
     apiCalls: number;
@@ -266,6 +316,7 @@ async function readDay(channel: BiaChannel, date: string): Promise<UsageDay> {
 
   const row: UsageDay = {
     date,
+    conversations: n(day, "conversations"),
     turns,
     failedTurns: n(day, "failed_turns"),
     apiCalls: n(day, "api_calls"),
@@ -291,6 +342,7 @@ async function readDay(channel: BiaChannel, date: string): Promise<UsageDay> {
 function sumDays(days: UsageDay[]): UsageChannelReport["totals"] {
   return days.reduce(
     (acc, d) => ({
+      conversations: acc.conversations + d.conversations,
       turns: acc.turns + d.turns,
       failedTurns: acc.failedTurns + d.failedTurns,
       apiCalls: acc.apiCalls + d.apiCalls,
@@ -299,6 +351,7 @@ function sumDays(days: UsageDay[]): UsageChannelReport["totals"] {
       costUsd: Math.round((acc.costUsd + d.costUsd) * 1e6) / 1e6,
     }),
     {
+      conversations: 0,
       turns: 0,
       failedTurns: 0,
       apiCalls: 0,
@@ -328,6 +381,154 @@ export async function getUsageReport(daysRaw = DEFAULT_REPORT_DAYS): Promise<Usa
       app: { days: app, totals: sumDays(app) },
       whatsapp: { days: whatsapp, totals: sumDays(whatsapp) },
     },
+  };
+}
+
+// ─── Billing rollup ──────────────────────────────────────────────────────────
+
+/**
+ * Per-conversation rates charged to the client, and the currency they're in.
+ * Left unset the billing page shows counts with no amounts rather than invent a
+ * price — a wrong number on an invoice is worse than a missing one.
+ */
+function billingRates(): { app: number | null; whatsapp: number | null; currency: string } {
+  const parse = (raw: string | undefined): number | null => {
+    if (raw === undefined || raw.trim() === "") return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  return {
+    app: parse(process.env.BILL_RATE_APP_CONVERSATION),
+    whatsapp: parse(process.env.BILL_RATE_WHATSAPP_CONVERSATION),
+    currency: process.env.BILL_CURRENCY_SYMBOL || "₹",
+  };
+}
+
+export interface BillingLine {
+  channel: BiaChannel;
+  conversations: number;
+  messages: number;
+  rate: number | null;
+  amount: number | null;
+}
+
+export interface BillingDay {
+  date: string;
+  app: { conversations: number; messages: number };
+  whatsapp: { conversations: number; messages: number };
+}
+
+export interface BillingReport {
+  /** "2026-07" */
+  month: string;
+  monthLabel: string;
+  isCurrentMonth: boolean;
+  timeZone: string;
+  currency: string;
+  /** Selectable months, newest first — bounded by how long counters are kept. */
+  months: { key: string; label: string }[];
+  lines: BillingLine[];
+  totalConversations: number;
+  totalAmount: number | null;
+  /** What the month cost us in OpenAI charges — margin context, not an invoice line. */
+  ourOpenAiCostUsd: number;
+  redisAvailable: boolean;
+}
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function monthLabel(key: string): string {
+  const [y, m] = key.split("-");
+  return `${MONTH_NAMES[Number(m) - 1] ?? m} ${y}`;
+}
+
+/** Current month in the reporting timezone, as "YYYY-MM". */
+function currentMonthKey(): string {
+  return usageDateKey().slice(0, 7);
+}
+
+function datesInMonth(monthKey: string): string[] {
+  const [y, m] = monthKey.split("-").map(Number);
+  if (!y || !m) return [];
+  const today = usageDateKey();
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const out: string[] = [];
+  for (let d = 1; d <= lastDay; d++) {
+    const date = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    // Don't list days that haven't happened yet in the current month.
+    if (date > today) break;
+    out.push(date);
+  }
+  return out;
+}
+
+function recentMonths(count = 6): { key: string; label: string }[] {
+  const [y, m] = currentMonthKey().split("-").map(Number);
+  const out: { key: string; label: string }[] = [];
+  for (let i = 0; i < count; i++) {
+    const date = new Date(Date.UTC(y, (m ?? 1) - 1 - i, 1));
+    const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+    out.push({ key, label: monthLabel(key) });
+  }
+  return out;
+}
+
+/** Monthly, conversation-based rollup for invoicing. Missing days read as zero. */
+export async function getBillingReport(
+  monthRaw?: string
+): Promise<{ report: BillingReport; days: BillingDay[] }> {
+  const month = /^\d{4}-\d{2}$/.test(monthRaw ?? "") ? (monthRaw as string) : currentMonthKey();
+  const dates = datesInMonth(month);
+  const rates = billingRates();
+
+  const [appDays, waDays] = await Promise.all([
+    Promise.all(dates.map((d) => readDay("app", d))),
+    Promise.all(dates.map((d) => readDay("whatsapp", d))),
+  ]);
+
+  const appTotals = sumDays(appDays);
+  const waTotals = sumDays(waDays);
+
+  const line = (channel: BiaChannel, totals: UsageChannelReport["totals"]): BillingLine => {
+    const rate = rates[channel];
+    return {
+      channel,
+      conversations: totals.conversations,
+      messages: totals.turns,
+      rate,
+      amount: rate === null ? null : Math.round(totals.conversations * rate * 100) / 100,
+    };
+  };
+
+  // WhatsApp first — it is the larger line and the channel the client asked for.
+  const lines = [line("whatsapp", waTotals), line("app", appTotals)];
+  const priced = lines.filter((l) => l.amount !== null);
+
+  return {
+    report: {
+      month,
+      monthLabel: monthLabel(month),
+      isCurrentMonth: month === currentMonthKey(),
+      timeZone: REPORT_TIME_ZONE,
+      currency: rates.currency,
+      months: recentMonths(),
+      lines,
+      totalConversations: appTotals.conversations + waTotals.conversations,
+      totalAmount:
+        priced.length === 0
+          ? null
+          : Math.round(priced.reduce((a, l) => a + (l.amount ?? 0), 0) * 100) / 100,
+      ourOpenAiCostUsd: Math.round((appTotals.costUsd + waTotals.costUsd) * 1e6) / 1e6,
+      redisAvailable: redisClient.isReady,
+    },
+    days: dates.map((date, i) => ({
+      date,
+      app: { conversations: appDays[i].conversations, messages: appDays[i].turns },
+      whatsapp: { conversations: waDays[i].conversations, messages: waDays[i].turns },
+    })),
   };
 }
 

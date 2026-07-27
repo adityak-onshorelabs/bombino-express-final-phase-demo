@@ -95,12 +95,19 @@ BIA runs on OpenAI (`gpt-4o-mini`) with 5 tools — rates, tracking, guidance, e
 
 ### Usage tracking (`server/biaUsage.ts`)
 Every `handleChat` turn records tokens, OpenAI round-trips, tool names, latency, and success — **per channel, in separate Redis namespaces**, because the two are not comparable (app = one HTTP request with client-supplied history; WhatsApp = webhook-driven, guest-only, billed by Tata per 24h conversation).
-- `SupportChatContext.channel` (`"app" | "whatsapp"`) + `waId` drive attribution — required fields, so a new call site can't silently mis-attribute
-- Keys: `bia:usage:<channel>:<IST date>` (hash), `:tools` (histogram), `:actors` (set → uniques). 35-day TTL
-- Actors: `dbUserId` or `"guest"` on the app — **all app guests collapse into one bucket**, so app `uniqueActors` ≈ logged-in users + 1; WhatsApp uses a truncated SHA-256 of the number (phone numbers must not sit in Redis for weeks), so its count is exact and proxies Tata conversation billing
+- `SupportChatContext.channel` (`"app" | "whatsapp"`) + `actorKey` drive attribution — required fields, so a new call site can't silently mis-attribute
+- Keys: `bia:usage:<channel>:<IST date>` (hash), `:tools` (histogram), `:actors` (set → uniques). **400-day TTL** — counters back client invoices, so a dispute over March needs March
+- `actorKey` is always hashed (truncated SHA-256): `wa_…` from the number on WhatsApp, `app_u_…` from `dbUserId` or `app_ip_…` from the IP for app guests. **Not `req.sessionID`** — `saveUninitialized: false` means an un-modified session gets a fresh id every request, so every guest message would look like a new person. Hashed IP mirrors what `supportRateLimit` already keys guests on: coarse (one office = one bucket) but stable, and coarse errs toward under-counting
 - WhatsApp-only counters (no app equivalent): `parts_sent` (what Tata actually transmits — one reply can split), `rate_limited`, `duplicate`
-- Report: `GET /api/support/usage/:secret?days=7` (JSON) and `…/:secret/view` (dashboard, `server/usageDashboard.ts`) — both gated by `BIA_USAGE_SECRET` (unset ⇒ 503); cost from `OPENAI_PRICE_*_PER_M` env, defaults $0.15/$0.60 per 1M
-- Dashboard is one self-contained server-rendered file: inline CSS/SVG, no deps, no build step. Series colour tracks the channel (app blue / WhatsApp orange, CVD-validated in light **and** dark); range presets are plain relative links, so the secret never appears in the markup
+- **Conversations** (`startConversation`, key `bia:conv:<channel>:<actorKey>`) are the billing unit: WhatsApp = fixed 24h window from the first message, never extended (matches Tata's own unit); app = 30-min sliding idle gap. `SET NX` so concurrent messages can't double-count, and it fails *closed* when Redis is down — under-billing beats a disputed invoice. Counted before the WhatsApp throttle check, since a throttled user still gets a reply
+- Three views, all gated by `BIA_USAGE_SECRET` (unset ⇒ 503), all `no-store` + noindex with relative links so the secret never enters the markup:
+  | URL | For | Built by |
+  |---|---|---|
+  | `…/usage/:secret` | JSON | `biaUsage.getUsageReport` |
+  | `…/usage/:secret/view` | technical dashboard | `server/usageDashboard.ts` |
+  | `…/usage/:secret/billing?month=YYYY-MM` | plain-English monthly invoice summary | `server/billingPage.ts` |
+- Billing page is deliberately jargon-free (no tokens/latency/tool names), print-friendly, and shows amounts only when `BILL_RATE_WHATSAPP_CONVERSATION` / `BILL_RATE_APP_CONVERSATION` are set — it never guesses a price. `BILL_CURRENCY_SYMBOL` defaults `₹`
+- Both pages are self-contained server-rendered files: inline CSS/SVG, no deps, no build step. Series colour tracks the channel (app blue / WhatsApp orange, CVD-validated in light **and** dark)
 - Redis down ⇒ counters no-op, but the `[biaUsage] {json}` log line is always emitted first, so Railway logs stay a complete record
 - `withRedis` lives in `server/redisSafe.ts` — shared with `whatsappSession.ts`
 

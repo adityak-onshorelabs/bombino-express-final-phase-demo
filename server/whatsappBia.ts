@@ -4,7 +4,7 @@
  * unavailable and BIA tells the user to log in to the app for that.
  */
 
-import { recordWhatsAppEvent } from "./biaUsage.js";
+import { hashActor, recordWhatsAppEvent, startConversation } from "./biaUsage.js";
 import { handleChat } from "./supportAgent.js";
 import type { ChatMessage, SupportChatContext } from "./supportTypes.js";
 import { SUPPORT_CHAT_MAX_CONTENT_LENGTH } from "./supportTypes.js";
@@ -22,14 +22,14 @@ const FALLBACK_REPLY =
   "I'm having trouble responding right now. Please try again in a moment.";
 
 /** Guest context: itdClient falls back to the shared company token for rates/tracking. */
-function guestContext(waId: string): SupportChatContext {
+function guestContext(actorKey: string): SupportChatContext {
   return {
     user: null,
     itdToken: null,
     dbUserId: null,
     sessionId: null,
     channel: "whatsapp",
-    waId,
+    actorKey,
   };
 }
 
@@ -64,8 +64,13 @@ export async function handleWhatsAppMessage(message: InboundMessage): Promise<vo
     }
 
     const text = message.text.slice(0, SUPPORT_CHAT_MAX_CONTENT_LENGTH);
+    const actorKey = `wa_${hashActor(waId)}`;
 
     void whatsappClient.markAsRead(messageId).catch(() => {});
+
+    // Before the throttle check on purpose: a throttled message still gets a
+    // reply, which opens a billable 24h window on Tata's side either way.
+    await startConversation("whatsapp", actorKey);
 
     if (await isRateLimited(waId)) {
       void recordWhatsAppEvent({ kind: "rate_limited" });
@@ -76,7 +81,7 @@ export async function handleWhatsAppMessage(message: InboundMessage): Promise<vo
     const history = await getHistory(waId);
     const messages: ChatMessage[] = [...history, { role: "user", content: text }];
 
-    const reply = await handleChat(messages, guestContext(waId));
+    const reply = await handleChat(messages, guestContext(actorKey));
 
     await appendTurn(waId, text, reply);
     const ids = await deliver(waId, reply);

@@ -40,11 +40,15 @@ import {
 import { handleWhatsAppMessage } from "./whatsappBia.js";
 import type { ChatMessage, SupportChatContext } from "./supportTypes";
 import {
+  getBillingReport,
   getUsageReport,
+  hashActor,
   isUsageReportConfigured,
+  startConversation,
   verifyUsageSecret,
 } from "./biaUsage.js";
 import { renderUsageDashboard } from "./usageDashboard.js";
+import { renderBillingPage } from "./billingPage.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
@@ -595,14 +599,25 @@ export async function registerRoutes(
       }
     }
 
+    // Conversation/user key for the app channel. Anonymous visitors can't be keyed
+    // on req.sessionID — saveUninitialized is false, so an un-modified session gets
+    // a fresh id every request and every message would look like a new person.
+    // Hashed IP is what supportChatRateLimit already keys guests on: coarse (one
+    // office shares a bucket) but stable, and coarse errs toward under-counting.
+    const actorKey = dbUserId
+      ? `app_u_${hashActor(dbUserId)}`
+      : `app_ip_${hashActor(req.ip || req.socket.remoteAddress || "unknown")}`;
+
     const context: SupportChatContext = {
       user: req.session.user ?? null,
       itdToken: req.session.itdToken ?? null,
       dbUserId,
       sessionId: activeSessionId,
       channel: "app",
-      waId: null,
+      actorKey,
     };
+
+    void startConversation("app", actorKey);
 
     try {
       const message = await handleChat(chatMessages, context);
@@ -748,6 +763,27 @@ export async function registerRoutes(
       .set({ "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" })
       .type("html")
       .send(renderUsageDashboard(report));
+  });
+
+  // GET /api/support/usage/:secret/billing?month=YYYY-MM — plain-English monthly
+  // summary for whoever raises the invoice. Same gate as the other two.
+  app.get("/api/support/usage/:secret/billing", async (req: Request, res: Response) => {
+    if (!isUsageReportConfigured()) {
+      res.status(503).send("Usage reporting not configured");
+      return;
+    }
+    if (!verifyUsageSecret(req.params.secret)) {
+      res.status(404).send("Not found");
+      return;
+    }
+
+    const month = typeof req.query.month === "string" ? req.query.month : undefined;
+    const { report, days } = await getBillingReport(month);
+    res
+      .status(200)
+      .set({ "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" })
+      .type("html")
+      .send(renderBillingPage(report, days));
   });
 
   // ── Support: BIA on WhatsApp (Tata Tele Omni) ─────────────────────────────
