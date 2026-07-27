@@ -77,6 +77,7 @@ No test framework configured yet.
 ## BIA (AI support assistant)
 BIA runs on OpenAI (`gpt-4o-mini`) with 5 tools — rates, tracking, guidance, escalation, shipment history.
 - Agent: `server/supportAgent.ts` (`handleChat(messages, context)`), content in `server/supportContent.ts`
+- **Tracking scope**: ITD requires `customer_code` and scopes results to it. `ITD_CUSTOMER_CODE` answers "AWB number not found" for *every* docket, including ones this app booked — the account that sees all of them is `"superadmin"`. BIA's `get_tracking_summary` sends that plus the company token (never the caller's session token), so anyone can track any AWB; `GET /api/shipments/track/:trackingNo` sends `user.code` when logged in and `"superadmin"` for guests
 - **In-app channel**: `POST /api/support/chat` — session-authed, history in Supabase `support_sessions`
 - **WhatsApp channel** (Tata Tele Omni BSP, base `https://wb.omni.tatatelebusiness.com`): `POST /api/whatsapp/webhook/:secret`
   - `server/whatsapp.ts` — transport: webhook secret check, inbound parse, sends

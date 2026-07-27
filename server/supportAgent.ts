@@ -123,6 +123,9 @@ export function normalizeTrackingToSummaryString(
 const BOOKABLE_ORIGIN = "IN";
 const BOOKABLE_DESTINATION = "US";
 
+/** ITD account whose tracking scope covers every docket, not just one customer's. */
+const TRACKING_CUSTOMER_CODE = "superadmin";
+
 function formatInr(n: number): string {
   return `₹${n.toLocaleString("en-IN", {
     minimumFractionDigits: 0,
@@ -271,9 +274,17 @@ export async function executeGetTrackingSummary(
       return FALLBACK_TRACKING_TOO_LONG;
     }
 
+    // ITD requires a customer_code and scopes results to it. Passing none fell
+    // back to ITD_CUSTOMER_CODE, under which the tracking API answers "AWB number
+    // not found" for *every* docket — including ones this app booked. The account
+    // that can see all of them is "superadmin", which is what the app's own
+    // tracking route already sends for guests (see routes.ts). BIA must let anyone
+    // track any AWB, so it always uses that account plus the company token,
+    // rather than the caller's session token.
     const results = await itdClient.trackShipment(
       trackingNo,
-      context.itdToken ?? undefined
+      undefined,
+      TRACKING_CUSTOMER_CODE
     );
     return normalizeTrackingToSummaryString(results);
   } catch {
