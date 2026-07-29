@@ -1,11 +1,12 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ShieldCheck,
   FileText,
-  Image as ImageIcon,
   Loader2,
   ChevronDown,
-  ExternalLink,
+  Maximize2,
+  X,
   AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -13,13 +14,13 @@ import { isAndroid } from '@/lib/platform';
 import type { KycOnFile } from '@/hooks/useKycOnFile';
 
 // Android WebViews will not render a PDF in an iframe — same split used for AWB labels.
-// The chunk pulls in pdfjs-dist; if that fails to load, degrade to the open-in-new-tab
-// link rather than taking the whole page down.
+// The chunk pulls in pdfjs-dist; if that fails to load, say so in place rather
+// than taking the whole page down.
 const PdfCanvasViewer = lazy(() =>
   import('@/components/PdfCanvasViewer').catch(() => ({
     default: (_props: { base64: string; title?: string }) => (
       <div className="p-3 text-xs text-muted-foreground">
-        Inline preview unavailable on this device — use “Open full size” below.
+        Inline preview unavailable on this device.
       </div>
     ),
   })),
@@ -81,6 +82,7 @@ export function KycOnFileCard({
   className,
 }: KycOnFileCardProps): React.JSX.Element {
   const [open, setOpen] = useState(defaultOpen);
+  const [fullscreen, setFullscreen] = useState(false);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
   const [blobMime, setBlobMime] = useState('');
@@ -135,6 +137,106 @@ export function KycOnFileCard({
       if (url) URL.revokeObjectURL(url);
     };
   }, [open, kyc.updated_at, kyc.mime_type]);
+
+  // Full-screen preview owns a history entry, so the Android hardware back
+  // button and the browser back gesture close the overlay instead of leaving
+  // the page. Escape does the same on desktop.
+  useEffect(() => {
+    if (!fullscreen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.history.pushState({ kycFullPreview: true }, '');
+
+    const handlePop = (): void => setFullscreen(false);
+    const handleKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') closeFullscreen();
+    };
+    window.addEventListener('popstate', handlePop);
+    window.addEventListener('keydown', handleKey);
+
+    return () => {
+      window.removeEventListener('popstate', handlePop);
+      window.removeEventListener('keydown', handleKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [fullscreen]);
+
+  function closeFullscreen(): void {
+    // Pop the entry pushed on open so history stays balanced; the popstate
+    // handler flips the state back.
+    if ((window.history.state as { kycFullPreview?: boolean } | null)?.kycFullPreview) {
+      window.history.back();
+      return;
+    }
+    setFullscreen(false);
+  }
+
+  function renderMedia(variant: 'inline' | 'full'): React.JSX.Element | null {
+    if (!objectUrl) return null;
+    const full = variant === 'full';
+
+    if (isImage) {
+      return (
+        <img
+          src={objectUrl}
+          alt={`${kyc.document_type} document`}
+          className={cn(
+            'object-contain bg-white',
+            full
+              ? 'w-full h-full'
+              : 'w-full max-h-64 rounded-lg border border-border',
+          )}
+          data-testid={full ? 'img-kyc-preview-full' : 'img-kyc-preview'}
+        />
+      );
+    }
+
+    if (isPdf && useCanvasPdf) {
+      if (!pdfBase64) return null;
+      return (
+        <Suspense
+          fallback={
+            <div className={cn('grid place-items-center text-xs text-muted-foreground', full ? 'h-full' : 'h-64')}>
+              Loading PDF…
+            </div>
+          }
+        >
+          <div
+            className={cn(
+              'overflow-y-auto bg-white',
+              full ? 'h-full' : 'max-h-64 rounded-lg border border-border',
+            )}
+          >
+            <PdfCanvasViewer base64={pdfBase64} title={`${kyc.document_type} document`} />
+          </div>
+        </Suspense>
+      );
+    }
+
+    if (isPdf) {
+      return (
+        <iframe
+          src={objectUrl}
+          title={`${kyc.document_type} document`}
+          className={cn(
+            'w-full bg-white',
+            full ? 'h-full border-0' : 'h-64 rounded-lg border border-border',
+          )}
+          data-testid={full ? 'iframe-kyc-preview-full' : 'iframe-kyc-preview'}
+        />
+      );
+    }
+
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-white p-3">
+        <FileText className="w-4 h-4 text-muted-foreground" />
+        <p className="text-xs text-muted-foreground truncate">
+          {kyc.original_filename || 'Preview not supported for this file type'}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -194,63 +296,57 @@ export function KycOnFileCard({
 
           {!loading && !error && objectUrl && (
             <div className="space-y-2">
-              {isImage && (
-                <img
-                  src={objectUrl}
-                  alt={`${kyc.document_type} document`}
-                  className="w-full max-h-64 object-contain rounded-lg border border-border bg-white"
-                  data-testid="img-kyc-preview"
-                />
-              )}
+              {renderMedia('inline')}
 
-              {isPdf && useCanvasPdf && pdfBase64 && (
-                <Suspense
-                  fallback={
-                    <div className="h-64 grid place-items-center text-xs text-muted-foreground">
-                      Loading PDF…
-                    </div>
-                  }
-                >
-                  <div className="max-h-64 overflow-y-auto rounded-lg border border-border bg-white">
-                    <PdfCanvasViewer
-                      base64={pdfBase64}
-                      title={`${kyc.document_type} document`}
-                    />
-                  </div>
-                </Suspense>
-              )}
-
-              {isPdf && !useCanvasPdf && (
-                <iframe
-                  src={objectUrl}
-                  title={`${kyc.document_type} document`}
-                  className="w-full h-64 rounded-lg border border-border bg-white"
-                  data-testid="iframe-kyc-preview"
-                />
-              )}
-
-              {!isImage && !isPdf && (
-                <div className="flex items-center gap-2 rounded-lg border border-border bg-white p-3">
-                  <FileText className="w-4 h-4 text-muted-foreground" />
-                  <p className="text-xs text-muted-foreground truncate">
-                    {kyc.original_filename || 'Document ready to open'}
-                  </p>
-                </div>
-              )}
-
-              <a
-                href={objectUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => setFullscreen(true)}
                 className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary"
-                data-testid="link-kyc-open-full"
+                data-testid="button-kyc-open-full"
               >
-                {isImage ? <ImageIcon className="w-3.5 h-3.5" /> : <ExternalLink className="w-3.5 h-3.5" />}
-                Open full size
-              </a>
+                <Maximize2 className="w-3.5 h-3.5" />
+                View full screen
+              </button>
             </div>
           )}
         </div>
+      )}
+
+      {/* Portalled: a transformed ancestor would otherwise trap `position: fixed`. */}
+      {fullscreen && objectUrl && createPortal(
+        <div
+          className="fixed inset-0 z-[100] bg-white flex flex-col"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${kyc.document_type} document preview`}
+          data-testid="kyc-preview-fullscreen"
+        >
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border bg-white safe-top">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground truncate">
+                {kyc.document_type} ••{kyc.last_four}
+              </p>
+              {kyc.original_filename && (
+                <p className="text-[11px] text-muted-foreground truncate">
+                  {kyc.original_filename}
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={closeFullscreen}
+              aria-label="Close preview"
+              className="w-11 h-11 -mr-2 flex items-center justify-center rounded-full text-foreground hover:bg-muted shrink-0"
+              data-testid="button-kyc-preview-close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-auto bg-muted/30 p-2 safe-bottom">
+            {renderMedia('full')}
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
