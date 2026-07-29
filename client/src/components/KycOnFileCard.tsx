@@ -13,7 +13,17 @@ import { isAndroid } from '@/lib/platform';
 import type { KycOnFile } from '@/hooks/useKycOnFile';
 
 // Android WebViews will not render a PDF in an iframe — same split used for AWB labels.
-const PdfCanvasViewer = lazy(() => import('@/components/PdfCanvasViewer'));
+// The chunk pulls in pdfjs-dist; if that fails to load, degrade to the open-in-new-tab
+// link rather than taking the whole page down.
+const PdfCanvasViewer = lazy(() =>
+  import('@/components/PdfCanvasViewer').catch(() => ({
+    default: (_props: { base64: string; title?: string }) => (
+      <div className="p-3 text-xs text-muted-foreground">
+        Inline preview unavailable on this device — use “Open full size” below.
+      </div>
+    ),
+  })),
+);
 
 interface KycOnFileCardProps {
   kyc: KycOnFile;
@@ -22,14 +32,15 @@ interface KycOnFileCardProps {
   className?: string;
 }
 
-function formatFileSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '—';
+function formatFileSize(bytes: number | undefined): string {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return '—';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function formatUploadedAt(iso: string): string {
+function formatUploadedAt(iso: string | undefined): string {
+  if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('en-IN', {
@@ -72,11 +83,14 @@ export function KycOnFileCard({
   const [open, setOpen] = useState(defaultOpen);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
+  const [blobMime, setBlobMime] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const isImage = kyc.mime_type.startsWith('image/');
-  const isPdf = kyc.mime_type === 'application/pdf';
+  // Falls back to the fetched blob's own type when the summary carries no metadata.
+  const mimeType = kyc.mime_type ?? blobMime;
+  const isImage = mimeType.startsWith('image/');
+  const isPdf = mimeType === 'application/pdf';
   const useCanvasPdf = isPdf && isAndroid();
 
   // Re-fetch whenever the stored document changes (updated_at moves on re-upload).
@@ -96,7 +110,8 @@ export function KycOnFileCard({
         if (!res.ok) throw new Error('Could not load your document.');
         const blob = await res.blob();
         if (revoked) return;
-        if (useCanvasPdf) {
+        setBlobMime(blob.type);
+        if ((kyc.mime_type ?? blob.type) === 'application/pdf' && isAndroid()) {
           const base64 = await blobToBase64(blob);
           if (revoked) return;
           setPdfBase64(base64);
@@ -116,9 +131,10 @@ export function KycOnFileCard({
       revoked = true;
       setObjectUrl(null);
       setPdfBase64(null);
+      setBlobMime('');
       if (url) URL.revokeObjectURL(url);
     };
-  }, [open, kyc.updated_at, useCanvasPdf]);
+  }, [open, kyc.updated_at, kyc.mime_type]);
 
   return (
     <div
@@ -153,7 +169,7 @@ export function KycOnFileCard({
       <div className="grid grid-cols-2 gap-3 border-t border-green-200/70 pt-3">
         <DetailRow label="Document type" value={kyc.document_type} />
         <DetailRow label="Number" value={`•••• ${kyc.last_four}`} />
-        <DetailRow label="File" value={kyc.original_filename} />
+        <DetailRow label="File" value={kyc.original_filename || '—'} />
         <DetailRow
           label="Uploaded"
           value={`${formatUploadedAt(kyc.updated_at)} · ${formatFileSize(kyc.file_size_bytes)}`}
@@ -217,7 +233,7 @@ export function KycOnFileCard({
                 <div className="flex items-center gap-2 rounded-lg border border-border bg-white p-3">
                   <FileText className="w-4 h-4 text-muted-foreground" />
                   <p className="text-xs text-muted-foreground truncate">
-                    {kyc.original_filename}
+                    {kyc.original_filename || 'Document ready to open'}
                   </p>
                 </div>
               )}

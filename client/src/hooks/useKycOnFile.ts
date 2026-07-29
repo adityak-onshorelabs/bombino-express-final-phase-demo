@@ -3,10 +3,15 @@ import { useQuery, type QueryClient } from '@tanstack/react-query';
 export interface KycOnFile {
   document_type: string;
   last_four: string;
-  original_filename: string;
-  mime_type: string;
-  file_size_bytes: number;
-  updated_at: string;
+  /**
+   * File metadata was added after the first KYC release — a server running the
+   * older build returns only the two fields above, so treat these as optional
+   * and never dereference them unguarded.
+   */
+  original_filename?: string;
+  mime_type?: string;
+  file_size_bytes?: number;
+  updated_at?: string;
 }
 
 export const KYC_QUERY_KEY = ['/api/kyc/me'] as const;
