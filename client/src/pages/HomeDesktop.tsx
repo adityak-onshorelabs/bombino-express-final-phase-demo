@@ -1,6 +1,5 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation } from 'wouter';
-import { useQuery } from '@tanstack/react-query';
 import {
   Search,
   ArrowRight,
@@ -14,6 +13,7 @@ import {
   PackageOpen,
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
+import { useKycOnFile } from '@/hooks/useKycOnFile';
 import { StatusBadge } from '@/components/StatusBadge';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
@@ -399,16 +399,7 @@ function SupportWidget() {
 }
 
 function KycHomeTip() {
-  const { data: kycOnFile } = useQuery({
-    queryKey: ['/api/kyc/me'],
-    queryFn: async () => {
-      const res = await fetch('/api/kyc/me', { credentials: 'include' });
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error('Failed to load KYC status');
-      return res.json() as Promise<{ document_type: string; last_four: string }>;
-    },
-    retry: false,
-  });
+  const { data: kycOnFile } = useKycOnFile();
 
   if (kycOnFile) {
     return (

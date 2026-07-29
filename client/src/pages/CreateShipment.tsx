@@ -18,12 +18,13 @@ import {
   X,
 } from 'lucide-react';
 import { useLocation } from 'wouter';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { BottomNav } from '@/components/BottomNav';
 import { CorridorRouteInfo } from '@/components/CorridorRouteInfo';
 import { AddressPicker, type SavedAddress } from '@/components/AddressPicker';
 import { KycUpload, type KycUploadResult } from '@/components/KycUpload';
-import { KycOnFileBadge } from '@/components/KycOnFileBadge';
+import { KycOnFileCard } from '@/components/KycOnFileCard';
+import { useKycOnFile } from '@/hooks/useKycOnFile';
 import { ShipmentContentSearch } from '@/components/ShipmentContentSearch';
 import {
   DimensionPresetSheet,
@@ -395,17 +396,7 @@ export default function CreateShipment() {
 
   const [kycResult, setKycResult] = useState<KycUploadResult | null>(null);
 
-  const { data: kycOnFile } = useQuery({
-    queryKey: ['/api/kyc/me'],
-    queryFn: async () => {
-      const res = await fetch('/api/kyc/me', { credentials: 'include' });
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error('Failed to load KYC status');
-      return res.json() as Promise<{ document_type: string; last_four: string }>;
-    },
-    enabled: isLoggedIn,
-    retry: false,
-  });
+  const { data: kycOnFile } = useKycOnFile({ enabled: isLoggedIn });
 
   const [stepError, setStepError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
@@ -1375,10 +1366,7 @@ export default function CreateShipment() {
             </div>
 
             {kycOnFile ? (
-              <KycOnFileBadge
-                documentType={kycOnFile.document_type}
-                lastFour={kycOnFile.last_four}
-              />
+              <KycOnFileCard kyc={kycOnFile} />
             ) : (
               <KycUpload
                 onValidChange={setKycResult}

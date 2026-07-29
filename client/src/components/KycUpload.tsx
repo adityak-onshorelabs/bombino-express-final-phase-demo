@@ -1,5 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { CloudUpload, CheckCircle2, XCircle, Loader2, FileText } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { publishKycOnFile, type KycOnFile } from '@/hooks/useKycOnFile';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import {
@@ -21,7 +23,8 @@ export interface KycUploadResult {
 type UploadStatus = 'idle' | 'pending' | 'uploading' | 'success' | 'error';
 
 interface KycUploadProps {
-  onValidChange: (result: KycUploadResult | null) => void;
+  /** Optional — the shared KYC cache is updated regardless of this callback. */
+  onValidChange?: (result: KycUploadResult | null) => void;
   fieldErrors?: {
     document_no?: boolean;
     file?: boolean;
@@ -95,7 +98,10 @@ function StatusPill({ status }: { status: UploadStatus }) {
   );
 }
 
-export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React.JSX.Element {
+export function KycUpload({
+  onValidChange = () => undefined,
+  fieldErrors,
+}: KycUploadProps): React.JSX.Element {
   const [selectedDocType, setSelectedDocType] = useState(KYC_DOCUMENT_TYPE);
   const [docNoRaw, setDocNoRaw] = useState('');
   const [docNoDisplay, setDocNoDisplay] = useState('');
@@ -104,6 +110,7 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
   const [uploadResult, setUploadResult] = useState<KycUploadResult | null>(null);
   const [selectedFileName, setSelectedFileName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
   /** File chosen before document number is valid — upload runs once number is complete */
   const pendingFileRef = useRef<File | null>(null);
   /** Document number last successfully uploaded — invalidate if it changes */
@@ -167,15 +174,21 @@ export function KycUpload({ onValidChange, fieldErrors }: KycUploadProps): React
         throw new Error(body.message);
       }
 
-      const data = await res.json() as {
-        capability_id: string;
-        document_type: string;
-        last_four: string;
-      };
+      const data = await res.json() as KycOnFile & { capability_id: string };
       const result: KycUploadResult = {
         document_type: data.document_type,
         last_four: data.last_four,
       };
+      // Publish before notifying the parent so every screen reading
+      // `useKycOnFile()` reflects the new document without a reload.
+      publishKycOnFile(queryClient, {
+        document_type: data.document_type,
+        last_four: data.last_four,
+        original_filename: data.original_filename,
+        mime_type: data.mime_type,
+        file_size_bytes: data.file_size_bytes,
+        updated_at: data.updated_at,
+      });
       setUploadResult(result);
       setUploadStatus('success');
       pendingFileRef.current = null;

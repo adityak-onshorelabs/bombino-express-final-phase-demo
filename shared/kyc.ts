@@ -61,14 +61,26 @@ export function buildItdKycPayload(
 export interface KycSummary {
   document_type: string;
   last_four: string;
+  original_filename: string;
+  mime_type: string;
+  file_size_bytes: number;
+  updated_at: string;
 }
 
 export function toKycSummary(row: {
   document_type: string;
   document_no: string;
+  original_filename: string;
+  mime_type: string;
+  file_size_bytes: number;
+  updated_at: string;
 }): KycSummary {
   return {
     document_type: row.document_type,
     last_four: maskDocumentNo(row.document_no),
+    original_filename: row.original_filename,
+    mime_type: row.mime_type,
+    file_size_bytes: row.file_size_bytes,
+    updated_at: row.updated_at,
   };
 }

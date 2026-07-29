@@ -9,6 +9,9 @@ This document records the current KYC storage posture and deferred work.
 - ITD receives a stable capability URL: `{PUBLIC_URL}/api/kyc/documents/{capability_id}/file`.
 - The capability UUID is generated on first upload and **never rotated** on replace; the file behind the URL is overwritten.
 - Access to bytes is server-side only (service-role Supabase client); browsers and ITD hit the app-proxied serve endpoint.
+- Owner preview: `GET /api/kyc/me/file` streams the **session user's own** document (auth required, no capability id in the URL). Used by the in-app preview card.
+- `GET /api/kyc/me` returns metadata only — `document_type`, `last_four`, `original_filename`, `mime_type`, `file_size_bytes`, `updated_at` — never the raw number or bytes.
+- Both KYC serve endpoints send `Cache-Control: no-store`, since a replace reuses the same `capability_id`.
 
 ## Accepted risk (confirm with Anas)
 
