@@ -32,7 +32,29 @@ function logError(operation: string, error: { message?: string; code?: string } 
   });
 }
 
-export async function getKycByUserId(userId: string): Promise<KycDocumentRow | null> {
+const META_COLUMNS =
+  "id, user_id, capability_id, document_type, document_no, original_filename, mime_type, file_size_bytes, created_at, updated_at";
+
+/** Metadata only — never pulls the base64 blob, which can be several MB. */
+export async function getKycByUserId(userId: string): Promise<KycDocumentMeta | null> {
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("kyc_documents")
+    .select(META_COLUMNS)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    logError("getKycByUserId", error);
+    return null;
+  }
+  return data as KycDocumentMeta | null;
+}
+
+/** Full row including file_data — for serving the owner their own document. */
+export async function getKycFileByUserId(userId: string): Promise<KycDocumentRow | null> {
   const client = getClient();
   if (!client) return null;
 
@@ -43,7 +65,7 @@ export async function getKycByUserId(userId: string): Promise<KycDocumentRow | n
     .maybeSingle();
 
   if (error) {
-    logError("getKycByUserId", error);
+    logError("getKycFileByUserId", error);
     return null;
   }
   return data as KycDocumentRow | null;
@@ -101,9 +123,7 @@ export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocum
         updated_at: now,
       })
       .eq("user_id", input.user_id)
-      .select(
-        "id, user_id, capability_id, document_type, document_no, original_filename, mime_type, file_size_bytes, created_at, updated_at"
-      )
+      .select(META_COLUMNS)
       .single();
 
     if (error) {
@@ -127,9 +147,7 @@ export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocum
       created_at: now,
       updated_at: now,
     })
-    .select(
-      "id, user_id, capability_id, document_type, document_no, original_filename, mime_type, file_size_bytes, created_at, updated_at"
-    )
+    .select(META_COLUMNS)
     .single();
 
   if (error) {

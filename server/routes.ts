@@ -39,6 +39,7 @@ import { lookupPostal } from "./postalLookup.js";
 import {
   getKycByCapabilityId,
   getKycByUserId,
+  getKycFileByUserId,
   upsertKycDocument,
 } from "./kycDb.js";
 import {
@@ -863,6 +864,9 @@ export async function registerRoutes(
         return;
       }
 
+      // Never cache: a fresh upload must be visible on the next read.
+      res.set("Cache-Control", "no-store");
+
       const kyc = await getKycByUserId(req.session.dbUserId);
       if (!kyc) {
         res.status(404).json({ message: "KYC not on file" });
@@ -870,6 +874,39 @@ export async function registerRoutes(
       }
 
       res.json(toKycSummary(kyc));
+    }
+  );
+
+  // GET /api/kyc/me/file — serve the logged-in user's own KYC document for preview
+  app.get(
+    "/api/kyc/me/file",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        res.status(401).json({ message: "Not authenticated" });
+        return;
+      }
+
+      try {
+        const doc = await getKycFileByUserId(req.session.dbUserId);
+        if (!doc) {
+          res.status(404).json({ message: "KYC not on file" });
+          return;
+        }
+
+        const buffer = Buffer.from(doc.file_data, "base64");
+        res.set({
+          "Content-Type": doc.mime_type,
+          "Content-Length": String(buffer.length),
+          "Cache-Control": "no-store",
+          "Content-Disposition": `inline; filename="${doc.original_filename.replace(/"/g, "")}"`,
+        });
+        res.send(buffer);
+      } catch (err) {
+        console.error("[GET /api/kyc/me/file] failed:", err);
+        res.status(500).json({ message: "Failed to retrieve document." });
+      }
     }
   );
 
@@ -984,7 +1021,8 @@ export async function registerRoutes(
       res.set({
         "Content-Type": doc.mime_type,
         "Content-Length": String(buffer.length),
-        "Cache-Control": "private, max-age=3600",
+        // Re-uploads reuse the capability_id, so a cached copy would go stale.
+        "Cache-Control": "no-store",
         "Content-Disposition": `inline; filename="${doc.original_filename}"`,
       });
       res.send(buffer);
