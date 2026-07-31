@@ -27,6 +27,11 @@ import {
   downloadPdfBlob,
   openPdfOverlayOrDownload,
 } from '@/lib/pdfUtils';
+import {
+  SHIPMENT_DOCUMENT_META,
+  SHIPMENT_DOCUMENT_ORDER,
+  type ShipmentDocumentKind,
+} from '@/lib/shipmentDocuments';
 import { isAndroid } from '@/lib/platform';
 import { shareViaCapacitor } from '@/lib/nativeShare';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
@@ -266,41 +271,52 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-// ─── Action row (Label · Invoice · WhatsApp · Call) ────────────────────────
+// ─── Action row (documents · WhatsApp · Call) ──────────────────────────────
+const DOCUMENT_BUTTONS: Record<
+  ShipmentDocumentKind,
+  { testId: string; text: string; icon: typeof Download }
+> = {
+  label: { testId: 'button-download-label', text: 'AWB Label', icon: Download },
+  boxLabel: { testId: 'button-download-box-label', text: 'Box Label', icon: Download },
+  postalLabel: {
+    testId: 'button-download-postal-label',
+    text: 'Postal Label',
+    icon: Download,
+  },
+  invoice: { testId: 'button-download-invoice', text: 'Invoice', icon: FileText },
+};
+
 function ActionRow({
-  onDownloadLabel,
-  onDownloadInvoice,
-  showLabel,
+  onDownloadDocument,
+  documents,
 }: {
-  onDownloadLabel: () => void;
-  onDownloadInvoice?: () => void;
-  showLabel: boolean;
+  onDownloadDocument: (kind: ShipmentDocumentKind) => void;
+  documents: ShipmentDocumentKind[];
 }) {
+  const available = SHIPMENT_DOCUMENT_ORDER.filter((k) => documents.includes(k));
+
   return (
     <section className="mt-10 md:mt-12 pt-6 border-t border-border">
       <div className="flex flex-wrap items-center gap-2">
-        {showLabel && (
-          <button
-            type="button"
-            onClick={onDownloadLabel}
-            className="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[lab(34.0831_-9.57756_-27.7093)] text-white text-sm font-semibold hover:bg-[#2F4468] transition-colors"
-            data-testid="button-download-label"
-          >
-            <Download className="w-4 h-4" />
-            AWB Label
-          </button>
-        )}
-        {onDownloadInvoice && (
-          <button
-            type="button"
-            onClick={onDownloadInvoice}
-            className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:border-foreground/30 hover:bg-muted/40 transition-colors"
-            data-testid="button-download-invoice"
-          >
-            <FileText className="w-4 h-4 text-muted-foreground" />
-            Invoice
-          </button>
-        )}
+        {available.map((kind, i) => {
+          const { testId, text, icon: Icon } = DOCUMENT_BUTTONS[kind];
+          return (
+            <button
+              key={kind}
+              type="button"
+              onClick={() => onDownloadDocument(kind)}
+              className={
+                i === 0
+                  ? 'inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[lab(34.0831_-9.57756_-27.7093)] text-white text-sm font-semibold hover:bg-[#2F4468] transition-colors'
+                  : 'inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:border-foreground/30 hover:bg-muted/40 transition-colors'
+              }
+              data-testid={testId}
+            >
+              <Icon className={i === 0 ? 'w-4 h-4' : 'w-4 h-4 text-muted-foreground'} />
+              {text}
+            </button>
+          );
+        })}
         <div className="flex-1" />
         <a
           href="https://api.whatsapp.com/send?phone=917045999553"
@@ -332,6 +348,7 @@ export default function ShipmentDetails() {
   const [copied, setCopied] = useState(false);
   const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
   const [pdfTitle, setPdfTitle] = useState('Shipment Label');
+  const [pdfFileName, setPdfFileName] = useState('shipment-label.pdf');
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -363,6 +380,24 @@ export default function ShipmentDetails() {
     retry: false,
   });
 
+  // Which printables this shipment actually has — invoice and postal label are
+  // only present on some shipments, so buttons are driven by this.
+  const { data: documentsData } = useQuery<{ documents: ShipmentDocumentKind[] }>({
+    queryKey: ['/api/shipments', awb, 'documents'],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/shipments/${encodeURIComponent(awb)}/documents`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) return { documents: [] };
+      return (await res.json()) as { documents: ShipmentDocumentKind[] };
+    },
+    enabled: !!awb,
+    retry: false,
+  });
+
+  const availableDocuments = documentsData?.documents ?? [];
+
   const copyAWB = () => {
     void navigator.clipboard.writeText(awb);
     setCopied(true);
@@ -378,63 +413,43 @@ export default function ShipmentDetails() {
     else setLocation('/home');
   };
 
-  const handleDownloadLabel = async () => {
-    try {
-      const res = await fetch(`/api/shipments/${encodeURIComponent(awb)}/label`, {
-        credentials: 'include',
-      });
-      if (!res.ok) {
-        toast({
-          title: 'Label not available',
-          description: 'The label for this shipment could not be found.',
-          variant: 'destructive',
-        });
-        return;
-      }
-      const { label } = (await res.json()) as { label: string };
-      openPdfOverlayOrDownload(
-        label,
-        'shipment-label.pdf',
-        'Shipment Label',
-        setPdfTitle,
-        setPdfDataUrl
-      );
-    } catch {
-      toast({
-        title: 'Download failed',
-        description: 'Could not download the shipment label.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleDownloadInvoice = async () => {
+  const handleDownloadDocument = async (kind: ShipmentDocumentKind) => {
+    const doc = SHIPMENT_DOCUMENT_META[kind];
     try {
       const res = await fetch(
-        `/api/shipments/${encodeURIComponent(awb)}/invoice`,
+        `/api/shipments/${encodeURIComponent(awb)}/${doc.path}`,
         { credentials: 'include' }
       );
       if (!res.ok) {
         toast({
-          title: 'Invoice not available',
-          description: 'The invoice for this shipment could not be found.',
+          title: `${doc.title} not available`,
+          description: `The ${doc.title.toLowerCase()} for this shipment could not be found.`,
           variant: 'destructive',
         });
         return;
       }
-
-      const { invoice } = (await res.json()) as { invoice: string };
+      const body = (await res.json()) as Record<string, string>;
+      const base64 = body[doc.responseKey];
+      if (!base64) {
+        toast({
+          title: `${doc.title} not available`,
+          description: `The ${doc.title.toLowerCase()} for this shipment could not be found.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+      setPdfFileName(doc.fileName);
       openPdfOverlayOrDownload(
-        invoice,
-        'shipment-invoice.pdf',
-        'Shipment Invoice',
+        base64,
+        doc.fileName,
+        doc.title,
         setPdfTitle,
         setPdfDataUrl
       );
     } catch {
       toast({
         title: 'Download failed',
-        description: 'Could not open the invoice.',
+        description: `Could not open the ${doc.title.toLowerCase()}.`,
         variant: 'destructive',
       });
     }
@@ -443,8 +458,7 @@ export default function ShipmentDetails() {
   const handleShareLabel = async (dataUrl: string) => {
     try {
       const base64 = dataUrl.split(',')[1];
-      const isInvoice = pdfTitle.toLowerCase().includes('invoice');
-      const fileName = isInvoice ? 'shipment-invoice.pdf' : 'shipment-label.pdf';
+      const fileName = pdfFileName;
 
       if (isAndroid()) {
         const ok = await shareViaCapacitor(base64, fileName, pdfTitle);
@@ -557,7 +571,10 @@ export default function ShipmentDetails() {
           </div>
         </div>
 
-        <ActionRow onDownloadLabel={() => void handleDownloadLabel()} showLabel={false} />
+        <ActionRow
+          onDownloadDocument={(kind) => void handleDownloadDocument(kind)}
+          documents={[]}
+        />
       </PageShell>
     );
   }
@@ -720,9 +737,8 @@ export default function ShipmentDetails() {
       </section>
 
       <ActionRow
-        onDownloadLabel={() => void handleDownloadLabel()}
-        onDownloadInvoice={() => void handleDownloadInvoice()}
-        showLabel
+        onDownloadDocument={(kind) => void handleDownloadDocument(kind)}
+        documents={availableDocuments}
       />
 
       {/* PDF preview overlay (label or invoice) */}

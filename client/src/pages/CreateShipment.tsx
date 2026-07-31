@@ -45,6 +45,7 @@ import {
   downloadPdfBlob,
   openPdfOverlayOrDownload,
 } from '@/lib/pdfUtils';
+import { pickShipmentDocument, type ItdLabelEntry } from '@/lib/shipmentDocuments';
 import { isAndroid } from '@/lib/platform';
 import { shareViaCapacitor } from '@/lib/nativeShare';
 import { getHsnCode } from '@/lib/hsnData';
@@ -148,7 +149,7 @@ interface CreateShipmentResponse {
     docket_id: number;
     awb_no: string;
   };
-  labels?: { label: string }[];
+  labels?: ItdLabelEntry[];
 }
 
 interface RateParams {
@@ -331,6 +332,8 @@ export default function CreateShipment() {
   const [currentStep, setCurrentStep] = useState(1);
   const [newAWB, setNewAWB] = useState('');
   const [shipmentLabel, setShipmentLabel] = useState<string | null>(null);
+  const [shipmentBoxLabel, setShipmentBoxLabel] = useState<string | null>(null);
+  const [shipmentPostalLabel, setShipmentPostalLabel] = useState<string | null>(null);
   const [shipmentInvoice, setShipmentInvoice] = useState<string | null>(null);
   const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
   const [pdfTitle, setPdfTitle] = useState('Shipment Label');
@@ -460,9 +463,11 @@ export default function CreateShipment() {
         return;
       }
       const awb = data.data.awb_no;
-      const labelStr = data.labels?.[0]?.label ?? null;
+      const labelStr = pickShipmentDocument(data.labels, 'label');
       setShipmentLabel(labelStr);
-      const invoiceStr = data.labels?.[2]?.label ?? null;
+      setShipmentBoxLabel(pickShipmentDocument(data.labels, 'boxLabel'));
+      setShipmentPostalLabel(pickShipmentDocument(data.labels, 'postalLabel'));
+      const invoiceStr = pickShipmentDocument(data.labels, 'invoice');
       setShipmentInvoice(invoiceStr);
       const now = new Date();
       const w = parseFloat(weight) || 1;
@@ -634,6 +639,28 @@ export default function CreateShipment() {
     setPdfDataUrl(dataUrl);
   };
 
+  const handleViewBoxLabel = (): void => {
+    if (!shipmentBoxLabel) return;
+    openPdfOverlayOrDownload(
+      shipmentBoxLabel,
+      'box-label.pdf',
+      'Box Label',
+      setPdfTitle,
+      setPdfDataUrl
+    );
+  };
+
+  const handleViewPostalLabel = (): void => {
+    if (!shipmentPostalLabel) return;
+    openPdfOverlayOrDownload(
+      shipmentPostalLabel,
+      'postal-label.pdf',
+      'Postal Label',
+      setPdfTitle,
+      setPdfDataUrl
+    );
+  };
+
   const handleViewInvoice = (): void => {
     if (!shipmentInvoice) return;
     openPdfOverlayOrDownload(
@@ -648,8 +675,13 @@ export default function CreateShipment() {
   const handleShareLabel = async (dataUrl: string) => {
     try {
       const base64 = dataUrl.split(',')[1];
-      const isInvoice = pdfTitle.includes('Invoice');
-      const fileName = isInvoice ? 'shipment-invoice.pdf' : 'shipment-label.pdf';
+      const fileName = pdfTitle.includes('Invoice')
+        ? 'shipment-invoice.pdf'
+        : pdfTitle.includes('Box')
+          ? 'box-label.pdf'
+          : pdfTitle.includes('Postal')
+            ? 'postal-label.pdf'
+            : 'shipment-label.pdf';
       const shareTitle = pdfTitle;
 
       if (isAndroid()) {
@@ -824,6 +856,28 @@ export default function CreateShipment() {
               <FileText className="w-4 h-4" />
               View Label & Details
             </Button>
+            {shipmentBoxLabel && (
+              <Button
+                variant="outline"
+                onClick={handleViewBoxLabel}
+                className="w-full h-12 text-sm rounded-xl border-[#14567C] text-[#14567C] flex items-center justify-center gap-2"
+                data-testid="button-view-box-label"
+              >
+                <FileText className="w-4 h-4" />
+                View Box Label
+              </Button>
+            )}
+            {shipmentPostalLabel && (
+              <Button
+                variant="outline"
+                onClick={handleViewPostalLabel}
+                className="w-full h-12 text-sm rounded-xl border-[#14567C] text-[#14567C] flex items-center justify-center gap-2"
+                data-testid="button-view-postal-label"
+              >
+                <FileText className="w-4 h-4" />
+                View Postal Label
+              </Button>
+            )}
             {shipmentInvoice && (
               <Button
                 variant="outline"

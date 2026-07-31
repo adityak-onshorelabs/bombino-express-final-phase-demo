@@ -299,40 +299,61 @@ export async function getRecentShipmentsByUserId(
     .join("\n");
 }
 
-export async function getShipmentLabel(
-  awbNumber: string,
-  userId: string
-): Promise<string | null> {
-  const client = getSupabaseClient();
-  if (!client) return null;
+// ITD returns every printable as an entry in `labels`:
+//   [0] vendor_shipper_copy.pdf                    (AWB label — always)
+//   [1] vendor_box_label.pdf                       (box label — always)
+//   [2] freeform_invoice.pdf                       (invoice — only when one was raised)
+//   [3] <ts>_<seq>_<tracking>_label[_n].pdf        (carrier / postal service label — only
+//                                                   for postal-service shipments)
+// The count varies per shipment, so match on filename and only fall back to
+// position for older rows that were stored without filenames.
+export type ShipmentDocumentKind = "label" | "boxLabel" | "postalLabel" | "invoice";
 
-  const { data, error } = await client
-    .from("shipments")
-    .select("itd_response")
-    .eq("awb_number", awbNumber)
-    .eq("user_id", userId)
-    .maybeSingle();
+export const SHIPMENT_DOCUMENT_KINDS: ShipmentDocumentKind[] = [
+  "label",
+  "boxLabel",
+  "postalLabel",
+  "invoice",
+];
 
-  if (error) {
-    logSupabaseError("getShipmentLabel", error);
-    return null;
-  }
+const DOCUMENT_MATCHERS: Record<
+  ShipmentDocumentKind,
+  { pattern: RegExp; fallbackIndex: number }
+> = {
+  label: { pattern: /shipper_copy/i, fallbackIndex: 0 },
+  boxLabel: { pattern: /box_label/i, fallbackIndex: 1 },
+  // Carrier label: anything label-ish that is neither a vendor_* printable nor the invoice.
+  postalLabel: { pattern: /^(?!vendor_)(?!.*invoice).*label/i, fallbackIndex: 3 },
+  invoice: { pattern: /invoice/i, fallbackIndex: 2 },
+};
 
-  if (!data?.itd_response) return null;
-
-  const response = data.itd_response as {
-    labels?: { label?: unknown }[];
-  };
-  const label = response?.labels?.[0]?.label;
-  if (typeof label !== "string" || !label) return null;
-
-  return label;
+interface ITDLabelEntry {
+  label?: unknown;
+  filename?: unknown;
+  file_type?: unknown;
 }
 
-export async function getShipmentInvoice(
+function pickDocument(
+  labels: ITDLabelEntry[],
+  kind: ShipmentDocumentKind
+): string | null {
+  const { pattern, fallbackIndex } = DOCUMENT_MATCHERS[kind];
+
+  const named = labels.filter((e) => typeof e?.filename === "string" && e.filename);
+  const entry =
+    named.length > 0
+      ? named.find((e) => pattern.test(e.filename as string))
+      : labels[fallbackIndex];
+
+  const doc = entry?.label;
+  return typeof doc === "string" && doc ? doc : null;
+}
+
+async function fetchShipmentLabels(
   awbNumber: string,
-  userId: string
-): Promise<string | null> {
+  userId: string,
+  caller: string
+): Promise<ITDLabelEntry[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
 
@@ -344,19 +365,37 @@ export async function getShipmentInvoice(
     .maybeSingle();
 
   if (error) {
-    logSupabaseError("getShipmentInvoice", error);
+    logSupabaseError(caller, error);
     return null;
   }
 
   if (!data?.itd_response) return null;
 
-  const response = data.itd_response as {
-    labels?: { label?: unknown }[];
-  };
-  const invoice = response?.labels?.[2]?.label;
-  if (typeof invoice !== "string" || !invoice) return null;
+  const response = data.itd_response as { labels?: ITDLabelEntry[] };
+  return Array.isArray(response?.labels) ? response.labels : null;
+}
 
-  return invoice;
+export async function getShipmentDocument(
+  awbNumber: string,
+  userId: string,
+  kind: ShipmentDocumentKind
+): Promise<string | null> {
+  const labels = await fetchShipmentLabels(awbNumber, userId, "getShipmentDocument");
+  if (!labels) return null;
+
+  return pickDocument(labels, kind);
+}
+
+// Which printables this shipment actually has — lets the UI hide buttons that
+// would 404 (invoice and postal label are not present on every shipment).
+export async function listShipmentDocumentKinds(
+  awbNumber: string,
+  userId: string
+): Promise<ShipmentDocumentKind[]> {
+  const labels = await fetchShipmentLabels(awbNumber, userId, "listShipmentDocumentKinds");
+  if (!labels) return [];
+
+  return SHIPMENT_DOCUMENT_KINDS.filter((kind) => pickDocument(labels, kind) !== null);
 }
 
 // ─── BIA support_sessions ───────────────────────────────────────────────────
