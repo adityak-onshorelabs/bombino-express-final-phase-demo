@@ -10,8 +10,8 @@ import {
   insertLoginAuditLog,
   resolveSupportSession,
   listAddressesByUserIdAndType,
-  getShipmentLabel,
-  getShipmentInvoice,
+  getShipmentDocument,
+  listShipmentDocumentKinds,
   listNotificationsByUserId,
   listShipmentsByUserId,
   markNotificationRead,
@@ -21,6 +21,7 @@ import {
   updateShipmentTrackingStatus,
   getLastKnownTracking,
 } from "./appDb.js";
+import type { ShipmentDocumentKind } from "./appDb.js";
 import { decryptPassword, encryptPassword } from "./crypto.js";
 import { refreshItdTokenIfNeeded } from "./itdTokenRefresh.js";
 import type { Server } from "http";
@@ -241,47 +242,67 @@ export async function registerRoutes(
     }
   );
 
+  // Shipment printables (AWB label, box/postal label, invoice) come from the
+  // create_docket response stored on the shipment row — tracking never returns them.
+  const documentRoutes: {
+    path: string;
+    kind: ShipmentDocumentKind;
+    key: string;
+    missing: string;
+  }[] = [
+    { path: "label", kind: "label", key: "label", missing: "Label not available" },
+    {
+      path: "box-label",
+      kind: "boxLabel",
+      key: "boxLabel",
+      missing: "Box label not available",
+    },
+    {
+      path: "postal-label",
+      kind: "postalLabel",
+      key: "postalLabel",
+      missing: "Postal service label not available",
+    },
+    { path: "invoice", kind: "invoice", key: "invoice", missing: "Invoice not available" },
+  ];
+
   app.get(
-    "/api/shipments/:awb/label",
+    "/api/shipments/:awb/documents",
     requireUser,
     ensureDbUser,
     async (req: Request, res: Response) => {
-      const { awb } = req.params;
       const dbUserId = req.session.dbUserId;
-
       if (!dbUserId) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      const label = await getShipmentLabel(awb, dbUserId);
-      if (!label) {
-        return res.status(404).json({ message: "Label not available" });
-      }
-
-      return res.json({ label });
+      const documents = await listShipmentDocumentKinds(req.params.awb, dbUserId);
+      return res.json({ documents });
     }
   );
 
-  app.get(
-    "/api/shipments/:awb/invoice",
-    requireUser,
-    ensureDbUser,
-    async (req: Request, res: Response) => {
-      const { awb } = req.params;
-      const dbUserId = req.session.dbUserId;
+  for (const { path, kind, key, missing } of documentRoutes) {
+    app.get(
+      `/api/shipments/:awb/${path}`,
+      requireUser,
+      ensureDbUser,
+      async (req: Request, res: Response) => {
+        const { awb } = req.params;
+        const dbUserId = req.session.dbUserId;
 
-      if (!dbUserId) {
-        return res.status(401).json({ message: "Unauthorized" });
+        if (!dbUserId) {
+          return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        const document = await getShipmentDocument(awb, dbUserId, kind);
+        if (!document) {
+          return res.status(404).json({ message: missing });
+        }
+
+        return res.json({ [key]: document });
       }
-
-      const invoice = await getShipmentInvoice(awb, dbUserId);
-      if (!invoice) {
-        return res.status(404).json({ message: "Invoice not available" });
-      }
-
-      return res.json({ invoice });
-    }
-  );
+    );
+  }
 
   app.get(
     "/api/shipments/download-csv",

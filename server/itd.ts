@@ -160,7 +160,7 @@ export interface CreateShipmentResponse {
     entry_number: string;
     remote_area_charges: string;
   };
-  labels: { label: string }[];
+  labels: { label: string; filename?: string; file_type?: string }[];
 }
 
 export interface RateParams {
