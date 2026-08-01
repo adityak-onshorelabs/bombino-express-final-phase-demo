@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the current email/password `Login.tsx` and static "email us" `Signup.tsx` with two client-only, no-backend phone+OTP screens (OTP fully dummy — any 4-6 digits accepted) so booking (A3) can be exercised end-to-end before real OTP/ITD credentials exist.
+**Goal:** Replace the current email/password `Login.tsx` and static "email us" `Signup.tsx` with two client-only, no-backend phone+OTP screens (OTP fully dummy — any 4-6 digits accepted) so booking (A3) can be reached and worked on — building/testing the form itself — before real OTP/ITD credentials exist. This does not let a booking be fully submitted: `POST /api/shipments` still requires a real server session (`req.session.itdToken`), which this scaffolding intentionally does not build.
 
 **Architecture:** Both screens are two-step local-state forms. Step 1 collects identity fields; step 2 collects a dummy OTP. On verify, each screen builds an `AuthUser` object (existing type in `client/src/lib/store.ts`, unchanged) and calls the existing `login(user)` store action — no server calls, no changes to `store.ts`, `App.tsx`, or any `/api/*` route.
 

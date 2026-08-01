@@ -10,6 +10,8 @@ import bombinoLogo from '@/assets/bombino-logo.png';
 
 const RESEND_COOLDOWN_SECONDS = 30;
 
+// TODO(A2): dummy client-only auth scaffolding — no OTP is sent or verified.
+// Replace with the real identity module once OTP provider + ITD credentials land.
 export default function Login() {
   const [, setLocation] = useLocation();
   const { login } = useAppStore();

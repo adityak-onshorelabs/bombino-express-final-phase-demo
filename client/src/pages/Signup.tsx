@@ -11,6 +11,9 @@ import bombinoLogo from '@/assets/bombino-logo.png';
 const RESEND_COOLDOWN_SECONDS = 30;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// TODO(A2): dummy client-only auth scaffolding — no OTP is sent or verified,
+// and no real identity capture (Aadhaar/GST) happens. Replace with the real
+// identity module once OTP provider + ITD credentials land.
 export default function Signup() {
   const [, setLocation] = useLocation();
   const { login } = useAppStore();
