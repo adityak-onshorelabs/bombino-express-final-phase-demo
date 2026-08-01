@@ -572,6 +572,13 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
+/* Force light color-scheme on date inputs so Chrome draws the native
+   calendar-picker-indicator in dark gray, not white-on-white when the OS
+   is in dark mode (the icon is otherwise invisible against the light bg). */
+input[type="date"] {
+  color-scheme: light;
+}
+
 .page-title {
   @apply text-lg font-semibold text-foreground;
 }

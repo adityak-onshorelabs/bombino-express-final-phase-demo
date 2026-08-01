@@ -1,4 +1,4 @@
-﻿import { lazy, Suspense, useState, useEffect, useMemo, useLayoutEffect, type CSSProperties } from 'react';
+﻿import { useState, useEffect, useMemo, useLayoutEffect, useRef, type CSSProperties } from 'react';
 import confetti from 'canvas-confetti';
 import {
   ArrowLeft,
@@ -16,7 +16,9 @@ import {
   ChevronDown,
   Info,
   X,
+  CalendarIcon,
 } from 'lucide-react';
+import { format } from 'date-fns';
 import { useLocation } from 'wouter';
 import { useMutation } from '@tanstack/react-query';
 import { BottomNav } from '@/components/BottomNav';
@@ -36,18 +38,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAppStore } from '@/lib/store';
-import { Shipment, TrackingEvent, lbToKg, inToCm } from '@/lib/mockData';
+import { lbToKg, inToCm } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
-import {
-  base64ToPdfFile,
-  canSharePdfFile,
-  downloadPdfBlob,
-  openPdfOverlayOrDownload,
-} from '@/lib/pdfUtils';
-import { pickShipmentDocument, type ItdLabelEntry } from '@/lib/shipmentDocuments';
-import { isAndroid } from '@/lib/platform';
-import { shareViaCapacitor } from '@/lib/nativeShare';
 import { getHsnCode } from '@/lib/hsnData';
 import { useToast } from '@/hooks/use-toast';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
@@ -70,8 +63,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-
-const PdfCanvasViewer = lazy(() => import('@/components/PdfCanvasViewer'));
+import { Calendar } from '@/components/ui/calendar';
 
 interface FreeFormLineItem {
   total: string;
@@ -142,14 +134,35 @@ interface CreateShipmentPayload {
   }>;
 }
 
-interface CreateShipmentResponse {
-  success: boolean;
-  errors: string[];
-  data: {
-    docket_id: number;
-    awb_no: string;
+interface OrderCreatePayload {
+  pickup_request: 1 | 2;
+  pickup_date?: string | null;
+  pickup_slot?: string | null;
+  payment_method: 'pay_now' | 'pay_at_pickup' | 'pay_at_dropoff' | 'cod';
+  booked_weight?: number | null;
+  quoted_amount?: number | null;
+  origin_address: {
+    full_name: string;
+    company?: string | null;
+    email?: string | null;
+    phone: string;
+    address_line_1: string;
+    city: string;
+    state?: string | null;
+    pincode?: string | null;
+    country_code: string;
+    country_name?: string | null;
   };
-  labels?: ItdLabelEntry[];
+  consignee: Record<string, unknown>;
+  items: Record<string, unknown>;
+}
+
+interface OrderCreateResponse {
+  order: {
+    id: string;
+    order_no: string;
+  };
+  message?: string;
 }
 
 interface RateParams {
@@ -328,16 +341,19 @@ function getDispatchType(serviceCode: string): string | undefined {
 
 export default function CreateShipment() {
   const [, setLocation] = useLocation();
-  const { isLoggedIn, user, addShipment, addNotification, logout } = useAppStore();
+  const { isLoggedIn, user, logout } = useAppStore();
   const [currentStep, setCurrentStep] = useState(1);
-  const [newAWB, setNewAWB] = useState('');
-  const [shipmentLabel, setShipmentLabel] = useState<string | null>(null);
-  const [shipmentBoxLabel, setShipmentBoxLabel] = useState<string | null>(null);
-  const [shipmentPostalLabel, setShipmentPostalLabel] = useState<string | null>(null);
-  const [shipmentInvoice, setShipmentInvoice] = useState<string | null>(null);
-  const [pdfDataUrl, setPdfDataUrl] = useState<string | null>(null);
-  const [pdfTitle, setPdfTitle] = useState('Shipment Label');
+  const [newOrderNo, setNewOrderNo] = useState('');
   const [submitError, setSubmitError] = useState('');
+
+  const [pickupRequest, setPickupRequest] = useState<'1' | '2'>('1');
+  const [pickupDate, setPickupDate] = useState('');
+  const [pickupSlot, setPickupSlot] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('');
+  const [pickupDatePickerOpen, setPickupDatePickerOpen] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [paymentError, setPaymentError] = useState('');
+  const pendingOrderRef = useRef<Omit<OrderCreatePayload, 'payment_method'> | null>(null);
 
   const [senderName, setSenderName] = useState(isLoggedIn ? user?.fullName ?? '' : '');
   const [senderEmail, setSenderEmail] = useState(isLoggedIn ? user?.email ?? '' : '');
@@ -396,6 +412,8 @@ export default function CreateShipment() {
   const [ratesError, setRatesError] = useState('');
   const [serviceSelectionError, setServiceSelectionError] = useState('');
   const [expandedById, setExpandedById] = useState<Record<string, boolean>>({});
+  const [showServiceModal, setShowServiceModal] = useState(false);
+  const [pendingService, setPendingService] = useState<ITDRateRow | null>(null);
 
   const [kycResult, setKycResult] = useState<KycUploadResult | null>(null);
 
@@ -434,7 +452,7 @@ export default function CreateShipment() {
   }, [destinationCountry]);
 
   useEffect(() => {
-    if (!newAWB) return;
+    if (!newOrderNo) return;
     confetti({
       particleCount: 120,
       spread: 70,
@@ -442,7 +460,7 @@ export default function CreateShipment() {
       startVelocity: 40,
       colors: ['#14567C', '#ffffff'],
     });
-  }, [newAWB]);
+  }, [newOrderNo]);
 
   useEffect(() => {
     if (!selectedPreset) return;
@@ -455,107 +473,18 @@ export default function CreateShipment() {
   }, [dimUnit, selectedPreset]);
 
   const createMutation = useMutation({
-    mutationFn: (payload: CreateShipmentPayload) =>
-      apiRequest('POST', '/api/shipments', payload).then((r) => r.json() as Promise<CreateShipmentResponse>),
+    mutationFn: (payload: OrderCreatePayload) =>
+      apiRequest('POST', '/api/orders', payload).then((r) => r.json() as Promise<OrderCreateResponse>),
     onSuccess: (data) => {
-      if (!data.success) {
-        setSubmitError(data.errors?.join(', ') || 'Shipment creation failed');
-        return;
-      }
-      const awb = data.data.awb_no;
-      const labelStr = pickShipmentDocument(data.labels, 'label');
-      setShipmentLabel(labelStr);
-      setShipmentBoxLabel(pickShipmentDocument(data.labels, 'boxLabel'));
-      setShipmentPostalLabel(pickShipmentDocument(data.labels, 'postalLabel'));
-      const invoiceStr = pickShipmentDocument(data.labels, 'invoice');
-      setShipmentInvoice(invoiceStr);
-      const now = new Date();
-      const w = parseFloat(weight) || 1;
-      const weightLb = weightUnit === 'lb' ? w : w / 0.453592;
-      const weightKg = weightUnit === 'kg' ? w : lbToKg(w);
-
-      let dimLIn: number | undefined;
-      let dimWIn: number | undefined;
-      let dimHIn: number | undefined;
-      let dimLCm: number | undefined;
-      let dimWCm: number | undefined;
-      let dimHCm: number | undefined;
-
-      if (dimL || dimW || dimH) {
-        if (dimUnit === 'in') {
-          dimLIn = parseFloat(dimL) || undefined;
-          dimWIn = parseFloat(dimW) || undefined;
-          dimHIn = parseFloat(dimH) || undefined;
-          dimLCm = dimLIn ? inToCm(dimLIn) : undefined;
-          dimWCm = dimWIn ? inToCm(dimWIn) : undefined;
-          dimHCm = dimHIn ? inToCm(dimHIn) : undefined;
-        } else {
-          dimLCm = parseFloat(dimL) || undefined;
-          dimWCm = parseFloat(dimW) || undefined;
-          dimHCm = parseFloat(dimH) || undefined;
-          dimLIn = dimLCm ? dimLCm / 2.54 : undefined;
-          dimWIn = dimWCm ? dimWCm / 2.54 : undefined;
-          dimHIn = dimHCm ? dimHCm / 2.54 : undefined;
-        }
-      }
-
-      const eta = new Date();
-      eta.setDate(eta.getDate() + 5); // Bombino Premium DDP is express-grade
-
-      const trackingEvents: TrackingEvent[] = [{
-        id: `event-${Math.random().toString(36).slice(2)}`,
-        status: 'Pickup Scheduled',
-        note: 'Shipment pickup has been scheduled',
-        location: `${senderCity}, ${senderState}, India`,
-        timestamp: now,
-      }];
-
-      const shipment: Shipment = {
-        id: Math.random().toString(36).slice(2),
-        awb,
-        userId: user?.id ?? '',
-        originCountry: 'India',
-        originCity: senderCity,
-        originState: senderState,
-        originZip: senderZip,
-        destCountry: formatCountryDisplay(
-          ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry
-        ),
-        destCity: receiverCity,
-        destState: receiverState,
-        destPincode: receiverZip,
-        weightLb: parseFloat(weightLb.toFixed(1)),
-        weightKg: parseFloat(weightKg.toFixed(2)),
-        pieces: parseInt(pieces) || 1,
-        dimLIn, dimWIn, dimHIn, dimLCm, dimWCm, dimHCm,
-        productType: 'Package' as const,
-        serviceType: 'Express' as const,
-        status: 'Pickup Scheduled',
-        priceEstimate: 0,
-        eta,
-        lastUpdateAt: now,
-        createdAt: now,
-        currency: selectedCurrency,
-        trackingEvents,
-      };
-
-      addShipment(shipment);
-      addNotification({
-        id: `notif-${Math.random().toString(36).slice(2)}`,
-        userId: user?.id ?? '',
-        title: 'Shipment Created',
-        body: `Your shipment ${awb} has been created.`,
-        severity: 'info',
-        createdAt: now,
-      });
-
-      setNewAWB(awb);
+      setShowConfirmModal(false);
+      setNewOrderNo(data.order.order_no);
     },
     onError: (err) => {
-      const message = err instanceof Error ? err.message : 'Shipment creation failed';
+      const message = err instanceof Error ? err.message : 'Order creation failed';
 
       // Detect 401 — token expired
       if (err instanceof Error && /^401:/.test(err.message)) {
+        setShowConfirmModal(false);
         void fetch('/api/auth/logout', {
           method: 'POST',
           credentials: 'include',
@@ -570,9 +499,9 @@ export default function CreateShipment() {
         return;
       }
 
-      // All other errors — existing behavior
+      // All other errors — keep the modal open so the user can retry
       const msg = message.replace(/^\d+:\s*/, '');
-      setSubmitError(msg);
+      setPaymentError(msg);
     },
   });
 
@@ -595,6 +524,8 @@ export default function CreateShipment() {
         .map((item) => normalizeRateRow(item))
         .filter((row): row is ITDRateRow => row !== null);
       setRateResults(services);
+      setPendingService(null);
+      setShowServiceModal(true);
     },
     onError: (err) => {
       setRateResults(null);
@@ -633,82 +564,13 @@ export default function CreateShipment() {
     });
   };
 
-  const handleDownloadLabel = (base64: string) => {
-    setPdfTitle('Shipment Label');
-    const dataUrl = `data:application/pdf;base64,${base64}`;
-    setPdfDataUrl(dataUrl);
-  };
-
-  const handleViewBoxLabel = (): void => {
-    if (!shipmentBoxLabel) return;
-    openPdfOverlayOrDownload(
-      shipmentBoxLabel,
-      'box-label.pdf',
-      'Box Label',
-      setPdfTitle,
-      setPdfDataUrl
-    );
-  };
-
-  const handleViewPostalLabel = (): void => {
-    if (!shipmentPostalLabel) return;
-    openPdfOverlayOrDownload(
-      shipmentPostalLabel,
-      'postal-label.pdf',
-      'Postal Label',
-      setPdfTitle,
-      setPdfDataUrl
-    );
-  };
-
-  const handleViewInvoice = (): void => {
-    if (!shipmentInvoice) return;
-    openPdfOverlayOrDownload(
-      shipmentInvoice,
-      'shipment-invoice.pdf',
-      'Shipment Invoice',
-      setPdfTitle,
-      setPdfDataUrl
-    );
-  };
-
-  const handleShareLabel = async (dataUrl: string) => {
-    try {
-      const base64 = dataUrl.split(',')[1];
-      const fileName = pdfTitle.includes('Invoice')
-        ? 'shipment-invoice.pdf'
-        : pdfTitle.includes('Box')
-          ? 'box-label.pdf'
-          : pdfTitle.includes('Postal')
-            ? 'postal-label.pdf'
-            : 'shipment-label.pdf';
-      const shareTitle = pdfTitle;
-
-      if (isAndroid()) {
-        const ok = await shareViaCapacitor(base64, fileName, shareTitle);
-        if (ok) return;
-      }
-
-      const file = base64ToPdfFile(base64, fileName);
-
-      if (canSharePdfFile(file)) {
-        await navigator.share({
-          files: [file],
-          title: shareTitle,
-        });
-      } else if (!isAndroid()) {
-        downloadPdfBlob(file, fileName);
-      }
-      // Android with no native plugin: silent no-op (as today)
-    } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        toast({
-          title: 'Share failed',
-          description: 'Could not share the label.',
-          variant: 'destructive',
-        });
-      }
+  const handleOpenServiceModal = (): void => {
+    if (rateResults === null) {
+      handleGetRates();
+      return;
     }
+    setPendingService(selectedService);
+    setShowServiceModal(true);
   };
 
   if (!isLoggedIn) {
@@ -748,7 +610,7 @@ export default function CreateShipment() {
     );
   }
 
-  if (newAWB) {
+  if (newOrderNo) {
     const bookingDateLabel = new Date().toLocaleDateString(undefined, {
       year: 'numeric',
       month: 'long',
@@ -756,73 +618,35 @@ export default function CreateShipment() {
     });
     const corridorLabel = `${senderCity}, ${senderState} → ${receiverCity}, ${receiverState}`;
 
-    const copyAwb = (): void => {
-      void navigator.clipboard.writeText(newAWB).then(() => {
-        toast({ title: 'Copied', description: 'AWB copied to clipboard' });
+    const copyOrderNo = (): void => {
+      void navigator.clipboard.writeText(newOrderNo).then(() => {
+        toast({ title: 'Copied', description: 'Order ID copied to clipboard' });
       });
     };
 
     return (
       <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create-success">
-        {pdfDataUrl && (
-          <div className="fixed inset-0 z-[100] bg-white flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-white safe-top">
-              <span className="font-semibold text-sm text-foreground">
-                {pdfTitle}
-              </span>
-              <button
-                type="button"
-                onClick={() => void handleShareLabel(pdfDataUrl)}
-                className="text-sm text-[#14567C] font-medium"
-              >
-                Share
-              </button>
-              <button
-                type="button"
-                onClick={() => setPdfDataUrl(null)}
-                className="text-sm text-[#14567C] font-medium"
-              >
-                Close
-              </button>
-            </div>
-            {isAndroid() ? (
-              <Suspense
-                fallback={
-                  <div className="flex-1 grid place-items-center text-sm text-muted-foreground">
-                    Loading PDF…
-                  </div>
-                }
-              >
-                <PdfCanvasViewer base64={pdfDataUrl.split(',')[1]} title={pdfTitle} />
-              </Suspense>
-            ) : (
-              <iframe
-                src={pdfDataUrl}
-                className="flex-1 w-full border-0"
-                title={pdfTitle}
-              />
-            )}
-          </div>
-        )}
         <main className="px-4 py-12 max-w-md mx-auto text-center">
           <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-5 animate-scale-in">
             <Check className="w-10 h-10 text-[#14567C]" strokeWidth={2.5} />
           </div>
-          <h2 className="text-2xl font-bold text-foreground mb-2">Shipment Booked!</h2>
+          <h2 className="text-2xl font-bold text-foreground mb-2">Order Placed!</h2>
           <p className="text-sm text-muted-foreground mb-6">
-            Your shipment has been successfully created.
+            {pickupRequest === '1'
+              ? "We'll pick up your parcel in the slot you chose."
+              : 'Drop your parcel off whenever suits you.'}
           </p>
 
           <div className="bg-card rounded-xl border border-border p-4 mb-6 text-left shadow-sm w-full">
             <button
               type="button"
-              onClick={copyAwb}
+              onClick={copyOrderNo}
               className="w-full text-left rounded-lg p-2 -m-2 hover:bg-muted/50 transition-colors active:scale-[0.99]"
-              data-testid="button-copy-awb"
+              data-testid="button-copy-order-no"
             >
-              <p className="text-xs text-muted-foreground mb-1">AWB Number · tap to copy</p>
+              <p className="text-xs text-muted-foreground mb-1">Order ID · tap to copy</p>
               <div className="flex items-center justify-between gap-2">
-                <p className="text-lg font-bold text-foreground break-all">{newAWB}</p>
+                <p className="text-lg font-bold text-foreground break-all">{newOrderNo}</p>
                 <Copy className="w-5 h-5 shrink-0 text-muted-foreground" aria-hidden />
               </div>
             </button>
@@ -840,6 +664,14 @@ export default function CreateShipment() {
                 <span className="text-muted-foreground shrink-0">Booking date</span>
                 <span className="font-medium text-foreground text-right">{bookingDateLabel}</span>
               </div>
+              {pickupRequest === '1' && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground shrink-0">Pickup</span>
+                  <span className="font-medium text-foreground text-right">
+                    {pickupDate} · {pickupSlot}
+                  </span>
+                </div>
+              )}
               <div>
                 <p className="text-muted-foreground text-xs mb-1">From → To</p>
                 <p className="font-medium text-foreground text-sm leading-snug">{corridorLabel}</p>
@@ -849,46 +681,13 @@ export default function CreateShipment() {
 
           <div className="space-y-2">
             <Button
-              onClick={() => setLocation(`/shipment/${encodeURIComponent(newAWB)}`)}
+              onClick={() => setLocation('/orders')}
               className="w-full h-12 bg-primary hover:bg-primary/90 text-sm rounded-xl shadow-md flex items-center justify-center gap-2"
-              data-testid="button-view-label"
+              data-testid="button-view-orders"
             >
               <FileText className="w-4 h-4" />
-              View Label & Details
+              Go to My Orders
             </Button>
-            {shipmentBoxLabel && (
-              <Button
-                variant="outline"
-                onClick={handleViewBoxLabel}
-                className="w-full h-12 text-sm rounded-xl border-[#14567C] text-[#14567C] flex items-center justify-center gap-2"
-                data-testid="button-view-box-label"
-              >
-                <FileText className="w-4 h-4" />
-                View Box Label
-              </Button>
-            )}
-            {shipmentPostalLabel && (
-              <Button
-                variant="outline"
-                onClick={handleViewPostalLabel}
-                className="w-full h-12 text-sm rounded-xl border-[#14567C] text-[#14567C] flex items-center justify-center gap-2"
-                data-testid="button-view-postal-label"
-              >
-                <FileText className="w-4 h-4" />
-                View Postal Label
-              </Button>
-            )}
-            {shipmentInvoice && (
-              <Button
-                variant="outline"
-                onClick={handleViewInvoice}
-                className="w-full h-12 text-sm rounded-xl border-[#14567C] text-[#14567C] flex items-center justify-center gap-2"
-                data-testid="button-view-invoice"
-              >
-                <FileText className="w-4 h-4" />
-                View Invoice
-              </Button>
-            )}
             <Button
               variant="outline"
               onClick={() => setLocation('/home')}
@@ -917,6 +716,8 @@ export default function CreateShipment() {
       if (!senderState.trim()) e.senderState = true;
       if (!senderZip.trim()) e.senderZip = true;
       if (!kycOnFile && !kycResult) e.kycMissing = true;
+      if (pickupRequest === '1' && !pickupDate) e.pickupDate = true;
+      if (pickupRequest === '1' && !pickupSlot) e.pickupSlot = true;
       if (Object.keys(e).length) {
         setFieldErrors(e);
         return;
@@ -978,10 +779,6 @@ export default function CreateShipment() {
     setSubmitError('');
     setServiceSelectionError('');
     setFieldErrors({});
-    setShipmentLabel(null);
-    setShipmentInvoice(null);
-    setPdfDataUrl(null);
-    setPdfTitle('Shipment Label');
     if (!productType.trim()) {
       setSubmitError('Please select a product type');
       return;
@@ -1029,6 +826,10 @@ export default function CreateShipment() {
         setFieldErrors(csbvE);
         return;
       }
+    }
+    if (pickupRequest === '1' && (!pickupDate || !pickupSlot)) {
+      setSubmitError('Please go back to step 1 and choose a pickup date and time slot');
+      return;
     }
     const weightLb = getWeightLb();
     const now = new Date();
@@ -1148,7 +949,57 @@ export default function CreateShipment() {
       }
     }
 
-    createMutation.mutate(payload);
+    const weightKg = weightUnit === 'kg' ? (parseFloat(weight) || 1) : lbToKg(parseFloat(weight) || 1);
+    const quotedAmount = selectedService ? selectedService.total : null;
+
+    pendingOrderRef.current = {
+      pickup_request: pickupRequest === '1' ? 1 : 2,
+      pickup_date: pickupRequest === '1' ? pickupDate : null,
+      pickup_slot: pickupRequest === '1' ? pickupSlot : null,
+      booked_weight: Number.isFinite(weightKg) ? parseFloat(weightKg.toFixed(2)) : null,
+      quoted_amount: quotedAmount != null && Number.isFinite(quotedAmount) ? quotedAmount : null,
+      origin_address: {
+        full_name: senderName,
+        company: senderCompany || null,
+        email: senderEmail || null,
+        phone: senderPhone,
+        address_line_1: senderAddress,
+        city: senderCity,
+        state: senderState || null,
+        pincode: senderZip || null,
+        country_code: 'IN',
+        country_name: 'India',
+      },
+      consignee: {
+        name: receiverName,
+        company: receiverCompany || null,
+        email: receiverEmail || null,
+        phone: payload.consignee_contact_no,
+        address_line_1: receiverAddress,
+        city: receiverCity,
+        state: receiverState || null,
+        pincode: receiverZip || null,
+        country_code: destinationCountry,
+        country_name: ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry,
+      },
+      items: payload as unknown as Record<string, unknown>,
+    };
+
+    setPaymentError('');
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmBooking = () => {
+    if (!paymentMethod) {
+      setPaymentError('Please select a payment method');
+      return;
+    }
+    if (!pendingOrderRef.current) return;
+
+    createMutation.mutate({
+      ...pendingOrderRef.current,
+      payment_method: paymentMethod as OrderCreatePayload['payment_method'],
+    });
   };
 
   return (
@@ -1323,7 +1174,10 @@ export default function CreateShipment() {
                   />
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">Phone</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    Phone
+                    <span className="text-red-400">*</span>
+                  </Label>
                   <Input
                     value={senderPhone}
                     onChange={(e) => {
@@ -1417,6 +1271,114 @@ export default function CreateShipment() {
                   )}
                 </div>
               </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+              <Label className="text-sm font-semibold mb-3 block">Pickup or Drop-off?</Label>
+
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">How should we get your parcel?</span>
+                <div className="flex gap-3">
+                  {(
+                    [
+                      { val: '1', label: 'Pickup' },
+                      { val: '2', label: 'Drop-off' },
+                    ] as const
+                  ).map(({ val, label }) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => {
+                        setPickupRequest(val);
+                        if (val === '2') {
+                          setPickupDate('');
+                          setPickupSlot('');
+                        }
+                        clearFieldError('pickupDate');
+                        clearFieldError('pickupSlot');
+                      }}
+                      className={cn(
+                        'px-3 py-1 text-xs',
+                        'rounded-full border',
+                        'transition-colors',
+                        pickupRequest === val
+                          ? 'bg-primary text-white border-primary'
+                          : 'border-border text-muted-foreground'
+                      )}
+                      data-testid={`button-pickup-request-${val}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {pickupRequest === '1' && (
+                <div className="mt-3 space-y-3 pt-3 border-t border-border">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">
+                      Pickup date
+                      <span className="text-red-400">*</span>
+                    </Label>
+                    <button
+                      type="button"
+                      onClick={() => setPickupDatePickerOpen(true)}
+                      className={cn(
+                        fieldBorderClass('pickupDate'),
+                        'w-full flex items-center justify-between px-3 text-left'
+                      )}
+                      data-testid="input-pickup-date"
+                    >
+                      <span className={cn(!pickupDate && 'text-muted-foreground')}>
+                        {pickupDate
+                          ? format(new Date(`${pickupDate}T00:00:00`), 'EEE, MMM d, yyyy')
+                          : 'Select a date'}
+                      </span>
+                      <CalendarIcon className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden />
+                    </button>
+                    {fieldErrors.pickupDate && (
+                      <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1.5 block">
+                      Pickup window
+                      <span className="text-red-400">*</span>
+                    </Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(
+                        [
+                          ['09:00-12:00', '9 AM – 12 PM'],
+                          ['12:00-15:00', '12 PM – 3 PM'],
+                          ['15:00-18:00', '3 PM – 6 PM'],
+                          ['18:00-21:00', '6 PM – 9 PM'],
+                        ] as const
+                      ).map(([val, label]) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => {
+                            setPickupSlot(val);
+                            clearFieldError('pickupSlot');
+                          }}
+                          className={cn(
+                            'px-3 py-2 text-xs rounded-lg border transition-colors',
+                            pickupSlot === val
+                              ? 'bg-primary text-white border-primary'
+                              : 'border-border text-muted-foreground'
+                          )}
+                          data-testid={`button-pickup-slot-${val}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {fieldErrors.pickupSlot && (
+                      <p className="text-xs text-red-600 mt-1">Please choose a pickup window</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {kycOnFile ? (
@@ -1522,7 +1484,10 @@ export default function CreateShipment() {
                 />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Phone</Label>
+                <Label className="text-xs text-muted-foreground">
+                  Phone
+                  <span className="text-red-400">*</span>
+                </Label>
                 <div className="flex gap-2 mt-1">
                   {ITD_COUNTRY_MAP[destinationCountry]?.dialCode ? (
                     <div className="h-11 px-3 flex items-center bg-muted/50 border border-border rounded-xl text-sm text-muted-foreground shrink-0 font-medium">
@@ -1703,7 +1668,10 @@ export default function CreateShipment() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-xs text-muted-foreground">Weight ({weightUnit})</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    Weight ({weightUnit})
+                    <span className="text-red-400">*</span>
+                  </Label>
                   <Input
                     type="number"
                     value={weight}
@@ -1805,7 +1773,9 @@ export default function CreateShipment() {
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <Label className="text-xs text-muted-foreground">L</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    L<span className="text-red-400">*</span>
+                  </Label>
                   <Input
                     type="number"
                     value={dimL}
@@ -1821,7 +1791,9 @@ export default function CreateShipment() {
                   )}
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">W</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    W<span className="text-red-400">*</span>
+                  </Label>
                   <Input
                     type="number"
                     value={dimW}
@@ -1837,7 +1809,9 @@ export default function CreateShipment() {
                   )}
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">H</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    H<span className="text-red-400">*</span>
+                  </Label>
                   <Input
                     type="number"
                     value={dimH}
@@ -1859,7 +1833,10 @@ export default function CreateShipment() {
               <Label className="text-sm font-semibold mb-3 block">Shipment Value</Label>
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2">
-                  <Label className="text-xs text-muted-foreground">Declared Value</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    Declared Value
+                    <span className="text-red-400">*</span>
+                  </Label>
                   <Input
                     type="number"
                     value={shipmentValue}
@@ -2261,14 +2238,6 @@ export default function CreateShipment() {
                     )}
                   </div>
                 )}
-                <div className="flex justify-between text-sm gap-2">
-                  <span className="text-muted-foreground shrink-0">Service</span>
-                  <span className="font-medium text-foreground text-right text-xs break-words">
-                    {selectedService
-                      ? selectedService.internal_api_service_code || selectedService.code
-                      : '—'}
-                  </span>
-                </div>
                 {productType !== 'CSB V' && (
                   <div className="flex justify-between text-sm gap-2">
                     <span className="text-muted-foreground shrink-0">HS Code</span>
@@ -2277,243 +2246,71 @@ export default function CreateShipment() {
                     </span>
                   </div>
                 )}
-              </div>
-            </div>
 
-            <div className="lg:hidden space-y-4">
-            <Button
-              type="button"
-              onClick={handleGetRates}
-              disabled={!productType.trim() || rateMutation.isPending}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
-              data-testid="button-get-rates-invoice"
-            >
-              {rateMutation.isPending ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>
-                  <Zap className="w-4 h-4 shrink-0" aria-hidden />
-                  Get Rates
-                </>
-              )}
-            </Button>
+                <div className="pt-2 lg:hidden">
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">
+                    Shipping Service
+                    <span className="text-red-400">*</span>
+                  </Label>
 
-            {ratesError ? (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
-                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{ratesError}</p>
-              </div>
-            ) : null}
-            </div>
+                  {selectedService ? (
+                    <button
+                      type="button"
+                      onClick={handleOpenServiceModal}
+                      className="w-full flex items-center justify-between gap-3 rounded-xl border border-[#E2E8F0] bg-white px-4 py-3 text-left hover:border-[#F2A123]/50 transition-colors"
+                      data-testid="button-change-service"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)] truncate">
+                          {selectedService.internal_api_service_code || selectedService.code}
+                        </p>
+                        <p className="text-xs text-muted-foreground">{formatInr(selectedService.total)} · incl. GST</p>
+                      </div>
+                      <span className="text-xs font-medium text-[#F2A123] shrink-0">Change</span>
+                    </button>
+                  ) : (
+                    <Button
+                      type="button"
+                      onClick={handleOpenServiceModal}
+                      disabled={!productType.trim() || rateMutation.isPending}
+                      className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
+                      data-testid="button-get-rates-invoice"
+                    >
+                      {rateMutation.isPending ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <>
+                          <Zap className="w-4 h-4 shrink-0" aria-hidden />
+                          Get Rates
+                        </>
+                      )}
+                    </Button>
+                  )}
 
-            {rateResults !== null ? (
-              <div
-                className="rounded-xl pb-1"
-                style={ratesResultsShellStyle}
-                data-testid="invoice-rate-results"
-              >
-                {displayRates.length > 0 ? (
-                  <>
-                    <h3 className="text-sm font-semibold text-foreground px-1 mb-2">
-                      Select a Shipping Service
-                    </h3>
-                    <div className="flex flex-col gap-[10px]">
-                      {displayRates.map((service, idx) => {
-                        const isBest = idx === 0;
-                        const displayName = service.code || service.internal_api_service_code || 'Service';
-                        const letter = displayName.trim().charAt(0).toUpperCase() || '?';
-                        const gstTotal = service.cgst + service.sgst;
-                        const open = !!expandedById[service.id];
-                        const weightStr =
-                          service.weight?.trim() || String(getWeightKg().toFixed(2));
-                        const itemizedEmpty = itemizedChargesEmpty(service);
-                        const showOtherChargesAggregate =
-                          service.other_charges > 0 && itemizedEmpty;
-                        const isSelected = selectedService?.id === service.id;
-
-                        const toggle = (): void => {
-                          setExpandedById((prev) => ({
-                            ...prev,
-                            [service.id]: !prev[service.id],
-                          }));
-                        };
-
-                        return (
-                          <div
-                            key={service.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => {
-                              setSelectedService(service);
-                              setServiceSelectionError('');
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                setSelectedService(service);
-                                setServiceSelectionError('');
-                              }
-                            }}
-                            className={cn(
-                              'rounded-xl border border-[#E2E8F0] bg-white overflow-hidden relative outline-none focus-visible:ring-2 focus-visible:ring-[#2F4468] cursor-pointer shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]',
-                              isSelected && 'ring-2 ring-[#F2A123] border-[#F2A123]'
-                            )}
-                            data-testid={`invoice-rate-card-${idx}`}
-                          >
-                            {isSelected ? (
-                              <div className="absolute top-3 right-3 z-10 rounded-full bg-[#F2A123] p-0.5 text-[lab(34.0831_-9.57756_-27.7093)]">
-                                <Check className="w-3.5 h-3.5" strokeWidth={3} aria-hidden />
-                              </div>
-                            ) : null}
-                            <div className="flex items-center gap-3 px-4 pt-[14px] pb-3">
-                              <div
-                                className="w-[34px] h-[34px] shrink-0 rounded-[10px] flex items-center justify-center text-[13px] font-medium text-white"
-                                style={{ backgroundColor: isBest ? BEST_GREEN : '#2F4468' }}
-                              >
-                                {letter}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-[13px] font-semibold text-[lab(34.0831_-9.57756_-27.7093)] leading-snug">
-                                  {displayName}
-                                </p>
-                                <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                                  <span className="text-[11px] text-muted-foreground">
-                                    {weightStr} kg chargeable
-                                  </span>
-                                  {isBest ? (
-                                    <span
-                                      className="inline-block rounded-[20px] px-[7px] py-0.5 text-[9px] font-medium"
-                                      style={{ backgroundColor: BEST_BADGE_BG, color: BEST_GREEN }}
-                                    >
-                                      Best value
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </div>
-                              <div className="shrink-0 text-right pr-6">
-                                <p className="text-[20px] font-semibold tabular-nums font-mono text-[#2F4468]">
-                                  {formatInr(service.total)}
-                                </p>
-                                <p className="text-[10px] text-muted-foreground">incl. GST</p>
-                              </div>
-                            </div>
-
-                            <div className="h-[0.5px] bg-[#E2E8F0]" />
-
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggle();
-                              }}
-                              className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-black/[0.02] transition-colors"
-                            >
-                              <span className="text-[11px] text-muted-foreground">
-                                {open ? 'Hide breakdown' : 'View price breakdown'}
-                              </span>
-                              <ChevronDown
-                                className={cn(
-                                  'w-[11px] h-[11px] text-muted-foreground shrink-0 transition-transform duration-200',
-                                  open && 'rotate-180'
-                                )}
-                              />
-                            </button>
-
-                            {open ? (
-                              <div className="bg-[var(--color-background-secondary)] px-4 py-3 border-t-[0.5px] border-[var(--color-border-tertiary)]">
-                                <div className="space-y-2">
-                                  <div className="flex justify-between gap-3 text-[11px]">
-                                    <span className="text-muted-foreground">Base rate</span>
-                                    <span className="font-medium tabular-nums">{formatInr(service.rate)}</span>
-                                  </div>
-                                  {service.fsc !== 0 ? (
-                                    <div className="flex justify-between gap-3 text-[11px]">
-                                      <span className="text-muted-foreground">Fuel surcharge (FSC)</span>
-                                      <span className="font-medium tabular-nums">{formatInr(service.fsc)}</span>
-                                    </div>
-                                  ) : null}
-                                  {!itemizedEmpty
-                                    ? Object.values(service.chrage_apply_data!)
-                                        .filter((entry) => entry.amount !== 0)
-                                        .map((entry, i) => (
-                                          <div
-                                            key={`${service.id}-chg-${i}`}
-                                            className="flex justify-between gap-3 text-[11px]"
-                                          >
-                                            <span className="text-muted-foreground">{entry.name}</span>
-                                            <span className="font-medium tabular-nums">
-                                              {formatInr(entry.amount)}
-                                            </span>
-                                          </div>
-                                        ))
-                                    : null}
-                                  {showOtherChargesAggregate ? (
-                                    <div className="flex justify-between gap-3 text-[11px]">
-                                      <span className="text-muted-foreground">Other charges</span>
-                                      <span className="font-medium tabular-nums">
-                                        {formatInr(service.other_charges)}
-                                      </span>
-                                    </div>
-                                  ) : null}
-                                </div>
-
-                                <div className="my-3 h-[0.5px] bg-[#E2E8F0]" />
-
-                                <div className="space-y-2">
-                                  {service.sub_total !== 0 ? (
-                                    <div className="flex justify-between gap-3 text-[11px]">
-                                      <span className="text-muted-foreground">Sub-total</span>
-                                      <span className="font-medium tabular-nums">
-                                        {formatInr(service.sub_total)}
-                                      </span>
-                                    </div>
-                                  ) : null}
-                                  {gstTotal !== 0 ? (
-                                    <div className="flex justify-between gap-3 text-[11px]">
-                                      <span className="text-muted-foreground">
-                                        GST ({service.gst_per || '0'}%)
-                                      </span>
-                                      <span className="font-medium tabular-nums">{formatInr(gstTotal)}</span>
-                                    </div>
-                                  ) : null}
-                                </div>
-
-                                <div className="my-3 h-px bg-[#E2E8F0] opacity-80" />
-
-                                <div className="flex justify-between gap-3 items-baseline">
-                                  <span className="text-[11px] text-muted-foreground">Total payable</span>
-                                  <span className="text-[13px] font-semibold tabular-nums font-mono text-[#2F4468]">
-                                    {formatInr(service.total)}
-                                  </span>
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
+                  {ratesError ? (
+                    <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mt-3">
+                      <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-red-600">{ratesError}</p>
                     </div>
-                  </>
-                ) : !rateMutation.isPending ? (
-                  <p className="text-sm text-muted-foreground text-center py-4 px-2">
-                    No rates available for this selection
-                  </p>
-                ) : null}
+                  ) : null}
 
-                {serviceSelectionError ? (
-                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mt-3">
-                    <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-red-600">{serviceSelectionError}</p>
-                  </div>
-                ) : null}
-
-                <p className="text-[10px] text-muted-foreground text-center mt-4">
-                  Estimated only. Final charges may vary.
-                </p>
+                  {serviceSelectionError ? (
+                    <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mt-3">
+                      <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-red-600">{serviceSelectionError}</p>
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            ) : null}
+            </div>
 
             <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
-              <Label className="text-sm font-semibold">Invoice Item</Label>
+              <div>
+                <Label className="text-sm font-semibold">Invoice Item</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  For the customs invoice — how many units are in this shipment, what one unit weighs, and its declared value per unit.
+                </p>
+              </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Description</Label>
                 <div className="h-11 mt-1 px-3 flex items-center bg-muted/50 border border-border rounded-xl text-sm text-muted-foreground">
@@ -2522,7 +2319,10 @@ export default function CreateShipment() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-xs text-muted-foreground">Quantity</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    Quantity
+                    <span className="text-red-400">*</span>
+                  </Label>
                   <Input
                     type="number"
                     value={invoiceQty}
@@ -2534,12 +2334,16 @@ export default function CreateShipment() {
                     className={fieldBorderClass('invoiceQty')}
                     data-testid="input-invoice-qty"
                   />
+                  <p className="text-[10px] text-muted-foreground mt-1">Number of units of this item</p>
                   {fieldErrors.invoiceQty && (
                     <p className="text-xs text-red-600 mt-1">This field is required</p>
                   )}
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">Unit Weight (kg)</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    Unit Weight (kg)
+                    <span className="text-red-400">*</span>
+                  </Label>
                   <Input
                     type="number"
                     value={invoiceUnitWeight}
@@ -2552,13 +2356,17 @@ export default function CreateShipment() {
                     className={fieldBorderClass('invoiceUnitWeight')}
                     data-testid="input-invoice-unit-weight"
                   />
+                  <p className="text-[10px] text-muted-foreground mt-1">Weight of one unit, not the total parcel</p>
                   {fieldErrors.invoiceUnitWeight && (
                     <p className="text-xs text-red-600 mt-1">This field is required</p>
                   )}
                 </div>
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Unit Rate ({selectedCurrency})</Label>
+                <Label className="text-xs text-muted-foreground">
+                  Unit Rate ({selectedCurrency})
+                  <span className="text-red-400">*</span>
+                </Label>
                 <Input
                   type="number"
                   value={invoiceUnitRate}
@@ -2570,6 +2378,9 @@ export default function CreateShipment() {
                   className={fieldBorderClass('invoiceUnitRate')}
                   data-testid="input-invoice-unit-rate"
                 />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Declared value per unit in {selectedCurrency} — quantity × rate becomes the invoice total below
+                </p>
                 {fieldErrors.invoiceUnitRate && (
                   <p className="text-xs text-red-600 mt-1">This field is required</p>
                 )}
@@ -2595,14 +2406,14 @@ export default function CreateShipment() {
 
             <Button
               onClick={handleSubmit}
-              disabled={createMutation.isPending}
+              disabled={createMutation.isPending || !selectedService}
               className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
               data-testid="button-submit-shipment"
             >
               {createMutation.isPending ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
-                'Create Shipment'
+                'Review & Book'
               )}
             </Button>
             </div>
@@ -2713,7 +2524,7 @@ export default function CreateShipment() {
               <div className="space-y-4">
                 <Button
                   type="button"
-                  onClick={handleGetRates}
+                  onClick={handleOpenServiceModal}
                   disabled={!productType.trim() || rateMutation.isPending}
                   className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
                 >
@@ -2722,7 +2533,7 @@ export default function CreateShipment() {
                   ) : (
                     <>
                       <Zap className="w-4 h-4 shrink-0" aria-hidden />
-                      Get Rates
+                      {selectedService ? 'Change Service' : 'Get Rates'}
                     </>
                   )}
                 </Button>
@@ -2759,7 +2570,7 @@ export default function CreateShipment() {
 
                 <Button
                   onClick={handleSubmit}
-                  disabled={createMutation.isPending}
+                  disabled={createMutation.isPending || !selectedService}
                   className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
                   data-testid="button-submit-shipment-desktop"
                 >
@@ -2822,6 +2633,393 @@ export default function CreateShipment() {
                 </p>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showServiceModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
+          onClick={() => setShowServiceModal(false)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-lg bg-white rounded-t-2xl max-h-[85vh] flex flex-col shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="service-sheet-title"
+          >
+            <div className="flex justify-center pt-3 pb-1 shrink-0">
+              <div className="w-10 h-1 bg-gray-200 rounded-full" />
+            </div>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+              <h3 id="service-sheet-title" className="font-semibold text-base text-gray-900">
+                Select a Shipping Service
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowServiceModal(false)}
+                className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto p-4" style={ratesResultsShellStyle} data-testid="invoice-rate-results">
+              {rateMutation.isPending ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : displayRates.length > 0 ? (
+                <div className="flex flex-col gap-[10px]">
+                  {displayRates.map((service, idx) => {
+                    const isBest = idx === 0;
+                    const displayName = service.code || service.internal_api_service_code || 'Service';
+                    const letter = displayName.trim().charAt(0).toUpperCase() || '?';
+                    const gstTotal = service.cgst + service.sgst;
+                    const open = !!expandedById[service.id];
+                    const weightStr =
+                      service.weight?.trim() || String(getWeightKg().toFixed(2));
+                    const itemizedEmpty = itemizedChargesEmpty(service);
+                    const showOtherChargesAggregate =
+                      service.other_charges > 0 && itemizedEmpty;
+                    const isSelected = pendingService?.id === service.id;
+
+                    const toggle = (): void => {
+                      setExpandedById((prev) => ({
+                        ...prev,
+                        [service.id]: !prev[service.id],
+                      }));
+                    };
+
+                    return (
+                      <div
+                        key={service.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setPendingService(service)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setPendingService(service);
+                          }
+                        }}
+                        className={cn(
+                          'rounded-xl border border-[#E2E8F0] bg-white overflow-hidden relative outline-none focus-visible:ring-2 focus-visible:ring-[#2F4468] cursor-pointer shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]',
+                          isSelected && 'ring-2 ring-[#F2A123] border-[#F2A123]'
+                        )}
+                        data-testid={`invoice-rate-card-${idx}`}
+                      >
+                        {isSelected ? (
+                          <div className="absolute top-3 right-3 z-10 rounded-full bg-[#F2A123] p-0.5 text-[lab(34.0831_-9.57756_-27.7093)]">
+                            <Check className="w-3.5 h-3.5" strokeWidth={3} aria-hidden />
+                          </div>
+                        ) : null}
+                        <div className="flex items-center gap-3 px-4 pt-[14px] pb-3">
+                          <div
+                            className="w-[34px] h-[34px] shrink-0 rounded-[10px] flex items-center justify-center text-[13px] font-medium text-white"
+                            style={{ backgroundColor: isBest ? BEST_GREEN : '#2F4468' }}
+                          >
+                            {letter}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[13px] font-semibold text-[lab(34.0831_-9.57756_-27.7093)] leading-snug">
+                              {displayName}
+                            </p>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                              <span className="text-[11px] text-muted-foreground">
+                                {weightStr} kg chargeable
+                              </span>
+                              {isBest ? (
+                                <span
+                                  className="inline-block rounded-[20px] px-[7px] py-0.5 text-[9px] font-medium"
+                                  style={{ backgroundColor: BEST_BADGE_BG, color: BEST_GREEN }}
+                                >
+                                  Best value
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right pr-6">
+                            <p className="text-[20px] font-semibold tabular-nums font-mono text-[#2F4468]">
+                              {formatInr(service.total)}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">incl. GST</p>
+                          </div>
+                        </div>
+
+                        <div className="h-[0.5px] bg-[#E2E8F0]" />
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggle();
+                          }}
+                          className="w-full flex items-center justify-between px-4 py-2 text-left hover:bg-black/[0.02] transition-colors"
+                        >
+                          <span className="text-[11px] text-muted-foreground">
+                            {open ? 'Hide breakdown' : 'View price breakdown'}
+                          </span>
+                          <ChevronDown
+                            className={cn(
+                              'w-[11px] h-[11px] text-muted-foreground shrink-0 transition-transform duration-200',
+                              open && 'rotate-180'
+                            )}
+                          />
+                        </button>
+
+                        {open ? (
+                          <div className="bg-[var(--color-background-secondary)] px-4 py-3 border-t-[0.5px] border-[var(--color-border-tertiary)]">
+                            <div className="space-y-2">
+                              <div className="flex justify-between gap-3 text-[11px]">
+                                <span className="text-muted-foreground">Base rate</span>
+                                <span className="font-medium tabular-nums">{formatInr(service.rate)}</span>
+                              </div>
+                              {service.fsc !== 0 ? (
+                                <div className="flex justify-between gap-3 text-[11px]">
+                                  <span className="text-muted-foreground">Fuel surcharge (FSC)</span>
+                                  <span className="font-medium tabular-nums">{formatInr(service.fsc)}</span>
+                                </div>
+                              ) : null}
+                              {!itemizedEmpty
+                                ? Object.values(service.chrage_apply_data!)
+                                    .filter((entry) => entry.amount !== 0)
+                                    .map((entry, i) => (
+                                      <div
+                                        key={`${service.id}-chg-${i}`}
+                                        className="flex justify-between gap-3 text-[11px]"
+                                      >
+                                        <span className="text-muted-foreground">{entry.name}</span>
+                                        <span className="font-medium tabular-nums">
+                                          {formatInr(entry.amount)}
+                                        </span>
+                                      </div>
+                                    ))
+                                : null}
+                              {showOtherChargesAggregate ? (
+                                <div className="flex justify-between gap-3 text-[11px]">
+                                  <span className="text-muted-foreground">Other charges</span>
+                                  <span className="font-medium tabular-nums">
+                                    {formatInr(service.other_charges)}
+                                  </span>
+                                </div>
+                              ) : null}
+                            </div>
+
+                            <div className="my-3 h-[0.5px] bg-[#E2E8F0]" />
+
+                            <div className="space-y-2">
+                              {service.sub_total !== 0 ? (
+                                <div className="flex justify-between gap-3 text-[11px]">
+                                  <span className="text-muted-foreground">Sub-total</span>
+                                  <span className="font-medium tabular-nums">
+                                    {formatInr(service.sub_total)}
+                                  </span>
+                                </div>
+                              ) : null}
+                              {gstTotal !== 0 ? (
+                                <div className="flex justify-between gap-3 text-[11px]">
+                                  <span className="text-muted-foreground">
+                                    GST ({service.gst_per || '0'}%)
+                                  </span>
+                                  <span className="font-medium tabular-nums">{formatInr(gstTotal)}</span>
+                                </div>
+                              ) : null}
+                            </div>
+
+                            <div className="my-3 h-px bg-[#E2E8F0] opacity-80" />
+
+                            <div className="flex justify-between gap-3 items-baseline">
+                              <span className="text-[11px] text-muted-foreground">Total payable</span>
+                              <span className="text-[13px] font-semibold tabular-nums font-mono text-[#2F4468]">
+                                {formatInr(service.total)}
+                              </span>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4 px-2">
+                  No rates available for this selection
+                </p>
+              )}
+
+              <p className="text-[10px] text-muted-foreground text-center mt-4">
+                Estimated only. Final charges may vary.
+              </p>
+            </div>
+
+            <div className="p-4 border-t border-border shrink-0">
+              <Button
+                onClick={() => {
+                  if (!pendingService) return;
+                  setSelectedService(pendingService);
+                  setServiceSelectionError('');
+                  setShowServiceModal(false);
+                }}
+                disabled={!pendingService}
+                className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+                data-testid="button-confirm-service"
+              >
+                {pendingService ? 'Confirm Selection' : 'Select a service to continue'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pickupDatePickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
+          onClick={() => setPickupDatePickerOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-lg bg-white rounded-t-2xl max-h-[80vh] overflow-y-auto shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pickup-date-sheet-title"
+          >
+            <div className="flex justify-center pt-3 pb-1">
+              <div className="w-10 h-1 bg-gray-200 rounded-full" />
+            </div>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <h3 id="pickup-date-sheet-title" className="font-semibold text-base text-gray-900">
+                Choose pickup date
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPickupDatePickerOpen(false)}
+                className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4">
+              <Calendar
+                mode="single"
+                selected={pickupDate ? new Date(`${pickupDate}T00:00:00`) : undefined}
+                onSelect={(date) => {
+                  if (!date) return;
+                  const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                  setPickupDate(iso);
+                  clearFieldError('pickupDate');
+                  setPickupDatePickerOpen(false);
+                }}
+                disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }}
+                autoFocus
+                className="w-full [--cell-size:2.75rem]"
+                classNames={{ root: 'w-full' }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showConfirmModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 px-0 sm:px-4"
+          onClick={() => !createMutation.isPending && setShowConfirmModal(false)}
+        >
+          <div
+            className="bg-white rounded-t-2xl sm:rounded-2xl p-5 max-w-sm w-full shadow-xl max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+            data-testid="modal-confirm-booking"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-base text-gray-900">Review &amp; Pay</h3>
+              <button
+                type="button"
+                onClick={() => setShowConfirmModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+                data-testid="button-close-confirm-modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-muted/30 rounded-xl border border-border p-4 space-y-2 text-sm mb-5">
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Service</span>
+                <span className="font-medium text-foreground text-right text-xs break-words">
+                  {selectedService
+                    ? selectedService.internal_api_service_code || selectedService.code
+                    : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">
+                  {pickupRequest === '1' ? 'Pickup' : 'Drop-off'}
+                </span>
+                <span className="font-medium text-foreground text-right">
+                  {pickupRequest === '1' ? `${pickupDate} · ${pickupSlot}` : 'At the hub'}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3 pt-2 border-t border-border">
+                <span className="text-muted-foreground font-medium">Total</span>
+                <span className="font-mono text-base font-semibold text-[#2F4468]">
+                  {selectedService ? formatInr(selectedService.total) : '—'}
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">incl. GST · estimated, settled after weighing</p>
+            </div>
+
+            <Label className="text-xs text-muted-foreground mb-2 block">Pay with</Label>
+            <div className="space-y-2 mb-5">
+              {(
+                [
+                  ['pay_now', 'Pay Now'],
+                  ['pay_at_pickup', 'Pay at Pickup'],
+                  ['pay_at_dropoff', 'Pay at Drop-off'],
+                  ['cod', 'Cash on Delivery'],
+                ] as const
+              ).map(([val, label]) => (
+                <label
+                  key={val}
+                  className={cn(
+                    'flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors',
+                    paymentMethod === val ? 'border-primary bg-primary/5' : 'border-border'
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="payment_method"
+                    checked={paymentMethod === val}
+                    onChange={() => {
+                      setPaymentMethod(val);
+                      setPaymentError('');
+                    }}
+                    className="accent-primary"
+                    data-testid={`radio-payment-method-${val}`}
+                  />
+                  <span className="text-sm text-foreground">{label}</span>
+                </label>
+              ))}
+            </div>
+
+            {paymentError && (
+              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
+                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-600">{paymentError}</p>
+              </div>
+            )}
+
+            <Button
+              onClick={handleConfirmBooking}
+              disabled={createMutation.isPending}
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+              data-testid="button-confirm-booking"
+            >
+              {createMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Booking'}
+            </Button>
           </div>
         </div>
       )}
