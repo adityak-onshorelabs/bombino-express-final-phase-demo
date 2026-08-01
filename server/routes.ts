@@ -3,6 +3,8 @@ import {
   countUnreadNotifications,
   createNewSupportSession,
   findItdUserIdByCustomerId,
+  findItdUserIdByPhone,
+  findOrCreateAddress,
   generateSessionTitle,
   getItdUserProfileById,
   getItdUserTokenAndSecretsById,
@@ -22,6 +24,28 @@ import {
   getLastKnownTracking,
 } from "./appDb.js";
 import type { ShipmentDocumentKind } from "./appDb.js";
+import {
+  insertOrderAndReturnRow,
+  insertOrderEvent,
+  listOrdersByUserId,
+} from "./ordersDb.js";
+import {
+  generateOtp,
+  hashOtp,
+  sendOtpSms,
+  OTP_TTL_MINUTES,
+  OTP_MAX_ATTEMPTS,
+  OTP_MAX_REQUESTS_PER_HOUR,
+  OTP_VERIFICATION_WINDOW_MINUTES,
+} from "./otp.js";
+import type { OtpPurpose } from "./otpDb.js";
+import {
+  countRecentRequests,
+  insertOtpCode,
+  getLatestOtpForVerify,
+  markConsumed,
+  hasRecentVerification,
+} from "./otpDb.js";
 import { decryptPassword, encryptPassword } from "./crypto.js";
 import { refreshItdTokenIfNeeded } from "./itdTokenRefresh.js";
 import type { Server } from "http";
@@ -47,6 +71,7 @@ import {
   buildItdKycPayload,
   toKycSummary,
 } from "../shared/kyc.js";
+import { validateGstin } from "../shared/gstin.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
   SUPPORT_CHAT_MAX_CONTENT_LENGTH,
@@ -205,6 +230,275 @@ export async function registerRoutes(
       return;
     }
     res.json(req.session.user);
+  });
+
+  // ── Signup: OTP + personal/company account creation (A2) ─────────────────
+
+  const otpPurposeSchema = z.enum(["signup_personal", "signup_company", "login"]);
+  const phoneSchema = z.string().trim().regex(/^\d{10}$/, "Enter a valid 10-digit phone number");
+
+  // POST /api/auth/otp/request
+  app.post("/api/auth/otp/request", async (req: Request, res: Response) => {
+    const parsed = z
+      .object({ phone: phoneSchema, purpose: otpPurposeSchema })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
+      return;
+    }
+    const { phone, purpose } = parsed.data;
+
+    const recentCount = await countRecentRequests(phone, 60);
+    if (recentCount !== null && recentCount >= OTP_MAX_REQUESTS_PER_HOUR) {
+      res.status(429).json({ message: "Too many OTP requests. Please try again later." });
+      return;
+    }
+
+    const code = generateOtp();
+    const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60_000).toISOString();
+    const inserted = await insertOtpCode({
+      phone,
+      code_hash: hashOtp(code),
+      purpose,
+      expires_at: expiresAt,
+    });
+    if (!inserted) {
+      res.status(502).json({ message: "Could not send OTP. Please try again." });
+      return;
+    }
+
+    await sendOtpSms(phone, code);
+    res.json({ message: "OTP sent" });
+  });
+
+  // POST /api/auth/otp/verify
+  app.post("/api/auth/otp/verify", async (req: Request, res: Response) => {
+    const parsed = z
+      .object({
+        phone: phoneSchema,
+        purpose: otpPurposeSchema,
+        code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code"),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
+      return;
+    }
+    const { phone, purpose, code } = parsed.data;
+
+    const row = await getLatestOtpForVerify(phone, purpose as OtpPurpose);
+    if (!row) {
+      res.status(400).json({ message: "No pending OTP for this number. Request a new one." });
+      return;
+    }
+    if (new Date(row.expires_at).getTime() < Date.now()) {
+      res.status(400).json({ message: "This OTP has expired. Request a new one." });
+      return;
+    }
+    if (row.attempts >= OTP_MAX_ATTEMPTS) {
+      res.status(429).json({ message: "Too many incorrect attempts. Request a new OTP." });
+      return;
+    }
+
+    // TODO(A2): any 6-digit code is accepted — no SMS provider is wired yet
+    // (doc §8 blocker), so there's no real code for a customer to type back.
+    // Swap this for `hashOtp(code) !== row.code_hash` once one lands; the
+    // real hash is already generated and stored, just unused for comparison.
+
+    await markConsumed(row.id);
+    res.json({ verified: true });
+  });
+
+  const signupPersonalSchema = z.object({
+    full_name: z.string().trim().min(1, "Full name is required"),
+    email: z.string().trim().email("Enter a valid email"),
+    phone: phoneSchema,
+  });
+
+  // POST /api/auth/signup/personal
+  app.post("/api/auth/signup/personal", async (req: Request, res: Response) => {
+    const parsed = signupPersonalSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
+      return;
+    }
+    const { full_name, email, phone } = parsed.data;
+
+    const existing = await findItdUserIdByPhone(phone);
+    if (existing) {
+      res.status(409).json({ message: "This phone number is already registered. Please sign in instead." });
+      return;
+    }
+
+    const verified = await hasRecentVerification(phone, "signup_personal", OTP_VERIFICATION_WINDOW_MINUTES);
+    if (!verified) {
+      res.status(400).json({ message: "Please verify your phone number first" });
+      return;
+    }
+
+    const itdCustomerId = `local-${crypto.randomUUID()}`;
+    const row = await upsertItdUserAndReturnId({
+      itd_customer_id: itdCustomerId,
+      itd_customer_code: itdCustomerId,
+      email,
+      full_name,
+      username: phone,
+      role: "customer",
+      phone,
+      account_type: "personal",
+    });
+    if (!row?.id) {
+      res.status(502).json({ message: "Could not create account. Please try again." });
+      return;
+    }
+
+    const user = {
+      id: itdCustomerId,
+      customerId: itdCustomerId,
+      code: itdCustomerId,
+      email,
+      fullName: full_name,
+      username: phone,
+      role: "customer",
+    };
+    req.session.user = user;
+    req.session.dbUserId = row.id;
+    req.session.save((err) => {
+      if (err) {
+        console.error("[signup/personal] session save error:", err);
+      }
+      res.json(user);
+    });
+  });
+
+  const signupCompanySchema = z.object({
+    phone: phoneSchema,
+    company_name: z.string().trim().min(1, "Company name is required"),
+    gstin: z.string().trim().length(15, "GST number must be 15 characters"),
+  });
+
+  // POST /api/auth/signup/company
+  app.post("/api/auth/signup/company", async (req: Request, res: Response) => {
+    const parsed = signupCompanySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
+      return;
+    }
+    const { phone, company_name, gstin: rawGstin } = parsed.data;
+    const gstin = rawGstin.toUpperCase();
+
+    const gstinCheck = validateGstin(gstin);
+    if (!gstinCheck.valid) {
+      res.status(400).json({ message: gstinCheck.message ?? "Invalid GST number" });
+      return;
+    }
+
+    const existing = await findItdUserIdByPhone(phone);
+    if (existing) {
+      res.status(409).json({ message: "This phone number is already registered. Please sign in instead." });
+      return;
+    }
+
+    const verified = await hasRecentVerification(phone, "signup_company", OTP_VERIFICATION_WINDOW_MINUTES);
+    if (!verified) {
+      res.status(400).json({ message: "Please verify your phone number first" });
+      return;
+    }
+
+    const itdCustomerId = `local-${crypto.randomUUID()}`;
+    const row = await upsertItdUserAndReturnId({
+      itd_customer_id: itdCustomerId,
+      itd_customer_code: itdCustomerId,
+      email: "",
+      full_name: company_name,
+      username: phone,
+      role: "customer",
+      phone,
+      account_type: "company",
+      company_name,
+      gstin,
+    });
+    if (!row?.id) {
+      res.status(502).json({ message: "Could not create account. Please try again." });
+      return;
+    }
+
+    let itdRegistered = false;
+    try {
+      const addCustomerResult = await itdClient.addCustomer({
+        name: company_name,
+        contact_no: phone,
+        gst_number: gstin,
+      });
+      itdRegistered = !!addCustomerResult.success;
+    } catch (err) {
+      console.error("[signup/company] itdClient.addCustomer failed (non-fatal):", err);
+    }
+
+    const user = {
+      id: itdCustomerId,
+      customerId: itdCustomerId,
+      code: itdCustomerId,
+      email: "",
+      fullName: company_name,
+      username: phone,
+      role: "customer",
+    };
+    req.session.user = user;
+    req.session.dbUserId = row.id;
+    req.session.save((err) => {
+      if (err) {
+        console.error("[signup/company] session save error:", err);
+      }
+      res.json({ ...user, itdRegistered });
+    });
+  });
+
+  // POST /api/auth/login/otp — re-authenticate an existing personal/company
+  // account by phone+OTP (the counterpart to signup/personal & signup/company).
+  app.post("/api/auth/login/otp", async (req: Request, res: Response) => {
+    const parsed = z.object({ phone: phoneSchema }).safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
+      return;
+    }
+    const { phone } = parsed.data;
+
+    const verified = await hasRecentVerification(phone, "login", OTP_VERIFICATION_WINDOW_MINUTES);
+    if (!verified) {
+      res.status(400).json({ message: "Please verify your phone number first" });
+      return;
+    }
+
+    const existing = await findItdUserIdByPhone(phone);
+    if (!existing) {
+      res.status(404).json({ message: "No account found for this number. Create an account instead." });
+      return;
+    }
+
+    const profile = await getItdUserProfileById(existing.id);
+    if (!profile) {
+      res.status(502).json({ message: "Could not sign in. Please try again." });
+      return;
+    }
+
+    const user = {
+      id: profile.itd_customer_id,
+      customerId: profile.itd_customer_id,
+      code: profile.itd_customer_code,
+      email: profile.email ?? "",
+      fullName: profile.full_name,
+      username: profile.username,
+      role: profile.role,
+    };
+    req.session.user = user;
+    req.session.dbUserId = existing.id;
+    req.session.save((err) => {
+      if (err) {
+        console.error("[login/otp] session save error:", err);
+      }
+      res.json(user);
+    });
   });
 
   app.get(
@@ -870,6 +1164,124 @@ export async function registerRoutes(
         message.includes("Session expired") || message.includes("AUTH TOKEN");
       res.status(tokenError ? 401 : 502).json({ message });
     }
+  });
+
+  // ── Orders (A3: Booking) ────────────────────────────────────────────────
+  // Booking creates a Bombino order, not an ITD docket. Zero ITD calls here —
+  // the docket is generated later by ops (M5), reusing itdClient.createShipment
+  // above with the data stashed in `items`/`consignee` on this order.
+
+  const PICKUP_SLOTS = ["09:00-12:00", "12:00-15:00", "15:00-18:00", "18:00-21:00"] as const;
+  const PAYMENT_METHODS = ["pay_now", "pay_at_pickup", "pay_at_dropoff", "cod"] as const;
+
+  const orderCreateSchema = z
+    .object({
+      pickup_request: z.union([z.literal(1), z.literal(2)]),
+      pickup_date: z.string().trim().min(1).optional().nullable(),
+      pickup_slot: z.enum(PICKUP_SLOTS).optional().nullable(),
+      payment_method: z.enum(PAYMENT_METHODS),
+      booked_weight: z.number().optional().nullable(),
+      quoted_amount: z.number().optional().nullable(),
+      origin_address: z.object({
+        full_name: z.string().trim().min(1),
+        company: z.string().optional().nullable(),
+        email: z.string().optional().nullable(),
+        phone: z.string().trim().min(1),
+        address_line_1: z.string().trim().min(1),
+        city: z.string().trim().min(1),
+        state: z.string().optional().nullable(),
+        pincode: z.string().optional().nullable(),
+        country_code: z.string().trim().min(2),
+        country_name: z.string().optional().nullable(),
+      }),
+      consignee: z.record(z.unknown()),
+      items: z.record(z.unknown()),
+    })
+    .refine((body) => body.pickup_request !== 1 || (!!body.pickup_date && !!body.pickup_slot), {
+      message: "pickup_date and pickup_slot are required when pickup_request is 1 (pickup)",
+    });
+
+  // POST /api/orders — requires login (session)
+  app.post("/api/orders", ensureDbUser, async (req: Request, res: Response) => {
+    if (!req.session.dbUserId) {
+      res.status(401).json({ message: "Login required to book a shipment" });
+      return;
+    }
+
+    const parsed = orderCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid order payload" });
+      return;
+    }
+    const body = parsed.data;
+
+    const originAddr = await findOrCreateAddress({
+      user_id: req.session.dbUserId,
+      type: "sender",
+      full_name: body.origin_address.full_name,
+      company: body.origin_address.company || null,
+      email: body.origin_address.email || null,
+      phone: body.origin_address.phone,
+      address_line_1: body.origin_address.address_line_1,
+      city: body.origin_address.city,
+      state: body.origin_address.state || null,
+      pincode: body.origin_address.pincode || null,
+      country_code: body.origin_address.country_code,
+      country_name: body.origin_address.country_name || null,
+    });
+
+    if (!originAddr?.id) {
+      res.status(502).json({ message: "Could not save pickup address" });
+      return;
+    }
+
+    const isPickup = body.pickup_request === 1;
+    const status = isPickup ? "pickup_requested" : "awaiting_dropoff";
+
+    const order = await insertOrderAndReturnRow({
+      user_id: req.session.dbUserId,
+      status,
+      pickup_request: body.pickup_request,
+      pickup_date: isPickup ? body.pickup_date ?? null : null,
+      pickup_slot: isPickup ? body.pickup_slot ?? null : null,
+      origin_address_id: originAddr.id,
+      consignee: body.consignee,
+      items: body.items,
+      booked_weight: body.booked_weight ?? null,
+      quoted_amount: body.quoted_amount ?? null,
+      payment_method: body.payment_method,
+      is_cod: body.payment_method === "cod",
+    });
+
+    if (!order) {
+      res.status(502).json({ message: "Order creation failed" });
+      return;
+    }
+
+    void insertOrderEvent({
+      order_id: order.id,
+      status,
+      note: "Order created",
+      actor_user_id: req.session.dbUserId,
+    });
+
+    res.json({ order });
+  });
+
+  // GET /api/orders — requires login (session)
+  app.get("/api/orders", ensureDbUser, async (req: Request, res: Response) => {
+    if (!req.session.dbUserId) {
+      res.status(401).json({ message: "Login required" });
+      return;
+    }
+
+    const orders = await listOrdersByUserId(req.session.dbUserId);
+    if (orders === null) {
+      res.status(502).json({ message: "Could not load orders" });
+      return;
+    }
+
+    res.json({ orders });
   });
 
   // ── KYC: Upload document ──────────────────────────────────────────────────

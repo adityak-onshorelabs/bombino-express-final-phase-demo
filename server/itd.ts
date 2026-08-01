@@ -163,6 +163,24 @@ export interface CreateShipmentResponse {
   labels: { label: string; filename?: string; file_type?: string }[];
 }
 
+export interface AddCustomerPayload {
+  name: string;
+  email?: string;
+  contact_no: string;
+  gst_number: string;
+  address?: string;
+  pincode?: string;
+  city?: string;
+  state?: string;
+  contact_person?: string;
+}
+
+export interface AddCustomerResponse {
+  success: boolean;
+  errors: string[];
+  data: Record<string, unknown>;
+}
+
 export interface RateParams {
   product_code: string;
   destination_code: string;
@@ -318,6 +336,50 @@ class ITDClient {
     }
 
     return (await res.json()) as CreateShipmentResponse;
+  }
+
+  // POST /api/customer_api/add_customer — registers a corporate customer with
+  // ITD on company signup. Uses the shared company token, not a user token.
+  // hub_id/location_code default to Mumbai — the real assignment rule is an
+  // unresolved blocker (docs/final-phase/markdowns/final-phase-modules.md §8).
+  async addCustomer(payload: AddCustomerPayload): Promise<AddCustomerResponse> {
+    const token = await this.getToken();
+    const companyId = process.env.ITD_API_COMPANY_ID ?? "2";
+
+    const form = new URLSearchParams({
+      name: payload.name,
+      customer_country: "IN",
+      location_code: "MUM", // TODO(A2): hub assignment rule unresolved, doc §8 blockers
+      customer_category: "Company",
+      email: payload.email ?? "",
+      contact_no: payload.contact_no,
+      contact_no2: "",
+      address: payload.address ?? "",
+      pincode: payload.pincode ?? "",
+      city: payload.city ?? "",
+      state: payload.state ?? "",
+      contact_person: payload.contact_person ?? payload.name,
+      hub_id: "1", // TODO(A2): hub assignment rule unresolved, doc §8 blockers — defaults to Mumbai
+      company_id: companyId,
+      gst_number: payload.gst_number,
+      customer_setting: JSON.stringify({ show_kyc_after_login: 1, is_fsc_apply: 1 }),
+    });
+
+    const res = await fetch(`${ADMIN_BASE}/api/customer_api/add_customer`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Bearer ${token}`,
+      },
+      body: form,
+    });
+
+    if (!res.ok) {
+      const errorBody = await res.text().catch(() => "");
+      throw new Error(`ITD add_customer error: ${res.status} ${res.statusText} — ${errorBody}`);
+    }
+
+    return (await res.json()) as AddCustomerResponse;
   }
 
   // POST /docket_api/customer_rate_cals (multipart/form-data, different domain)

@@ -89,6 +89,23 @@ export async function findItdUserIdByCustomerId(
   return data;
 }
 
+export async function findItdUserIdByPhone(phone: string): Promise<{ id: string } | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("id")
+    .eq("phone", phone)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("findItdUserIdByPhone", error);
+    return null;
+  }
+  return data;
+}
+
 type UpsertItdUserInput = {
   itd_customer_id: string;
   itd_customer_code: string;
@@ -100,6 +117,10 @@ type UpsertItdUserInput = {
   itd_token_expires_at?: string | null;
   itd_password_encrypted?: string | null;
   encryption_iv?: string | null;
+  phone?: string | null;
+  account_type?: "personal" | "company";
+  company_name?: string | null;
+  gstin?: string | null;
 };
 
 export async function upsertItdUserAndReturnId(
@@ -109,8 +130,17 @@ export async function upsertItdUserAndReturnId(
   if (!client) return null;
 
   const now = new Date().toISOString();
-  const { itd_token, itd_token_expires_at, itd_password_encrypted, encryption_iv, ...rest } =
-    payload;
+  const {
+    itd_token,
+    itd_token_expires_at,
+    itd_password_encrypted,
+    encryption_iv,
+    phone,
+    account_type,
+    company_name,
+    gstin,
+    ...rest
+  } = payload;
   const optionalCols: Record<string, string | null | undefined> = {};
   if (itd_token !== undefined) optionalCols.itd_token = itd_token;
   if (itd_token_expires_at !== undefined) optionalCols.itd_token_expires_at = itd_token_expires_at;
@@ -118,6 +148,10 @@ export async function upsertItdUserAndReturnId(
     optionalCols.itd_password_encrypted = itd_password_encrypted;
   }
   if (encryption_iv !== undefined) optionalCols.encryption_iv = encryption_iv;
+  if (phone !== undefined) optionalCols.phone = phone;
+  if (account_type !== undefined) optionalCols.account_type = account_type;
+  if (company_name !== undefined) optionalCols.company_name = company_name;
+  if (gstin !== undefined) optionalCols.gstin = gstin;
 
   const { data, error } = await client
     .from("itd_users")
