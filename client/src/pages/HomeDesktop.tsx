@@ -15,9 +15,8 @@ import {
 import { useAppStore } from '@/lib/store';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
 import { StatusBadge } from '@/components/StatusBadge';
-import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
-import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
+import { fetchMergedShipmentRows, type DisplayRow } from '@/lib/shipmentRows';
 
 interface HomeNotificationRow {
   id: string;
@@ -580,10 +579,10 @@ function RecentUpdates({
 
 // ─── My Shipments table (logged-in main column) ───
 function MyShipmentsTable({
-  shipments,
+  rows,
   loading,
 }: {
-  shipments: ShipmentHistoryItem[];
+  rows: DisplayRow[];
   loading: boolean;
 }) {
   return (
@@ -601,7 +600,7 @@ function MyShipmentsTable({
         </Link>
       </div>
       <div className="grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-2.5 text-[10px] font-bold tracking-[0.12em] uppercase text-muted-foreground border-b border-[#E2E8F0] bg-[#F8F9FA]">
-        <span>AWB number</span>
+        <span>AWB / Order number</span>
         <span>Destination</span>
         <span className="text-right">Amount</span>
         <span>Status</span>
@@ -623,33 +622,43 @@ function MyShipmentsTable({
             </div>
           </>
         )}
-        {!loading && shipments.length === 0 && (
+        {!loading && rows.length === 0 && (
           <div className="px-6 py-10 text-center text-sm text-muted-foreground">
             No shipments yet. <Link href="/create" className="text-[#F2A123] font-semibold hover:underline">Create your first →</Link>
           </div>
         )}
         {!loading &&
-          shipments.slice(0, 4).map((s) => {
-            const dest = [s.consignee_city, s.consignee_country].filter(Boolean).join(', ') || '—';
-            const amount =
-              s.total_amount != null && String(s.total_amount) !== ''
-                ? `${(s.currency ?? 'INR').toUpperCase() === 'INR' ? '₹' : ''}${Number(s.total_amount).toLocaleString()}`
-                : '—';
-            const status = s.current_status?.trim() ? getStatusLabel(s.current_status) : 'Unknown';
-            const tone = s.current_status?.trim() ? getStatusColor(s.current_status) : 'gray';
-            return (
-              <Link
-                key={s.awb_number + s.created_at}
-                href={`/shipment/${encodeURIComponent(s.awb_number)}`}
-                className="grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-3.5 items-center hover:bg-[#F8F9FA] transition-colors"
-                data-testid={`shipment-row-${s.awb_number}`}
-              >
+          rows.slice(0, 4).map((row) => {
+            const dest = [row.city, row.country].filter(Boolean).join(', ') || '—';
+            const rowClassName =
+              'grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-3.5 items-center hover:bg-[#F8F9FA] transition-colors';
+            const content = (
+              <>
                 <span className="text-sm font-semibold tabular-nums tracking-[0.02em] text-foreground">
-                  {s.awb_number}
+                  {row.isOrder && (
+                    <span className="mr-1.5 text-[9px] font-bold uppercase tracking-[0.08em] text-muted-foreground bg-muted px-1.5 py-0.5 rounded align-middle">
+                      Order
+                    </span>
+                  )}
+                  {row.displayId}
                 </span>
                 <span className="text-sm text-muted-foreground truncate">{dest}</span>
-                <span className="text-sm font-medium tabular-nums text-right">{amount}</span>
-                <StatusBadge status={status} tone={tone} className="shrink-0" />
+                <span className="text-sm font-medium tabular-nums text-right">{row.amountStr ?? '—'}</span>
+                <StatusBadge status={row.statusLabel} tone={row.statusTone} className="shrink-0" />
+              </>
+            );
+            return row.isOrder ? (
+              <div key={row.key} className={rowClassName} data-testid={`shipment-row-${row.displayId}`}>
+                {content}
+              </div>
+            ) : (
+              <Link
+                key={row.key}
+                href={`/shipment/${encodeURIComponent(row.displayId)}`}
+                className={rowClassName}
+                data-testid={`shipment-row-${row.displayId}`}
+              >
+                {content}
               </Link>
             );
           })}
@@ -666,29 +675,24 @@ export default function HomeDesktop() {
   const [trackingNumber, setTrackingNumber] = useState('');
 
   const [shipmentsLoading, setShipmentsLoading] = useState(isLoggedIn);
-  const [apiShipments, setApiShipments] = useState<ShipmentHistoryItem[]>([]);
+  const [shipmentRows, setShipmentRows] = useState<DisplayRow[]>([]);
   const [apiNotifications, setApiNotifications] = useState<HomeNotificationRow[]>([]);
 
   const loadHomeData = useCallback(async () => {
     if (!isLoggedIn) {
-      setApiShipments([]);
+      setShipmentRows([]);
       setApiNotifications([]);
       setShipmentsLoading(false);
       return;
     }
     setShipmentsLoading(true);
 
-    const [shipRes, notifRes] = await Promise.all([
-      fetch('/api/shipments/history', { credentials: 'include' }).catch(() => null),
+    const [rows, notifRes] = await Promise.all([
+      fetchMergedShipmentRows().catch(() => [] as DisplayRow[]),
       fetch('/api/notifications', { credentials: 'include' }).catch(() => null),
     ]);
 
-    if (shipRes && shipRes.ok) {
-      const data = (await shipRes.json().catch(() => [])) as ShipmentHistoryItem[];
-      setApiShipments(Array.isArray(data) ? data : []);
-    } else {
-      setApiShipments([]);
-    }
+    setShipmentRows(rows);
 
     if (notifRes && notifRes.ok) {
       const raw = (await notifRes.json().catch(() => [])) as HomeNotificationRow[];
@@ -710,7 +714,7 @@ export default function HomeDesktop() {
   };
 
   const firstName = isLoggedIn ? (user?.fullName?.split(' ')[0] || user?.email) : undefined;
-  const recentAwbs = apiShipments.slice(0, 2).map((s) => s.awb_number);
+  const recentAwbs = shipmentRows.filter((r) => !r.isOrder).slice(0, 2).map((r) => r.displayId);
 
   return (
     <div className="space-y-6" data-testid="screen-home-desktop">
@@ -730,7 +734,7 @@ export default function HomeDesktop() {
           <ActionCards />
 
           {isLoggedIn && (
-            <MyShipmentsTable shipments={apiShipments} loading={shipmentsLoading} />
+            <MyShipmentsTable rows={shipmentRows} loading={shipmentsLoading} />
           )}
 
           <PopularRoutes />

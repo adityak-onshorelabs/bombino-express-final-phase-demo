@@ -10,8 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useIsMobile } from '@/hooks/use-mobile';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
-import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
-import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
+import { fetchMergedShipmentRows, type DisplayRow } from '@/lib/shipmentRows';
 import HomeDesktop from '@/pages/HomeDesktop';
 
 interface HomeNotificationRow {
@@ -108,14 +107,14 @@ function HomeMobile() {
 
   const [shipmentsLoading, setShipmentsLoading] = useState(isLoggedIn);
   const [shipmentsError, setShipmentsError] = useState(false);
-  const [apiShipments, setApiShipments] = useState<ShipmentHistoryItem[]>([]);
+  const [shipmentRows, setShipmentRows] = useState<DisplayRow[]>([]);
 
   const [notificationsError, setNotificationsError] = useState(false);
   const [apiNotifications, setApiNotifications] = useState<HomeNotificationRow[]>([]);
 
   const loadHomeData = useCallback(async () => {
     if (!isLoggedIn) {
-      setApiShipments([]);
+      setShipmentRows([]);
       setApiNotifications([]);
       setShipmentsError(false);
       setNotificationsError(false);
@@ -126,13 +125,11 @@ function HomeMobile() {
     setShipmentsError(false);
     setNotificationsError(false);
 
-    const shipRes = await fetch('/api/shipments/history', { credentials: 'include' }).catch(() => null);
-    if (!shipRes || !shipRes.ok) {
+    try {
+      setShipmentRows(await fetchMergedShipmentRows());
+    } catch {
       setShipmentsError(true);
-      setApiShipments([]);
-    } else {
-      const data = (await shipRes.json().catch(() => [])) as ShipmentHistoryItem[];
-      setApiShipments(Array.isArray(data) ? data : []);
+      setShipmentRows([]);
     }
 
     const notifRes = await fetch('/api/notifications', { credentials: 'include' }).catch(() => null);
@@ -159,7 +156,7 @@ function HomeMobile() {
     void loadHomeData();
   }, [loadHomeData]);
 
-  const userShipments = apiShipments.slice(0, 2);
+  const userShipments = shipmentRows.slice(0, 2);
   const userNotifications = apiNotifications.slice(0, 3);
 
   const handleTrack = () => {
@@ -321,41 +318,50 @@ function HomeMobile() {
                     )}
                     {!shipmentsLoading &&
                       userShipments.length > 0 &&
-                      userShipments.map((shipment) => {
-                        const dest = [shipment.consignee_city, shipment.consignee_country].filter(Boolean).join(', ') || '—';
-                        const amount = shipment.total_amount != null && String(shipment.total_amount) !== ''
-                          ? `${(shipment.currency ?? 'INR').toUpperCase() === 'INR' ? '₹' : ''}${Number(shipment.total_amount).toLocaleString()}`
-                          : '—';
-                        return (
-                          <Link
-                            key={shipment.awb_number + shipment.created_at}
-                            href={`/shipment/${encodeURIComponent(shipment.awb_number)}`}
-                            className="block card-accent hover:border-primary/25 active:scale-[0.99] transition-all md:grid md:grid-cols-[2fr_1fr_auto_auto] md:gap-4 md:items-center md:rounded-none md:border-0 md:border-b md:border-border md:shadow-none md:px-4 md:py-3"
-                            data-testid={`shipment-card-${shipment.awb_number}`}
-                          >
+                      userShipments.map((row) => {
+                        const dest = [row.city, row.country].filter(Boolean).join(', ') || '—';
+                        const rowClassName =
+                          'block card-accent hover:border-primary/25 active:scale-[0.99] transition-all md:grid md:grid-cols-[2fr_1fr_auto_auto] md:gap-4 md:items-center md:rounded-none md:border-0 md:border-b md:border-border md:shadow-none md:px-4 md:py-3';
+                        const content = (
+                          <>
                             <div className="flex items-center justify-between mb-1 md:mb-0">
                               <span className="text-sm font-semibold tabular-nums tracking-[0.02em] text-foreground">
-                                {shipment.awb_number}
+                                {row.isOrder && (
+                                  <span className="mr-1.5 text-[9px] font-bold uppercase tracking-[0.08em] text-muted-foreground bg-muted px-1.5 py-0.5 rounded align-middle">
+                                    Order
+                                  </span>
+                                )}
+                                {row.displayId}
                               </span>
-                              <StatusBadge
-                                className="md:hidden"
-                                status={shipment.current_status?.trim() ? getStatusLabel(shipment.current_status) : 'Unknown'}
-                                tone={shipment.current_status?.trim() ? getStatusColor(shipment.current_status) : 'gray'}
-                              />
+                              <StatusBadge className="md:hidden" status={row.statusLabel} tone={row.statusTone} />
                             </div>
                             <div className="flex items-center justify-between text-xs text-muted-foreground md:contents">
                               <span className="md:text-sm">{dest}</span>
-                              <span className="md:text-sm md:text-right">{amount}</span>
+                              <span className="md:text-sm md:text-right">{row.amountStr ?? '—'}</span>
                             </div>
                             <StatusBadge
                               className="hidden md:flex md:shrink-0"
-                              status={shipment.current_status?.trim() ? getStatusLabel(shipment.current_status) : 'Unknown'}
-                              tone={shipment.current_status?.trim() ? getStatusColor(shipment.current_status) : 'gray'}
+                              status={row.statusLabel}
+                              tone={row.statusTone}
                             />
+                          </>
+                        );
+                        return row.isOrder ? (
+                          <div key={row.key} className={rowClassName} data-testid={`shipment-card-${row.displayId}`}>
+                            {content}
+                          </div>
+                        ) : (
+                          <Link
+                            key={row.key}
+                            href={`/shipment/${encodeURIComponent(row.displayId)}`}
+                            className={rowClassName}
+                            data-testid={`shipment-card-${row.displayId}`}
+                          >
+                            {content}
                           </Link>
                         );
                       })}
-                    {!shipmentsLoading && apiShipments.length === 0 && (
+                    {!shipmentsLoading && shipmentRows.length === 0 && (
                       <div className="card-elevated flex items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
                         No shipments yet
                       </div>

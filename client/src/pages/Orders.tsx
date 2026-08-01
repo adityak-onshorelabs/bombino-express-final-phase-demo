@@ -9,8 +9,8 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAppStore } from '@/lib/store';
-import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
+import { fetchMergedShipmentRows, type DisplayRow } from '@/lib/shipmentRows';
 import { useToast } from '@/hooks/use-toast';
 
 /** RFC 4180-style CSV parse (quoted fields, escaped "", newlines inside quotes). */
@@ -63,17 +63,6 @@ function formatBookingDate(value: string | null): string {
   return format(d, 'dd MMM yyyy');
 }
 
-function formatInr(amount: string | number | null, currency: string | null): string | null {
-  if (amount === null || amount === undefined) return null;
-  const n = typeof amount === 'string' ? parseFloat(amount) : amount;
-  if (!Number.isFinite(n)) return null;
-  const cur = (currency ?? 'INR').toUpperCase();
-  if (cur === 'INR' || cur === '₹') {
-    return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
-  }
-  return `${cur} ${n.toLocaleString()}`;
-}
-
 // ─── Compact track bar (mobile + desktop) ───────────────────────────────────
 function TrackBar({
   value,
@@ -113,31 +102,25 @@ function TrackBar({
 
 // ─── Row (responsive) ───────────────────────────────────────────────────────
 function ShipmentRow({
-  item,
+  row,
   onOpen,
   onCopy,
 }: {
-  item: ShipmentHistoryItem;
-  onOpen: (awb: string) => void;
-  onCopy: (e: React.MouseEvent, awb: string) => void;
+  row: DisplayRow;
+  onOpen: (row: DisplayRow) => void;
+  onCopy: (e: React.MouseEvent, id: string) => void;
 }) {
-  const awb = item.awb_number;
-  const amountStr = formatInr(item.total_amount, item.currency);
-  const status = item.current_status?.trim() ? getStatusLabel(item.current_status) : 'Unknown';
-  const tone = item.current_status?.trim() ? getStatusColor(item.current_status) : 'gray';
-  const recipientRaw = item.consignee_name?.trim() || '';
-  const city = item.consignee_city?.trim() || '';
+  const { displayId, isOrder, recipient: recipientRaw, city, service, amountStr, statusLabel: status, statusTone: tone } = row;
   const recipient = recipientRaw || 'Unnamed recipient';
   const recipientLine = city ? `${recipient} · ${city}` : recipient;
-  const service = item.service_name?.trim() || '';
-  const bookingDate = formatBookingDate(item.booking_date);
+  const bookingDate = formatBookingDate(row.bookingDate);
 
   return (
     <button
       type="button"
-      onClick={() => onOpen(awb)}
+      onClick={() => onOpen(row)}
       className="w-full text-left transition-colors md:grid md:grid-cols-[1.6fr_1.7fr_1.2fr_0.9fr_0.7fr_auto] md:gap-x-6 md:items-center md:px-4 md:py-3 md:hover:bg-muted/40"
-      data-testid={`order-row-${awb}`}
+      data-testid={`order-row-${displayId}`}
     >
       {/* ─── MOBILE CARD — amber-rail brand accent ──────────────── */}
       <div className="md:hidden relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.06),0_12px_28px_-12px_lab(34.0831_-9.57756_-27.7093_/_0.18)] active:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_4px_10px_-4px_lab(34.0831_-9.57756_-27.7093_/_0.12)] active:translate-y-px transition-[transform,box-shadow] duration-150 overflow-hidden">
@@ -157,21 +140,26 @@ function ShipmentRow({
         />
 
         <div className="relative pl-5 pr-4 py-3.5">
-          {/* Header — AWB + status pill */}
+          {/* Header — AWB/Order number + status pill */}
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center min-w-0">
+              {isOrder && (
+                <span className="mr-1.5 shrink-0 text-[9px] font-bold uppercase tracking-[0.08em] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                  Order
+                </span>
+              )}
               <span className="font-bold tabular-nums text-[16px] tracking-tight text-[#112330] truncate">
-                {awb}
+                {displayId}
               </span>
               <span
                 role="button"
                 tabIndex={0}
-                onClick={(e) => onCopy(e, awb)}
+                onClick={(e) => onCopy(e, displayId)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') onCopy(e as unknown as React.MouseEvent, awb);
+                  if (e.key === 'Enter' || e.key === ' ') onCopy(e as unknown as React.MouseEvent, displayId);
                 }}
                 className="ml-1 p-2 -my-1.5 rounded-md active:bg-muted shrink-0 cursor-pointer text-muted-foreground/60 hover:text-muted-foreground"
-                aria-label={`Copy AWB ${awb}`}
+                aria-label={`Copy ${isOrder ? 'order number' : 'AWB'} ${displayId}`}
               >
                 <Copy className="w-3.5 h-3.5" />
               </span>
@@ -217,23 +205,28 @@ function ShipmentRow({
 
       {/* ─── DESKTOP COLUMNS (unchanged) ──────────────────────────── */}
       <div className="hidden md:flex md:items-center md:gap-2 md:min-w-0">
-        <span className="font-semibold tabular-nums text-sm text-foreground truncate">{awb}</span>
+        {isOrder && (
+          <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.08em] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+            Order
+          </span>
+        )}
+        <span className="font-semibold tabular-nums text-sm text-foreground truncate">{displayId}</span>
         <span
           role="button"
           tabIndex={0}
-          onClick={(e) => onCopy(e, awb)}
+          onClick={(e) => onCopy(e, displayId)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') onCopy(e as unknown as React.MouseEvent, awb);
+            if (e.key === 'Enter' || e.key === ' ') onCopy(e as unknown as React.MouseEvent, displayId);
           }}
           className="p-1 rounded hover:bg-muted shrink-0 cursor-pointer"
-          aria-label={`Copy AWB ${awb}`}
+          aria-label={`Copy ${isOrder ? 'order number' : 'AWB'} ${displayId}`}
         >
           <Copy className="w-3.5 h-3.5 text-muted-foreground" />
         </span>
       </div>
       <p className="hidden md:block text-sm text-foreground/80 truncate">{recipientLine}</p>
-      <span className="hidden md:block text-sm text-muted-foreground truncate">{item.service_name ?? '—'}</span>
-      <span className="hidden md:block text-sm text-muted-foreground tabular-nums">{formatBookingDate(item.booking_date)}</span>
+      <span className="hidden md:block text-sm text-muted-foreground truncate">{service || '—'}</span>
+      <span className="hidden md:block text-sm text-muted-foreground tabular-nums">{bookingDate}</span>
       <span className="hidden md:block text-sm tabular-nums text-right text-foreground/80">{amountStr ?? '—'}</span>
       <div className="hidden md:flex md:justify-end md:shrink-0">
         <StatusBadge status={status} tone={tone} />
@@ -250,28 +243,22 @@ export default function Orders() {
   const { toast } = useToast();
 
   const [trackingInput, setTrackingInput] = useState('');
-  const [items, setItems] = useState<ShipmentHistoryItem[]>([]);
+  const [rows, setRows] = useState<DisplayRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [csvOverlayData, setCsvOverlayData] = useState<string | null>(null);
   const [csvOverlayBlob, setCsvOverlayBlob] = useState<Blob | null>(null);
 
   const loadHistory = useCallback(async () => {
     if (!isLoggedIn) {
-      setItems([]);
+      setRows([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch('/api/shipments/history', { credentials: 'include' });
-      if (!res.ok) {
-        setItems([]);
-        return;
-      }
-      const data = (await res.json()) as ShipmentHistoryItem[];
-      setItems(Array.isArray(data) ? data : []);
+      setRows(await fetchMergedShipmentRows());
     } catch {
-      setItems([]);
+      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -281,11 +268,11 @@ export default function Orders() {
     void loadHistory();
   }, [loadHistory]);
 
-  const copyAwb = (e: React.MouseEvent, awb: string) => {
+  const copyId = (e: React.MouseEvent, id: string) => {
     e.preventDefault();
     e.stopPropagation();
-    void navigator.clipboard.writeText(awb);
-    toast({ title: 'Copied', description: awb });
+    void navigator.clipboard.writeText(id);
+    toast({ title: 'Copied', description: id });
   };
 
   const submitTrack = () => {
@@ -293,8 +280,15 @@ export default function Orders() {
     if (t) setLocation(`/shipment/${encodeURIComponent(t)}`);
   };
 
-  const openShipment = (awb: string) => {
-    setLocation(`/shipment/${encodeURIComponent(awb)}`);
+  const openRow = (row: DisplayRow) => {
+    if (row.isOrder) {
+      toast({
+        title: 'Not yet trackable',
+        description: 'Full tracking appears once the docket is generated after pickup.',
+      });
+      return;
+    }
+    setLocation(`/shipment/${encodeURIComponent(row.displayId)}`);
   };
 
   const handleDownloadCSV = async () => {
@@ -366,9 +360,9 @@ export default function Orders() {
           <div>
             <h1 className="text-lg md:text-[22px] font-bold tracking-tight text-foreground">
               My shipments
-              {isLoggedIn && !loading && items.length > 0 && (
+              {isLoggedIn && !loading && rows.length > 0 && (
                 <span className="ml-2 text-sm font-medium text-muted-foreground tabular-nums">
-                  · {items.length}
+                  · {rows.length}
                 </span>
               )}
             </h1>
@@ -425,7 +419,7 @@ export default function Orders() {
               ))}
             </div>
           </>
-        ) : items.length === 0 ? (
+        ) : rows.length === 0 ? (
           <div className="text-center py-16">
             <div className="w-12 h-12 mx-auto rounded-full bg-[#F3F4F6] flex items-center justify-center">
               <Package className="w-5 h-5 text-muted-foreground" />
@@ -447,20 +441,15 @@ export default function Orders() {
           <>
             {/* Mobile — stack of cards */}
             <div className="md:hidden space-y-2.5">
-              {items.map((row) => (
-                <ShipmentRow
-                  key={`m-${row.awb_number}-${row.created_at}`}
-                  item={row}
-                  onOpen={openShipment}
-                  onCopy={copyAwb}
-                />
+              {rows.map((row) => (
+                <ShipmentRow key={`m-${row.key}`} row={row} onOpen={openRow} onCopy={copyId} />
               ))}
             </div>
 
             {/* Desktop — single bordered table */}
             <div className="hidden md:block rounded-xl border border-border bg-white overflow-hidden">
               <div className="grid grid-cols-[1.6fr_1.7fr_1.2fr_0.9fr_0.7fr_auto] gap-x-6 px-4 py-2.5 text-[10px] font-bold tracking-[0.12em] uppercase text-muted-foreground border-b border-border bg-[#F8F9FA]">
-                <span>AWB number</span>
+                <span>AWB / Order number</span>
                 <span>Recipient</span>
                 <span>Service</span>
                 <span>Booked</span>
@@ -468,13 +457,8 @@ export default function Orders() {
                 <span className="text-right">Status</span>
               </div>
               <div className="divide-y divide-border">
-                {items.map((row) => (
-                  <ShipmentRow
-                    key={`d-${row.awb_number}-${row.created_at}`}
-                    item={row}
-                    onOpen={openShipment}
-                    onCopy={copyAwb}
-                  />
+                {rows.map((row) => (
+                  <ShipmentRow key={`d-${row.key}`} row={row} onOpen={openRow} onCopy={copyId} />
                 ))}
               </div>
             </div>
@@ -482,9 +466,9 @@ export default function Orders() {
         )}
 
         {/* Helper footnote */}
-        {!loading && items.length > 0 && (
+        {!loading && rows.length > 0 && (
           <p className="text-[11px] text-muted-foreground text-center">
-            Showing {items.length} {items.length === 1 ? 'shipment' : 'shipments'} · Tap any row for details
+            Showing {rows.length} {rows.length === 1 ? 'shipment' : 'shipments'} · Tap any row for details
           </p>
         )}
       </main>
