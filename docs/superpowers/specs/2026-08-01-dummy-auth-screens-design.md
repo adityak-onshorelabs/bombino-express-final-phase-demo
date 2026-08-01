@@ -70,7 +70,7 @@ Login and Signup each implement their own phone+OTP step rather than a shared co
 - Aadhaar/GST capture, personal vs company signup distinction
 - ITD `add_customer` call
 - Password-based login (removed, not replaced)
-- Any route that requires a real server session: `POST /api/shipments`, saved addresses, KYC upload, `/api/user/profile` all still 401 under this dummy client-only session, since none of them ever populate `req.session.itdToken`. `CreateShipment.tsx` and `Support.tsx` both react to that 401 by force-logging the user out (toast + redirect to `/login`). So this scaffolding gets a developer to the booking form, not through a submitted booking.
+- Any route that requires a real server session: this dummy client-only session never populates `req.session.itdToken`, `req.session.user`, or `req.session.dbUserId`, since it never calls the real `/api/auth/*` endpoints. `POST /api/shipments` checks `req.session.itdToken` and 401s; saved addresses, KYC upload, and `/api/user/profile` check `req.session.user`/`req.session.dbUserId` (via `requireUser`/`ensureDbUser`) and 401 for the same underlying reason. `CreateShipment.tsx` reacts to the `/api/shipments` 401 by force-logging the user out (toast + redirect to `/login`). So this scaffolding gets a developer to the booking form, not through a submitted booking.
 
 ## Verification
 
