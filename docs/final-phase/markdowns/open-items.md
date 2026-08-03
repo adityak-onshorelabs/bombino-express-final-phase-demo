@@ -1,10 +1,10 @@
 # Open Items — A-lane
 
 Running list of what is unresolved, who owns it, and what breaks until it lands.
-Kept by Aditya. Last updated **3 Aug 2026**.
+Kept by Aditya. Last updated **4 Aug 2026**.
 
 Sections: [Needs Arbaaz](#1-needs-arbaaz) · [Needs Bombino / Anas](#2-needs-bombino--anas) ·
-[Unapplied migrations](#3-unapplied-migrations) · [Known debt](#4-known-debt-accepted-for-now) ·
+[Migrations](#3-migrations) · [Known debt](#4-known-debt-accepted-for-now) ·
 [Verified working](#5-verified-working)
 
 ---
@@ -57,9 +57,9 @@ is the pattern to follow.
 
 ### 1.6 Seed script (M0 item 8) missing
 
-Only **4 orders** exist, all `pickup_requested`. DoD wants one order in every one
-of the 11 statuses. A5's later screens and M2's board are both untestable without
-them.
+Only **8 orders** exist, spread across two statuses (`pickup_requested` x3,
+`received_at_hub` x5). DoD wants one order in every one of the 11 statuses.
+The settle/docket half of the board is untestable without them.
 
 ### 1.7 Ops actions still return 501
 
@@ -90,7 +90,8 @@ Carried from §8 of the module spec. A-lane items only.
 | `create_payments.sql` | **Applied 3 Aug** — verified by a real `collect_payment` writing a row |
 | `agent_pickup_indexes.sql` | **Not applied.** Nothing functional depends on it — performance and referential integrity only. Touches Arbaaz's column, see [1.2] |
 | `create_agent_availability.sql` | Applied, then **superseded**. Table deprecated and unread — see [4.6] |
-| `create_agent_weekly_availability.sql` | **Not applied.** Booking offers no pickup windows at all until it runs |
+| `create_agent_weekly_availability.sql` | **Applied 3 Aug** |
+| `pickup_slots_two_hour_windows.sql` | **Applied 4 Aug.** Verified: roster holds only 2-hour values; `orders` accepts both, so pre-change bookings keep their 3-hour windows |
 
 ---
 
