@@ -8,6 +8,7 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp
 import { useAppStore, type AuthUser } from '@/lib/store';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
+import { landingPathForRole } from '@/lib/surface';
 import { parseApiErrorMessage } from '@/lib/apiError';
 import bombinoLogo from '@/assets/bombino-logo.png';
 
@@ -80,7 +81,7 @@ export default function Login() {
       const res = await apiRequest('POST', '/api/auth/login/otp', { phone });
       const user = (await res.json()) as AuthUser;
       login(user);
-      setLocation(redirect || '/home');
+      setLocation(redirect || landingPathForRole(user.role));
     } catch (err) {
       if (err instanceof Error && /^404:/.test(err.message)) {
         setNoAccount(true);
@@ -106,7 +107,7 @@ export default function Login() {
       const res = await apiRequest('POST', '/api/auth/login', { email: email.trim(), password });
       const user = (await res.json()) as AuthUser;
       login(user);
-      setLocation(redirect || '/home');
+      setLocation(redirect || landingPathForRole(user.role));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
       setError(message.replace(/^\d+:\s*/, ''));

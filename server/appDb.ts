@@ -174,6 +174,52 @@ export async function upsertItdUserAndReturnId(
   return data;
 }
 
+/**
+ * Merge a patch into `itd_users.metadata` (the §4 escape hatch).
+ *
+ * Read-modify-write, not a `jsonb ||` in SQL — supabase-js cannot express one.
+ * Safe for the signup path it was written for (the row was created moments
+ * earlier by the same request, so nothing else is racing it). If a concurrent
+ * writer ever touches this column, move the merge into a Postgres function.
+ *
+ * Non-fatal by contract: returns false and logs on failure. Signup must not
+ * fail because attribution context could not be recorded.
+ */
+export async function mergeItdUserMetadataById(
+  userId: string,
+  patch: Record<string, unknown>
+): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { data: existing, error: readError } = await client
+    .from("itd_users")
+    .select("metadata")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (readError) {
+    logSupabaseError("mergeItdUserMetadataById:read", readError);
+    return false;
+  }
+
+  const current =
+    existing?.metadata && typeof existing.metadata === "object" && !Array.isArray(existing.metadata)
+      ? (existing.metadata as Record<string, unknown>)
+      : {};
+
+  const { error: writeError } = await client
+    .from("itd_users")
+    .update({ metadata: { ...current, ...patch }, updated_at: new Date().toISOString() })
+    .eq("id", userId);
+
+  if (writeError) {
+    logSupabaseError("mergeItdUserMetadataById:write", writeError);
+    return false;
+  }
+  return true;
+}
+
 export type ItdUserTokenSecretsRow = {
   itd_token_expires_at: string | null;
   itd_password_encrypted: string | null;
@@ -245,13 +291,42 @@ export async function insertLoginAuditLog(input: {
   return true;
 }
 
+/**
+ * Columns safe to hand to a browser.
+ *
+ * Deliberately an allowlist, not `select("*")` minus a denylist: a `*` here
+ * shipped `itd_password_encrypted`, `encryption_iv` and `itd_token` straight
+ * to the client via GET /api/user/profile. With an allowlist, a future column
+ * is invisible until someone opts it in.
+ *
+ * Never add: itd_token, itd_token_expires_at, itd_password_encrypted,
+ * encryption_iv.
+ */
+const ITD_USER_PUBLIC_COLUMNS = [
+  "id",
+  "itd_customer_id",
+  "itd_customer_code",
+  "full_name",
+  "email",
+  "username",
+  "phone",
+  "role",
+  "account_type",
+  "company_name",
+  "gstin",
+  "metadata",
+  "created_at",
+  "updated_at",
+  "last_login_at",
+].join(", ");
+
 export async function getItdUserProfileById(id: string): Promise<any | null> {
   const client = getSupabaseClient();
   if (!client) return null;
 
   const { data, error } = await client
     .from("itd_users")
-    .select("*")
+    .select(ITD_USER_PUBLIC_COLUMNS)
     .eq("id", id)
     .maybeSingle();
 
@@ -269,10 +344,12 @@ export async function listShipmentsByUserId(userId: string): Promise<any[] | nul
   const { data, error } = await client
     .from("shipments")
     .select(
-      "awb_number, consignee_name, consignee_city, consignee_country, service_name, total_amount, currency, current_status, booking_date, created_at, consignee_phone, sender_city, contents_description, weight_kg, declared_value"
+      "awb_number, consignee_name, consignee_city, consignee_country, service_name, total_amount, currency, current_status, booking_date, created_at, updated_at, consignee_phone, sender_city, contents_description, weight_kg, declared_value"
     )
     .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+    // Most recently moved first: a tracking update should surface a shipment
+    // above one booked later but untouched since.
+    .order("updated_at", { ascending: false });
 
   if (error) {
     logSupabaseError("listShipmentsByUserId", error);
@@ -808,6 +885,40 @@ export async function insertShipmentAndReturnId(
     return null;
   }
   return data;
+}
+
+/**
+ * Notify a customer that their order moved.
+ *
+ * `shipment_id` is deliberately left null: a pre-docket order has no shipment
+ * row yet, and the order id travels in `data` instead so the client can deep
+ * link to it.
+ *
+ * Non-fatal by contract — a missed notification must never fail the lifecycle
+ * action that triggered it.
+ */
+export async function insertOrderStatusNotification(input: {
+  user_id: string;
+  title: string;
+  body: string;
+  data: Json;
+}): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { error } = await client.from("notifications").insert({
+    user_id: input.user_id,
+    type: "order_status",
+    title: input.title,
+    body: input.body,
+    data: input.data,
+  });
+
+  if (error) {
+    logSupabaseError("insertOrderStatusNotification", error);
+    return false;
+  }
+  return true;
 }
 
 export async function insertShipmentCreatedNotification(input: {

@@ -10,6 +10,12 @@ export interface AuthUser {
   fullName: string;
   username: string;
   role: string;
+  /**
+   * Absent for legacy ITD password logins and for sessions persisted to
+   * localStorage before this field existed. Treat undefined as `personal` —
+   * that keeps the stricter KYC path as the default.
+   */
+  account_type?: 'personal' | 'company';
 }
 
 interface AppState {

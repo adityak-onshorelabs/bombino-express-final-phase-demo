@@ -10,4 +10,6 @@ export interface ShipmentHistoryItem {
   current_status: string | null;
   booking_date: string | null;
   created_at: string;
+  /** Optional: older server builds did not select it. Falls back to created_at. */
+  updated_at?: string | null;
 }

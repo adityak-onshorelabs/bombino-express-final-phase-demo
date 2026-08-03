@@ -1,0 +1,172 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/queryClient';
+import { parseApiErrorMessage } from '@/lib/apiError';
+import type { AvailableAction, Order } from '@shared/orderContract';
+
+/** Pickup address, embedded by the agent endpoints (server/agentDb.ts). */
+export interface PickupAddress {
+  id: string;
+  full_name: string | null;
+  company: string | null;
+  phone: string | null;
+  email: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  country_code: string | null;
+}
+
+export type AgentPickup = Order & { origin_address: PickupAddress | null };
+
+/** One row as both agent list endpoints return it. */
+export interface PickupEntry {
+  order: AgentPickup;
+  availableActions: AvailableAction[];
+}
+
+export const AVAILABLE_PICKUPS_KEY = ['/api/agent/pickups/available'] as const;
+export const MY_PICKUPS_KEY = ['/api/agent/pickups/mine'] as const;
+
+async function fetchPickups(url: string): Promise<PickupEntry[]> {
+  const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
+  if (!res.ok) throw new Error('Could not load pickups');
+  const body = (await res.json()) as { pickups: PickupEntry[] };
+  return body.pickups ?? [];
+}
+
+/**
+ * Both lists refetch on mount and on window focus. An agent switching back to
+ * the app after walking to an address should not be looking at a stale queue,
+ * and the global default of `staleTime: Infinity` would leave them there.
+ *
+ * `refetchInterval` keeps the available list moving while it is on screen —
+ * jobs appear and get taken by other agents without any action from this one.
+ */
+export function useAvailablePickups(enabled = true) {
+  return useQuery({
+    queryKey: AVAILABLE_PICKUPS_KEY,
+    queryFn: () => fetchPickups('/api/agent/pickups/available'),
+    enabled,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
+  });
+}
+
+export function useMyPickups(enabled = true) {
+  return useQuery({
+    queryKey: MY_PICKUPS_KEY,
+    queryFn: () => fetchPickups('/api/agent/pickups/mine'),
+    enabled,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export interface CollectionRow {
+  id: string;
+  txn_id: string | null;
+  order_id: string;
+  amount: number;
+  collection_mode: 'upi' | 'cash' | null;
+  collected_at: string | null;
+  reference: string | null;
+  order_no: string | null;
+}
+
+export interface CollectionsResponse {
+  collections: CollectionRow[];
+  totals: { all: number; cash: number; upi: number; count: number };
+}
+
+export const COLLECTIONS_KEY = ['/api/agent/collections'] as const;
+
+/** Today's collections (IST), for reconciliation and receipt lookup. */
+export function useCollections(enabled = true) {
+  return useQuery({
+    queryKey: COLLECTIONS_KEY,
+    queryFn: async (): Promise<CollectionsResponse> => {
+      const res = await fetch('/api/agent/collections', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error('Could not load collections');
+      return (await res.json()) as CollectionsResponse;
+    },
+    enabled,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export interface ActionResult {
+  order: AgentPickup;
+  availableActions: AvailableAction[];
+  /** Present only on a successful `collect_payment`. */
+  receipt?: { txnId: string | null; amount: number };
+  warning?: string;
+}
+
+export interface ActionError extends Error {
+  status: number;
+  code?: string;
+}
+
+/**
+ * Fire one lifecycle action at the uniform endpoint.
+ *
+ * No optimistic update, deliberately. A claim can be lost to another agent, and
+ * showing the job as won before the server agrees would mean snatching it back
+ * a moment later — the exact "silent failure or double-assigned parcel" §5
+ * calls out. Show a pending state and wait.
+ *
+ * Both lists are invalidated on every outcome, success or failure: a 409 means
+ * the world moved, which is precisely when the queue is most stale.
+ */
+export function useOrderAction() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    ActionResult,
+    ActionError,
+    { orderId: string; action: string; payload?: Record<string, unknown> }
+  >({
+    mutationFn: async ({ orderId, action, payload }) => {
+      try {
+        const res = await apiRequest('POST', `/api/orders/${orderId}/actions`, {
+          action,
+          ...(payload ? { payload } : {}),
+        });
+        return (await res.json()) as ActionResult;
+      } catch (err) {
+        const error = new Error(
+          parseApiErrorMessage(err, 'Could not complete that action'),
+        ) as ActionError;
+
+        // apiRequest throws Error(`${status}: ${bodyText}`) — recover the
+        // status so the UI can tell "someone beat you to it" (409) from a
+        // real failure, and the code so it can be specific about which.
+        const raw = String((err as Error)?.message ?? '');
+        const status = Number(raw.split(':')[0]);
+        error.status = Number.isFinite(status) ? status : 0;
+        try {
+          error.code = (JSON.parse(raw.replace(/^\d+:\s*/, '')) as { code?: string }).code;
+        } catch {
+          error.code = undefined;
+        }
+        throw error;
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: AVAILABLE_PICKUPS_KEY });
+      void queryClient.invalidateQueries({ queryKey: MY_PICKUPS_KEY });
+      // A collection changes the day's totals and the nav's cash figure.
+      void queryClient.invalidateQueries({ queryKey: COLLECTIONS_KEY });
+    },
+  });
+}

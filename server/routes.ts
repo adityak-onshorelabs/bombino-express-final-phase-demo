@@ -16,7 +16,9 @@ import {
   listShipmentDocumentKinds,
   listNotificationsByUserId,
   listShipmentsByUserId,
+  insertOrderStatusNotification,
   markNotificationRead,
+  mergeItdUserMetadataById,
   updateSupportSessionMessages,
   upsertItdUserAndReturnId,
   upsertTrackingEvents,
@@ -25,10 +27,32 @@ import {
 } from "./appDb.js";
 import type { ShipmentDocumentKind } from "./appDb.js";
 import {
+  getOrderById,
   insertOrderAndReturnRow,
   insertOrderEvent,
   listOrdersByUserId,
 } from "./ordersDb.js";
+import {
+  availableActions,
+  findTransition,
+  isKnownAction,
+} from "./orderLifecycle.js";
+import {
+  advanceOrderStatus,
+  claimPickup,
+  recordCollectedPayment,
+  transitionOrderStatus,
+} from "./agentDb.js";
+import { ensureDbUser, requireRole, requireUser } from "./routeGuards.js";
+import { registerAgentRoutes } from "./routes/agent.js";
+import { deriveCustomerStatus, isInternalOnlyStatus, isRole } from "../shared/orderContract.js";
+import type { Order, Role } from "../shared/orderContract.js";
+import { PICKUP_SLOT_VALUES } from "../shared/pickupSlots.js";
+import {
+  getCoveredDates,
+  getSlotOffersForDate,
+  isSlotBookable,
+} from "./availabilityDb.js";
 import {
   generateOtp,
   hashOtp,
@@ -90,54 +114,18 @@ const kycUpload = multer({
   },
 });
 
-function requireUser(req: Request, res: Response, next: NextFunction): void {
-  if (!req.session.user) {
-    res.status(401).json({ message: "Not authenticated" });
-    return;
-  }
-  next();
-}
-
-async function ensureDbUser(
-  req: Request,
-  _res: Response,
-  next: NextFunction
-): Promise<void> {
-  if (req.session.dbUserId || !req.session.user) {
-    next();
-    return;
-  }
-
-  try {
-    const row = await findItdUserIdByCustomerId(req.session.user.id);
-
-    if (!row?.id) {
-      console.error(
-        `[ensureDbUser] no itd_users row found for itd_customer_id=${req.session.user.id}`
-      );
-      next();
-      return;
-    }
-
-    req.session.dbUserId = row.id;
-    req.session.save((err) => {
-      if (err) {
-        console.error("[ensureDbUser] session save error:", err);
-      }
-      next();
-    });
-  } catch (err) {
-    console.error("[ensureDbUser] failed:", err);
-    next();
-  }
-}
-
 // ─── Route registration ───────────────────────────────────────────────────────
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // ── Self-registering route modules (M0 item 1) ───────────────────────────
+  // Agent read endpoints. Transitions stay on the uniform action endpoint
+  // below, so this file keeps the state machine and `routes/agent.ts` stays
+  // read-only.
+  registerAgentRoutes(app);
+
   // ── Auth ──────────────────────────────────────────────────────────────────
 
   // POST /api/auth/login — authenticate via ITD; store token + user in session
@@ -360,6 +348,7 @@ export async function registerRoutes(
       fullName: full_name,
       username: phone,
       role: "customer",
+      account_type: "personal" as const,
     };
     req.session.user = user;
     req.session.dbUserId = row.id;
@@ -424,6 +413,8 @@ export async function registerRoutes(
     }
 
     let itdRegistered = false;
+    let addCustomerResponse: unknown = null;
+    let addCustomerError: string | null = null;
     try {
       const addCustomerResult = await itdClient.addCustomer({
         name: company_name,
@@ -431,9 +422,26 @@ export async function registerRoutes(
         gst_number: gstin,
       });
       itdRegistered = !!addCustomerResult.success;
+      addCustomerResponse = addCustomerResult;
     } catch (err) {
+      addCustomerError = err instanceof Error ? err.message : "addCustomer failed";
       console.error("[signup/company] itdClient.addCustomer failed (non-fatal):", err);
     }
+
+    // Persist the attribution context. Without this the ITD registration is
+    // invisible to everything downstream — M5 has to know, days later, whether
+    // this company exists inside ITD and under what identity. `add_customer`
+    // returns no id of its own (§7), so the synthetic `local-<uuid>` we minted
+    // above is the only stable handle either side has; record it explicitly
+    // rather than leaving it implicit in the `itd_customer_id` column.
+    // Non-fatal: a failure here must not cost the customer their account.
+    void mergeItdUserMetadataById(row.id, {
+      itd_registered: itdRegistered,
+      itd_customer_id: itdCustomerId,
+      itd_registration_attempted_at: new Date().toISOString(),
+      itd_add_customer_response: addCustomerResponse,
+      ...(addCustomerError ? { itd_add_customer_error: addCustomerError } : {}),
+    });
 
     const user = {
       id: itdCustomerId,
@@ -443,6 +451,7 @@ export async function registerRoutes(
       fullName: company_name,
       username: phone,
       role: "customer",
+      account_type: "company" as const,
     };
     req.session.user = user;
     req.session.dbUserId = row.id;
@@ -490,6 +499,8 @@ export async function registerRoutes(
       fullName: profile.full_name,
       username: profile.username,
       role: profile.role,
+      // Persisted at signup; drives the client's KYC branch on re-login.
+      account_type: profile.account_type === "company" ? ("company" as const) : ("personal" as const),
     };
     req.session.user = user;
     req.session.dbUserId = existing.id;
@@ -1098,6 +1109,11 @@ export async function registerRoutes(
   // POST /api/shipments — requires login (session token)
   app.post(
     "/api/shipments",
+    // Docket creation is irreversible — ITD permits no amendment once an AWB
+    // exists. Under the deferred-docket model this is fired by ops at the end
+    // of the lifecycle (M5), never by a customer at booking. Admin only.
+    requireUser,
+    requireRole("admin"),
     ensureDbUser,
     refreshItdTokenIfNeeded,
     async (req: Request, res: Response) => {
@@ -1171,14 +1187,65 @@ export async function registerRoutes(
   // the docket is generated later by ops (M5), reusing itdClient.createShipment
   // above with the data stashed in `items`/`consignee` on this order.
 
-  const PICKUP_SLOTS = ["09:00-12:00", "12:00-15:00", "15:00-18:00", "18:00-21:00"] as const;
   const PAYMENT_METHODS = ["pay_now", "pay_at_pickup", "pay_at_dropoff", "cod"] as const;
+
+  // ── Pickup slot availability (customer-facing) ──────────────────────────
+  // Namespaced under /api/pickup rather than /api/config/slots, which M1 owns
+  // (final-phase-modules.md §M1). When Arbaaz builds that endpoint it should
+  // delegate here rather than re-deriving availability.
+
+  const isoDateSchema = z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD");
+
+  // GET /api/pickup/slots?date=YYYY-MM-DD
+  // Every window for that date, each flagged available with a reason. Returns
+  // all four rather than only the open ones so the UI can show why a window is
+  // closed instead of silently omitting it.
+  app.get("/api/pickup/slots", requireUser, async (req: Request, res: Response) => {
+    const parsed = z.object({ date: isoDateSchema }).safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ message: parsed.error.issues[0]?.message ?? "date is required" });
+      return;
+    }
+
+    const slots = await getSlotOffersForDate(parsed.data.date);
+    if (slots === null) {
+      res.status(502).json({ message: "Could not load pickup windows" });
+      return;
+    }
+    res.json({ date: parsed.data.date, slots });
+  });
+
+  // GET /api/pickup/coverage?from=&to=
+  // Dates with at least one bookable window, so the date picker can disable
+  // the rest. Deliberately returns only dates — never which agent, or how
+  // many; that is internal (§1).
+  app.get("/api/pickup/coverage", requireUser, async (req: Request, res: Response) => {
+    const parsed = z
+      .object({ from: isoDateSchema, to: isoDateSchema })
+      .safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({
+        message: parsed.error.issues[0]?.message ?? "from and to are required",
+      });
+      return;
+    }
+
+    const dates = await getCoveredDates(parsed.data.from, parsed.data.to);
+    if (dates === null) {
+      res.status(502).json({ message: "Could not load pickup availability" });
+      return;
+    }
+    res.json({ dates });
+  });
 
   const orderCreateSchema = z
     .object({
       pickup_request: z.union([z.literal(1), z.literal(2)]),
       pickup_date: z.string().trim().min(1).optional().nullable(),
-      pickup_slot: z.enum(PICKUP_SLOTS).optional().nullable(),
+      pickup_slot: z.enum(PICKUP_SLOT_VALUES as [string, ...string[]]).optional().nullable(),
       payment_method: z.enum(PAYMENT_METHODS),
       booked_weight: z.number().optional().nullable(),
       quoted_amount: z.number().optional().nullable(),
@@ -1199,7 +1266,23 @@ export async function registerRoutes(
     })
     .refine((body) => body.pickup_request !== 1 || (!!body.pickup_date && !!body.pickup_slot), {
       message: "pickup_date and pickup_slot are required when pickup_request is 1 (pickup)",
-    });
+    })
+    // Two payment methods are tied to how the parcel reaches us, because each
+    // names the person who physically takes the money. Pay-at-pickup is
+    // collected by the agent at the customer's door and has no collector on a
+    // drop-off; pay-at-drop-off is collected by ops at the hub counter and has
+    // no collector on a pickup. Allowing the mismatch would create an order
+    // whose money nobody is positioned to take, and which no lifecycle action
+    // can settle: `collect_payment` is guarded on the method in
+    // server/orderLifecycle.ts, so the order would stall before `settled`.
+    .refine(
+      (body) => !(body.pickup_request === 1 && body.payment_method === "pay_at_dropoff"),
+      { message: "Pay at drop-off is only available when you drop the parcel off yourself" }
+    )
+    .refine(
+      (body) => !(body.pickup_request === 2 && body.payment_method === "pay_at_pickup"),
+      { message: "Pay at pickup is only available when an agent collects the parcel" }
+    );
 
   // POST /api/orders — requires login (session)
   app.post("/api/orders", ensureDbUser, async (req: Request, res: Response) => {
@@ -1214,6 +1297,27 @@ export async function registerRoutes(
       return;
     }
     const body = parsed.data;
+
+    // Authoritative slot check. The client filters the same way, but that is a
+    // convenience: the roster can empty between the form loading and the
+    // customer submitting, and nothing stops a hand-crafted request. Runs
+    // before the address write so a rejected booking leaves nothing behind.
+    if (body.pickup_request === 1 && body.pickup_date && body.pickup_slot) {
+      const check = await isSlotBookable(body.pickup_date, body.pickup_slot);
+      if (!check.ok) {
+        const message =
+          check.reason === "past"
+            ? "That pickup window has already started. Choose a later one."
+            : check.reason === "no_agent"
+              ? "No pickup agent is available for that window. Choose another."
+              : "Could not confirm that pickup window. Please try again.";
+        res.status(check.reason === "unknown" ? 502 : 409).json({
+          message,
+          code: check.reason === "past" ? "SLOT_PAST" : "SLOT_UNAVAILABLE",
+        });
+        return;
+      }
+    }
 
     const originAddr = await findOrCreateAddress({
       user_id: req.session.dbUserId,
@@ -1267,6 +1371,333 @@ export async function registerRoutes(
 
     res.json({ order });
   });
+
+  /**
+   * The second line of a customer notification. The title is the derived
+   * customer-facing status ("Agent on the way"); this says what it means for
+   * them in plain terms.
+   *
+   * Only customer-visible statuses appear — the three internal ones never
+   * produce a notification at all.
+   */
+  const CUSTOMER_STATUS_DETAIL: Record<string, string> = {
+    agent_accepted: "An agent has accepted your pickup.",
+    out_for_pickup: "Your agent is on the way to collect your parcel.",
+    picked_up: "Your parcel has been collected.",
+    received_at_hub: "Your parcel has arrived at the Bombino hub.",
+    dispatched: "Your parcel is on its way. You can now track it.",
+    cancelled: "Your order has been cancelled.",
+  };
+
+  // ── The uniform lifecycle endpoint (M0 item 7) ──────────────────────────
+  //
+  // Every transition, for every role, in every surface, goes through here.
+  // The response carries the recomputed `availableActions` so a caller never
+  // has to know the state machine — it renders one button per entry.
+  //
+  // SCAFFOLD: authorisation is complete and enforced; the write is not built.
+  // A legal request gets 501 today. When the handlers land, replace the 501
+  // with the transition's effect — and put the race-prone preconditions in the
+  // UPDATE's WHERE clause, not just in the guard (see orderLifecycle.ts).
+
+  /**
+   * Session role → contract role. `req.session.user.role` is a free-form
+   * string (ITD's value on password logins, a Bombino literal on OTP signups),
+   * so anything unrecognised resolves to null and is refused rather than
+   * defaulted to something permissive.
+   */
+  function resolveRole(raw: string | undefined): Role | null {
+    return isRole(raw) ? raw : null;
+  }
+
+  app.post(
+    "/api/orders/:id/actions",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const callerId = req.session.dbUserId;
+      if (!callerId) {
+        res.status(401).json({ message: "Login required" });
+        return;
+      }
+
+      const role = resolveRole(req.session.user?.role);
+      if (!role) {
+        res.status(403).json({
+          message: "You do not have permission to perform this action.",
+          code: "FORBIDDEN",
+        });
+        return;
+      }
+
+      const parsed = z
+        .object({
+          action: z.string().trim().min(1, "action is required"),
+          payload: z.record(z.unknown()).optional(),
+        })
+        .safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid action request",
+          code: "INVALID_REQUEST",
+        });
+        return;
+      }
+
+      // Unknown verb is a malformed request (400). A known verb the caller may
+      // not perform right now is a refusal (403). Keeping those apart is what
+      // lets the client tell "I sent nonsense" from "someone beat me to it".
+      if (!isKnownAction(parsed.data.action)) {
+        res.status(400).json({
+          message: `Unknown action "${parsed.data.action}".`,
+          code: "UNKNOWN_ACTION",
+        });
+        return;
+      }
+      const action = parsed.data.action;
+
+      const order = await getOrderById(req.params.id);
+      if (!order) {
+        res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+        return;
+      }
+
+      // Ownership, before anything else. A customer may only ever touch their
+      // own order. Agents and ops are scoped by the transition table instead —
+      // an agent's per-job ownership is enforced by the `isOwningAgent` guard.
+      // Note RLS is bypassed everywhere (service-role key), so this check is
+      // the only thing standing between a customer and someone else's order.
+      if (role === "customer" && order.user_id !== callerId) {
+        res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+        return;
+      }
+
+      const transition = findTransition(order, action, role, { userId: callerId });
+      if (!transition) {
+        // Deliberately does not say which precondition failed — that would
+        // leak other users' state (e.g. that another agent holds this job).
+        res.status(403).json({
+          message: "That action is not available on this order right now.",
+          code: "ACTION_NOT_AVAILABLE",
+          availableActions: availableActions(order, role, { userId: callerId }),
+        });
+        return;
+      }
+
+      // ── Execute ─────────────────────────────────────────────────────────
+      // Past this point the caller is authorised and the transition is legal
+      // against the row we read. That row is now stale by definition, so each
+      // branch re-asserts its preconditions in the UPDATE's WHERE clause and
+      // treats a zero-row result as "someone else got there first" (409).
+
+      let updated: Order | null = null;
+      let eventNote = "";
+      let extra: Record<string, unknown> = {};
+      let collectionReceipt: { txnId: string | null; amount: number } | null = null;
+
+      switch (action) {
+        case "claim": {
+          updated = await claimPickup(order.id, callerId);
+          if (!updated) {
+            res.status(409).json({
+              message: "Another agent just took this pickup.",
+              code: "PICKUP_ALREADY_CLAIMED",
+            });
+            return;
+          }
+          eventNote = "Pickup claimed by agent";
+          break;
+        }
+
+        case "start_pickup":
+        case "mark_picked_up":
+        case "mark_received_at_hub": {
+          // `transition.to` is non-null for all three — they are status moves.
+          if (!transition.to) {
+            res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
+            return;
+          }
+          updated = await advanceOrderStatus({
+            orderId: order.id,
+            agentId: callerId,
+            expectedFrom: transition.from,
+            to: transition.to,
+          });
+          if (!updated) {
+            // Either the order moved under us, or it is not ours. Both are the
+            // same answer to the caller, and saying which would disclose
+            // whether another agent holds it.
+            res.status(409).json({
+              message: "This pickup has already moved on. Refresh your list.",
+              code: "ORDER_STATE_CHANGED",
+            });
+            return;
+          }
+          eventNote = `Agent moved order to ${transition.to}`;
+          break;
+        }
+
+        case "collect_payment": {
+          // Ops collection at the hub is M3's; this branch is the doorstep.
+          if (order.payment_method !== "pay_at_pickup") {
+            res.status(400).json({
+              message: "This order is not marked pay-at-pickup.",
+              code: "PAYMENT_METHOD_MISMATCH",
+            });
+            return;
+          }
+
+          const paymentBody = z
+            .object({
+              amount: z.number().positive("amount must be greater than zero"),
+              // How the money actually moved. Required: an agent handing over
+              // a parcel must have said whether they hold cash or watched a
+              // UPI transfer land, because only one of those ends up in their
+              // pouch at the end of the shift.
+              collection_mode: z.enum(["upi", "cash"], {
+                errorMap: () => ({ message: "Choose UPI or cash" }),
+              }),
+              // UPI reference from the customer's app, if they read it out.
+              reference: z.string().trim().max(120).optional().nullable(),
+            })
+            .safeParse(parsed.data.payload ?? {});
+          if (!paymentBody.success) {
+            res.status(400).json({
+              message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
+              code: "INVALID_PAYLOAD",
+            });
+            return;
+          }
+
+          const result = await recordCollectedPayment({
+            order_id: order.id,
+            user_id: order.user_id,
+            amount: paymentBody.data.amount,
+            method: "pay_at_pickup",
+            status: "collected",
+            collection_mode: paymentBody.data.collection_mode,
+            collected_by: callerId,
+            reference: paymentBody.data.reference ?? null,
+          });
+          if (!result) {
+            res.status(502).json({
+              message: "Could not record the payment. Do not hand over the parcel.",
+              code: "PAYMENT_WRITE_FAILED",
+            });
+            return;
+          }
+
+          // Deliberately no status change — the parcel is still out_for_pickup.
+          updated = result.order ?? order;
+          eventNote = `Collected ₹${paymentBody.data.amount} at pickup (${paymentBody.data.collection_mode})`;
+          extra = {
+            payment_id: result.paymentId,
+            txn_id: result.txnId,
+            amount: paymentBody.data.amount,
+            collection_mode: paymentBody.data.collection_mode,
+          };
+          // Surfaced at the top level so the sheet can show the receipt without
+          // digging through the event metadata.
+          collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
+          break;
+        }
+
+        case "cancel": {
+          if (!transition.to) {
+            res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
+            return;
+          }
+          updated = await transitionOrderStatus({
+            orderId: order.id,
+            expectedFrom: transition.from,
+            to: transition.to,
+          });
+          if (!updated) {
+            res.status(409).json({
+              message: "This order has already moved on and can no longer be cancelled.",
+              code: "ORDER_STATE_CHANGED",
+            });
+            return;
+          }
+          eventNote = "Order cancelled";
+          break;
+        }
+
+        default: {
+          // Ops actions — weigh, settle, generate_docket, mark_received_dropoff.
+          // Authorised and legal, but the handlers are Arbaaz's (M3/M5). The
+          // 501 stays until those land.
+          res.status(501).json({
+            message: `"${action}" is legal for this order but not implemented yet.`,
+            code: "NOT_IMPLEMENTED",
+            action,
+            from: transition.from,
+            to: transition.to,
+            requiresPayload: transition.requiresPayload ?? false,
+            availableActions: availableActions(order, role, { userId: callerId }),
+          });
+          return;
+        }
+      }
+
+      // The write landed. Log it before responding — awaited, not fire-and-
+      // forget, so a failure is visible rather than a silently missing row.
+      // The status change is already committed and cannot be rolled back from
+      // here (supabase-js has no multi-statement transaction), so a failed log
+      // is reported alongside a successful action rather than masking it.
+      // The durable fix is an AFTER UPDATE trigger on `orders`, which would
+      // cover every writer instead of just this endpoint.
+      const eventLogged = await insertOrderEvent({
+        order_id: updated.id,
+        status: updated.status,
+        note: eventNote,
+        actor_user_id: callerId,
+        metadata: { action, role, ...extra },
+      });
+
+      if (!eventLogged) {
+        console.error("[POST /api/orders/:id/actions] order_events insert failed", {
+          order_id: updated.id,
+          action,
+          status: updated.status,
+          actor_user_id: callerId,
+        });
+      }
+
+      // Tell the customer their order moved.
+      //
+      // Three statuses are deliberately silent: weigh, settle and
+      // ready_for_docket happen while the parcel sits at the hub, and from the
+      // customer's point of view nothing has changed. Firing a notification for
+      // each would be noise (§2 of roles-and-flows).
+      //
+      // Also silent when the actor IS the customer — nobody needs telling about
+      // something they just did themselves.
+      //
+      // NOTE: M6 (Status Sync) owns notification fan-out and the audit_log row
+      // that should accompany it. This covers the agent transitions only; when
+      // M6 lands it should absorb this block rather than double-notify.
+      if (
+        transition.to &&
+        !isInternalOnlyStatus(updated.status) &&
+        updated.user_id !== callerId
+      ) {
+        void insertOrderStatusNotification({
+          user_id: updated.user_id,
+          title: deriveCustomerStatus(updated),
+          body: `${updated.order_no} — ${CUSTOMER_STATUS_DETAIL[updated.status] ?? 'Your order has been updated.'}`,
+          data: { order_id: updated.id, order_no: updated.order_no, status: updated.status },
+        });
+      }
+
+      res.json({
+        order: updated,
+        availableActions: availableActions(updated, role, { userId: callerId }),
+        ...(collectionReceipt ? { receipt: collectionReceipt } : {}),
+        ...(eventLogged ? {} : { warning: "Action applied but history entry failed to write." }),
+      });
+    }
+  );
 
   // GET /api/orders — requires login (session)
   app.get("/api/orders", ensureDbUser, async (req: Request, res: Response) => {

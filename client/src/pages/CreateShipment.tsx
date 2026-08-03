@@ -38,6 +38,19 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAppStore } from '@/lib/store';
+import {
+  usePickupCoverage,
+  usePickupSlots,
+  type SlotOffer,
+} from '@/hooks/usePickupAvailability';
+import { PICKUP_SLOTS } from '@shared/pickupSlots';
+
+/** Local calendar date as `YYYY-MM-DD`. Never `toISOString()`, which is UTC
+ *  and rolls the date backwards for anyone east of Greenwich — including
+ *  every customer this app has. */
+function toIsoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 import { lbToKg, inToCm } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
@@ -419,6 +432,86 @@ export default function CreateShipment() {
 
   const { data: kycOnFile } = useKycOnFile({ enabled: isLoggedIn });
 
+  // Company accounts are identified by GST at signup and never hold a KYC
+  // document, so gating booking on one locked them out of the flow entirely.
+  // Undefined account_type (legacy ITD logins, pre-existing localStorage
+  // sessions) falls through to the personal path — the stricter of the two.
+  const isCompanyAccount = user?.account_type === 'company';
+  const kycRequired = !isCompanyAccount;
+
+  // Personal customers with a document already on file are not re-prompted;
+  // they can opt into replacing it.
+  const [showKycUpdate, setShowKycUpdate] = useState(false);
+
+  // ── Pickup availability ────────────────────────────────────────────────
+  // Windows are gated twice: the clock (a window that has started is gone) and
+  // the agent roster (a window nobody is working is not offered). Both are
+  // computed server-side; this only renders the answer. `POST /api/orders`
+  // re-checks, because the roster can change while the form is open.
+  const coverageRange = useMemo(() => {
+    const from = new Date();
+    const to = new Date();
+    to.setDate(to.getDate() + 60);
+    return { from: toIsoDate(from), to: toIsoDate(to) };
+  }, []);
+
+  const { data: coveredDates, isLoading: coverageLoading } = usePickupCoverage(
+    coverageRange.from,
+    coverageRange.to,
+    isLoggedIn && pickupRequest === '1',
+  );
+
+  const { data: slotOffersData, isLoading: slotsLoading } = usePickupSlots(
+    pickupDate,
+    isLoggedIn && pickupRequest === '1',
+  );
+
+  // Fall back to all four windows marked unavailable rather than an empty grid,
+  // so the layout does not jump while the first request is in flight.
+  const slotOffers: SlotOffer[] =
+    slotOffersData ??
+    PICKUP_SLOTS.map((s) => ({
+      value: s.value,
+      label: s.label,
+      available: false,
+      reason: 'no_agent' as const,
+    }));
+
+  // A window the customer already picked can lapse while they fill in the rest
+  // of the form. Drop it rather than letting them submit into a 409.
+  useEffect(() => {
+    if (!pickupSlot || !slotOffersData) return;
+    const chosen = slotOffersData.find((s) => s.value === pickupSlot);
+    if (chosen && !chosen.available) setPickupSlot('');
+  }, [slotOffersData, pickupSlot]);
+
+  // ── Payment methods ────────────────────────────────────────────────────
+  // Two of the four are tied to how the parcel reaches us, and offering the
+  // wrong one strands the money: pay-at-pickup is collected by the agent at
+  // the door, so it cannot exist on a drop-off; pay-at-drop-off is collected
+  // by ops at the hub counter, so it cannot exist on a pickup. `POST
+  // /api/orders` enforces the same pairing — this only stops the customer
+  // choosing something that would be rejected.
+  const paymentMethodOptions = useMemo(() => {
+    const isPickup = pickupRequest === '1';
+    return [
+      ['pay_now', 'Pay Now'],
+      ...(isPickup
+        ? ([['pay_at_pickup', 'Pay at Pickup']] as const)
+        : ([['pay_at_dropoff', 'Pay at Drop-off']] as const)),
+      ['cod', 'Cash on Delivery'],
+    ] as ReadonlyArray<readonly [string, string]>;
+  }, [pickupRequest]);
+
+  // Switching between pickup and drop-off can invalidate an already-chosen
+  // method. Clear it rather than carrying a selection the server will refuse.
+  useEffect(() => {
+    if (!paymentMethod) return;
+    if (!paymentMethodOptions.some(([val]) => val === paymentMethod)) {
+      setPaymentMethod('');
+    }
+  }, [paymentMethodOptions, paymentMethod]);
+
   const [stepError, setStepError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
 
@@ -715,7 +808,7 @@ export default function CreateShipment() {
       if (!senderCity.trim()) e.senderCity = true;
       if (!senderState.trim()) e.senderState = true;
       if (!senderZip.trim()) e.senderZip = true;
-      if (!kycOnFile && !kycResult) e.kycMissing = true;
+      if (kycRequired && !kycOnFile && !kycResult) e.kycMissing = true;
       if (pickupRequest === '1' && !pickupDate) e.pickupDate = true;
       if (pickupRequest === '1' && !pickupSlot) e.pickupSlot = true;
       if (Object.keys(e).length) {
@@ -1346,33 +1439,45 @@ export default function CreateShipment() {
                       <span className="text-red-400">*</span>
                     </Label>
                     <div className="grid grid-cols-2 gap-2">
-                      {(
-                        [
-                          ['09:00-12:00', '9 AM – 12 PM'],
-                          ['12:00-15:00', '12 PM – 3 PM'],
-                          ['15:00-18:00', '3 PM – 6 PM'],
-                          ['18:00-21:00', '6 PM – 9 PM'],
-                        ] as const
-                      ).map(([val, label]) => (
+                      {slotOffers.map(({ value, label, available, reason }) => (
                         <button
-                          key={val}
+                          key={value}
                           type="button"
+                          disabled={!available}
                           onClick={() => {
-                            setPickupSlot(val);
+                            if (!available) return;
+                            setPickupSlot(value);
                             clearFieldError('pickupSlot');
                           }}
                           className={cn(
-                            'px-3 py-2 text-xs rounded-lg border transition-colors',
-                            pickupSlot === val
+                            'px-3 py-2 rounded-lg border transition-colors text-left',
+                            !available && 'opacity-50 cursor-not-allowed bg-muted/40',
+                            available && pickupSlot === value
                               ? 'bg-primary text-white border-primary'
                               : 'border-border text-muted-foreground'
                           )}
-                          data-testid={`button-pickup-slot-${val}`}
+                          data-testid={`button-pickup-slot-${value}`}
                         >
-                          {label}
+                          <span className="block text-xs">{label}</span>
+                          {/* Say why, rather than hiding the window. A gap in
+                              the grid reads as a bug; a reason reads as a fact. */}
+                          {!available && (
+                            <span className="block text-[10px] mt-0.5 font-medium">
+                              {reason === 'past' ? 'Too late today' : 'No agent free'}
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>
+                    {slotsLoading && (
+                      <p className="text-xs text-muted-foreground mt-1">Checking availability…</p>
+                    )}
+                    {!slotsLoading && slotOffers.every((s) => !s.available) && (
+                      <p className="text-xs text-red-600 mt-1" data-testid="text-no-slots">
+                        No pickup windows left on this date. Pick another date, or choose
+                        drop-off.
+                      </p>
+                    )}
                     {fieldErrors.pickupSlot && (
                       <p className="text-xs text-red-600 mt-1">Please choose a pickup window</p>
                     )}
@@ -1381,16 +1486,40 @@ export default function CreateShipment() {
               )}
             </div>
 
-            {kycOnFile ? (
-              <KycOnFileCard kyc={kycOnFile} />
-            ) : (
-              <KycUpload
-                onValidChange={setKycResult}
-                fieldErrors={{
-                  document_no: !!fieldErrors.kycMissing,
-                  file: !!fieldErrors.kycMissing,
-                }}
-              />
+            {/* Company accounts: nothing here. Identity was settled by GST at
+                signup — see A2. Personal accounts still need a document on
+                file, but are only asked once. */}
+            {kycRequired && (
+              kycOnFile ? (
+                <div className="space-y-2">
+                  <KycOnFileCard kyc={kycOnFile} />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowKycUpdate((v) => {
+                        // Discard a half-finished replacement when collapsing,
+                        // so a stale kycResult cannot ride along on submit.
+                        if (v) setKycResult(null);
+                        return !v;
+                      });
+                    }}
+                    className="text-[11px] font-semibold text-primary"
+                    aria-expanded={showKycUpdate}
+                    data-testid="button-kyc-update-toggle"
+                  >
+                    {showKycUpdate ? 'Cancel update' : 'Update KYC'}
+                  </button>
+                  {showKycUpdate && <KycUpload onValidChange={setKycResult} />}
+                </div>
+              ) : (
+                <KycUpload
+                  onValidChange={setKycResult}
+                  fieldErrors={{
+                    document_no: !!fieldErrors.kycMissing,
+                    file: !!fieldErrors.kycMissing,
+                  }}
+                />
+              )
             )}
 
             {stepError && (
@@ -2914,11 +3043,29 @@ export default function CreateShipment() {
                   clearFieldError('pickupDate');
                   setPickupDatePickerOpen(false);
                 }}
-                disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }}
+                disabled={[
+                  { before: new Date(new Date().setHours(0, 0, 0, 0)) },
+                  // A date nobody is rostered for cannot be selected. While
+                  // coverage is still loading nothing extra is disabled, so
+                  // the picker never flickers dates in and out.
+                  (date: Date) => {
+                    if (coverageLoading || !coveredDates) return false;
+                    return !coveredDates.includes(toIsoDate(date));
+                  },
+                ]}
                 autoFocus
                 className="w-full [--cell-size:2.75rem]"
                 classNames={{ root: 'w-full' }}
               />
+              {!coverageLoading && coveredDates?.length === 0 && (
+                <p
+                  className="text-xs text-red-600 mt-3 text-center"
+                  data-testid="text-no-coverage"
+                >
+                  No pickup agent is scheduled in this period. Choose drop-off instead,
+                  or try again later.
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -2974,14 +3121,7 @@ export default function CreateShipment() {
 
             <Label className="text-xs text-muted-foreground mb-2 block">Pay with</Label>
             <div className="space-y-2 mb-5">
-              {(
-                [
-                  ['pay_now', 'Pay Now'],
-                  ['pay_at_pickup', 'Pay at Pickup'],
-                  ['pay_at_dropoff', 'Pay at Drop-off'],
-                  ['cod', 'Cash on Delivery'],
-                ] as const
-              ).map(([val, label]) => (
+              {paymentMethodOptions.map(([val, label]) => (
                 <label
                   key={val}
                   className={cn(

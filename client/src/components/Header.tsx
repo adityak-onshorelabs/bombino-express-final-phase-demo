@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Menu, Bell } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
-import bombinoLogo from '@/assets/bombino-logo.png';
+import { TopBar } from '@/components/TopBar';
 
 interface HeaderProps {
   onMenuClick?: () => void;
@@ -40,8 +40,11 @@ export function Header({ onMenuClick }: HeaderProps) {
   }, [isLoggedIn]);
 
   return (
-    <header className="md:hidden sticky top-0 z-50 bg-white/95 backdrop-blur-sm safe-top border-b border-[rgba(198,40,40,0.08)] shadow-[0_1px_8px_rgba(0,0,0,0.06)]">
-      <div className="flex items-center justify-between h-14 px-4 max-w-md mx-auto">
+    <TopBar
+      homeHref="/home"
+      className="md:hidden"
+      testId="header"
+      left={
         <button
           onClick={onMenuClick}
           className="p-2 -ml-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
@@ -49,16 +52,8 @@ export function Header({ onMenuClick }: HeaderProps) {
         >
           <Menu className="w-5 h-5 text-foreground" />
         </button>
-
-        <Link href="/home" className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center max-w-[min(200px,55vw)]">
-          <img
-            src={bombinoLogo}
-            alt="Bombino Express"
-            className="h-10 w-auto max-w-[180px] object-contain object-center"
-            data-testid="img-logo"
-          />
-        </Link>
-
+      }
+      right={
         <Link
           href="/notifications"
           className="relative p-2 -mr-2 rounded-xl hover:bg-muted active:scale-95 transition-all"
@@ -71,7 +66,7 @@ export function Header({ onMenuClick }: HeaderProps) {
             </span>
           )}
         </Link>
-      </div>
-    </header>
+      }
+    />
   );
 }

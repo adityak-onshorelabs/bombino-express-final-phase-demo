@@ -16,6 +16,13 @@ export interface ITDUserInfo {
   fullName: string;
   username: string;
   role: string;
+  /**
+   * Bombino-side, not an ITD field — ITD's auth response carries nothing like
+   * it. Set on the OTP signup/login paths (A2) so the client can branch on
+   * account type without a second request. Absent for legacy ITD password
+   * logins, which every consumer must treat as `personal`.
+   */
+  account_type?: "personal" | "company";
 }
 
 export interface ITDAuthResponse {

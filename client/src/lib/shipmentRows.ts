@@ -13,6 +13,7 @@ export interface OrderApiRow {
   final_amount: number | null;
   awb_no: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 /** Unified display row — either a real ITD shipment or a pre-docket Bombino order. */
@@ -29,6 +30,8 @@ export interface DisplayRow {
   statusLabel: string;
   statusTone: AwbStatusTone;
   createdAt: string;
+  /** Last movement. Drives list order so a just-advanced order leads. */
+  updatedAt: string;
 }
 
 export function formatShipmentAmount(amount: string | number | null, currency: string | null): string | null {
@@ -57,6 +60,9 @@ export function shipmentToRow(item: ShipmentHistoryItem): DisplayRow {
     statusLabel: hasStatus ? getStatusLabel(item.current_status as string) : 'Unknown',
     statusTone: hasStatus ? getStatusColor(item.current_status as string) : 'gray',
     createdAt: item.created_at,
+    // Older server builds did not select updated_at; fall back rather than
+    // sorting these to the epoch and burying them.
+    updatedAt: item.updated_at ?? item.created_at,
   };
 }
 
@@ -70,10 +76,16 @@ export function orderToRow(order: OrderApiRow): DisplayRow {
     country: order.consignee?.country_name?.trim() || '',
     service: order.items?.api_service_code?.trim() || '',
     bookingDate: order.created_at,
-    amountStr: formatShipmentAmount(order.final_amount ?? order.quoted_amount, order.items?.free_form_currency ?? null),
+    // Always INR. `items.free_form_currency` is the CUSTOMS declared-value
+    // currency of the goods (USD for a US destination, QAR for Qatar) and has
+    // nothing to do with what the customer pays Bombino — that is a rupee
+    // freight charge from the ITD rate call. Passing it here rendered
+    // ₹1,705.10 as "QAR 1,705".
+    amountStr: formatShipmentAmount(order.final_amount ?? order.quoted_amount, 'INR'),
     statusLabel: getOrderStatusLabel(order.status),
     statusTone: getOrderStatusTone(order.status),
     createdAt: order.created_at,
+    updatedAt: order.updated_at ?? order.created_at,
   };
 }
 
@@ -97,7 +109,12 @@ export async function fetchMergedShipmentRows(): Promise<DisplayRow[]> {
         )
       : [];
 
-  return [...shipmentRows, ...orderRows].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  // Most recently moved first, not most recently booked. An order an agent
+  // just advanced is the one the customer is asking about, even if they booked
+  // it days before something else. Ties fall back to booking time so the order
+  // stays stable for rows that have never moved.
+  return [...shipmentRows, ...orderRows].sort((a, b) => {
+    const delta = new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    return delta !== 0 ? delta : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
 }

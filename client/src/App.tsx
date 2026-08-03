@@ -1,9 +1,12 @@
-import { Switch, Route, Redirect } from "wouter";
+import { Switch, Route, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from '@/components/AppLayout';
+import { SurfaceGuard } from '@/components/SurfaceGuard';
+import { AgentRoutes } from './routes.agent';
+import { surfaceForPath } from '@/lib/surface';
 
 import Splash from "@/pages/Splash";
 import Onboarding from "@/pages/Onboarding";
@@ -22,7 +25,7 @@ import Profile from "@/pages/Profile";
 import Support from "@/pages/Support";
 import NotFound from "@/pages/not-found";
 
-function Router() {
+function CustomerRouter() {
   return (
     <Switch>
       <Route path="/" component={Splash} />
@@ -45,14 +48,38 @@ function Router() {
   );
 }
 
+/**
+ * A1 — surface selection.
+ *
+ * The agent app is not the customer app with different screens: it gets no
+ * desktop sidebar, no top bar and no support FAB, so it renders outside
+ * `AppLayout` entirely rather than trying to opt out of its parts.
+ *
+ * `SurfaceGuard` sits above both and bounces anyone onto their own surface.
+ * It is cosmetic — the real enforcement is `requireRole` on the server.
+ */
+function Surfaces() {
+  const [location] = useLocation();
+
+  if (surfaceForPath(location) === 'agent') {
+    return <AgentRoutes />;
+  }
+
+  return (
+    <AppLayout>
+      <CustomerRouter />
+    </AppLayout>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
-        <AppLayout>
-          <Router />
-        </AppLayout>
+        <SurfaceGuard>
+          <Surfaces />
+        </SurfaceGuard>
       </TooltipProvider>
     </QueryClientProvider>
   );
