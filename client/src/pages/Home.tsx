@@ -346,14 +346,10 @@ function HomeMobile() {
                             />
                           </>
                         );
-                        return row.isOrder ? (
-                          <div key={row.key} className={rowClassName} data-testid={`shipment-card-${row.displayId}`}>
-                            {content}
-                          </div>
-                        ) : (
+                        return (
                           <Link
                             key={row.key}
-                            href={`/shipment/${encodeURIComponent(row.displayId)}`}
+                            href={`${row.isOrder ? '/order' : '/shipment'}/${encodeURIComponent(row.displayId)}`}
                             className={rowClassName}
                             data-testid={`shipment-card-${row.displayId}`}
                           >

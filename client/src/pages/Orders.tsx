@@ -280,15 +280,12 @@ export default function Orders() {
     if (t) setLocation(`/shipment/${encodeURIComponent(t)}`);
   };
 
+  // An order and a shipment are the same thing at different stages, but they
+  // are keyed differently — an order has only its BOM number until ops issues
+  // an AWB — so each gets its own detail screen.
   const openRow = (row: DisplayRow) => {
-    if (row.isOrder) {
-      toast({
-        title: 'Not yet trackable',
-        description: 'Full tracking appears once the docket is generated after pickup.',
-      });
-      return;
-    }
-    setLocation(`/shipment/${encodeURIComponent(row.displayId)}`);
+    const path = row.isOrder ? '/order' : '/shipment';
+    setLocation(`${path}/${encodeURIComponent(row.displayId)}`);
   };
 
   const handleDownloadCSV = async () => {

@@ -28,9 +28,13 @@ import {
 import type { ShipmentDocumentKind } from "./appDb.js";
 import {
   getOrderById,
+  getOrderByNumberForUser,
+  getUserContactsByIds,
   insertOrderAndReturnRow,
   insertOrderEvent,
+  listOrderEvents,
   listOrdersByUserId,
+  listPaymentsByOrderId,
 } from "./ordersDb.js";
 import {
   availableActions,
@@ -46,7 +50,7 @@ import {
 import { ensureDbUser, requireRole, requireUser } from "./routeGuards.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { deriveCustomerStatus, isInternalOnlyStatus, isRole } from "../shared/orderContract.js";
-import type { Order, Role } from "../shared/orderContract.js";
+import type { Order, OrderStatus, Role } from "../shared/orderContract.js";
 import { PICKUP_SLOT_VALUES } from "../shared/pickupSlots.js";
 import {
   getCoveredDates,
@@ -1713,6 +1717,127 @@ export async function registerRoutes(
     }
 
     res.json({ orders });
+  });
+
+  // ── GET /api/orders/:orderNo — one order, in full, for its owner ─────────
+  //
+  // The customer's counterpart to the agent's pickup detail screen. Everything
+  // captured at booking, plus the lifecycle log so a pickup customer can see
+  // what the agent did and when.
+  //
+  // Ownership is enforced in the SQL WHERE (`getOrderByNumberForUser`), not
+  // here — the service-role key bypasses RLS, so a JS-side comparison would not
+  // be a boundary (§4.2 of open-items).
+
+  /**
+   * Statuses during which the assigned agent's phone number is useful to the
+   * customer. Before a claim there is no agent; after the hub handoff the
+   * parcel is ops' problem and the agent should not keep taking calls about it.
+   */
+  const AGENT_PHONE_VISIBLE_STATUSES: readonly OrderStatus[] = [
+    "agent_accepted",
+    "out_for_pickup",
+    "picked_up",
+  ];
+
+  /** Who moved the order, in terms the customer cares about. */
+  function eventActorKind(role: unknown, isOwner: boolean): "agent" | "ops" | "you" | "system" {
+    if (isOwner) return "you";
+    if (role === "agent") return "agent";
+    if (role === "admin" || role === "super_admin") return "ops";
+    return "system";
+  }
+
+  app.get("/api/orders/:orderNo", ensureDbUser, async (req: Request, res: Response) => {
+    const userId = req.session.dbUserId;
+    if (!userId) {
+      res.status(401).json({ message: "Login required" });
+      return;
+    }
+
+    const order = await getOrderByNumberForUser(req.params.orderNo, userId);
+    if (!order) {
+      // An order that belongs to someone else is reported the same way as one
+      // that does not exist — the distinction is not the caller's business.
+      res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+      return;
+    }
+
+    const [rawEvents, payments] = await Promise.all([
+      listOrderEvents(order.id),
+      listPaymentsByOrderId(order.id),
+    ]);
+
+    // The three internal statuses produce no customer-visible change (§2 of
+    // roles-and-flows) and are dropped rather than rendered as a stalled
+    // repeat of "Arrived at Bombino hub".
+    const visibleEvents = (rawEvents ?? []).filter(
+      (ev) => !isInternalOnlyStatus(ev.status as OrderStatus)
+    );
+
+    const contacts = await getUserContactsByIds([
+      ...visibleEvents.map((ev) => ev.actor_user_id).filter((id): id is string => !!id),
+      ...(payments ?? []).map((p) => p.collected_by).filter((id): id is string => !!id),
+      ...(order.agent_id ? [order.agent_id] : []),
+    ]);
+
+    const events = visibleEvents.map((ev) => {
+      const meta = (ev.metadata ?? {}) as Record<string, unknown>;
+      const actor = ev.actor_user_id ? contacts.get(ev.actor_user_id) : undefined;
+      // `collect_payment` is the one action that does real work without moving
+      // the order, so deriving its label from the status would repeat the
+      // previous entry verbatim ("Agent on the way" twice in a row). Name what
+      // actually happened instead.
+      const isCollection = meta.action === "collect_payment";
+      return {
+        id: ev.id,
+        at: ev.created_at,
+        status: ev.status,
+        // Same phrase the list and the badge use, so one order never reads as
+        // two different things on two screens.
+        label: isCollection
+          ? "Payment collected"
+          : deriveCustomerStatus({ ...order, status: ev.status as OrderStatus }),
+        note: ev.note,
+        action: typeof meta.action === "string" ? meta.action : null,
+        actorName: actor?.full_name ?? null,
+        actorKind: eventActorKind(meta.role, ev.actor_user_id === userId),
+        amount: typeof meta.amount === "number" ? meta.amount : null,
+      };
+    });
+
+    const agentContact = order.agent_id ? contacts.get(order.agent_id) : undefined;
+    const agent = agentContact
+      ? {
+          name: agentContact.full_name,
+          phone: AGENT_PHONE_VISIBLE_STATUSES.includes(order.status)
+            ? agentContact.phone
+            : null,
+        }
+      : null;
+
+    res.json({
+      order,
+      customerStatus: deriveCustomerStatus(order),
+      agent,
+      events,
+      payments: (payments ?? []).map((p) => ({
+        id: p.id,
+        amount: p.amount,
+        currency: p.currency,
+        method: p.method,
+        status: p.status,
+        reference: p.reference,
+        collectedAt: p.collected_at ?? p.created_at,
+        collectedByName: p.collected_by ? contacts.get(p.collected_by)?.full_name ?? null : null,
+      })),
+      // Lets the page render a Cancel button without knowing the state machine.
+      availableActions: availableActions(order, "customer", { userId }),
+      // A failed events read is not fatal — the booking detail is still worth
+      // showing — but the page must be able to say so rather than imply the
+      // order has no history.
+      ...(rawEvents === null ? { warning: "History could not be loaded." } : {}),
+    });
   });
 
   // ── KYC: Upload document ──────────────────────────────────────────────────

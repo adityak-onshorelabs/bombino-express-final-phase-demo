@@ -146,6 +146,158 @@ export async function getOrderById(orderId: string): Promise<Order | null> {
   return toOrder(data as unknown as OrderRow);
 }
 
+/**
+ * The pickup address, embedded via the orders → addresses FK.
+ *
+ * Same embed the agent uses (`agentDb.PICKUP_ADDRESS_EMBED`) — the customer
+ * needs it for the mirror-image reason: to confirm the address they gave is
+ * the one an agent will turn up at.
+ */
+const ORIGIN_ADDRESS_EMBED =
+  "origin_address:addresses(id, full_name, company, phone, email, address_line_1, address_line_2, city, state, pincode, country_code, country_name)";
+
+export type OrderAddress = {
+  id: string;
+  full_name: string | null;
+  company: string | null;
+  phone: string | null;
+  email: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  country_code: string | null;
+  country_name: string | null;
+};
+
+export type OrderWithAddress = Order & { origin_address: OrderAddress | null };
+
+/**
+ * One order, by its human-facing number, scoped to its owner.
+ *
+ * `user_id` is in the WHERE clause rather than checked in JS afterwards: the
+ * service-role key bypasses RLS, so this predicate *is* the authorisation
+ * boundary (§4.2 of open-items). A mismatched owner returns null, which the
+ * route reports as 404 — an ownership failure and a missing row are
+ * indistinguishable to the caller by design.
+ */
+export async function getOrderByNumberForUser(
+  orderNo: string,
+  userId: string
+): Promise<OrderWithAddress | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select(`${ORDER_COLUMNS}, ${ORIGIN_ADDRESS_EMBED}`)
+    .eq("order_no", orderNo)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getOrderByNumberForUser", error);
+    return null;
+  }
+  if (!data) return null;
+
+  const row = data as unknown as OrderRow & { origin_address?: OrderAddress | null };
+  return { ...toOrder(row), origin_address: row.origin_address ?? null };
+}
+
+export type OrderEventRow = {
+  id: string;
+  order_id: string;
+  status: string;
+  note: string | null;
+  actor_user_id: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+};
+
+/** Lifecycle log for one order, oldest first — the order it happened in. */
+export async function listOrderEvents(orderId: string): Promise<OrderEventRow[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("order_events")
+    .select("id, order_id, status, note, actor_user_id, metadata, created_at")
+    .eq("order_id", orderId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    logSupabaseError("listOrderEvents", error);
+    return null;
+  }
+  return (data ?? []) as OrderEventRow[];
+}
+
+export type OrderPaymentRow = {
+  id: string;
+  amount: number;
+  currency: string;
+  method: string;
+  status: string;
+  collected_by: string | null;
+  collected_at: string | null;
+  reference: string | null;
+  created_at: string;
+};
+
+/**
+ * Money recorded against an order. COD never produces a row — an empty list is
+ * not the same as "unpaid" (see the header of migrations/create_payments.sql).
+ */
+export async function listPaymentsByOrderId(orderId: string): Promise<OrderPaymentRow[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("payments")
+    .select("id, amount, currency, method, status, collected_by, collected_at, reference, created_at")
+    .eq("order_id", orderId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    logSupabaseError("listPaymentsByOrderId", error);
+    return null;
+  }
+  return (data ?? []) as OrderPaymentRow[];
+}
+
+export type StaffContact = {
+  id: string;
+  full_name: string | null;
+  phone: string | null;
+  role: string | null;
+};
+
+/**
+ * Names for the user ids appearing on an order's events and payments, so the
+ * customer reads "Collected by Ravi" instead of a UUID. Returns a map rather
+ * than a list because every caller looks up by id.
+ */
+export async function getUserContactsByIds(ids: string[]): Promise<Map<string, StaffContact>> {
+  const unique = Array.from(new Set(ids.filter(Boolean)));
+  if (unique.length === 0) return new Map();
+
+  const client = getSupabaseClient();
+  if (!client) return new Map();
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("id, full_name, phone, role")
+    .in("id", unique);
+
+  if (error) {
+    logSupabaseError("getUserContactsByIds", error);
+    return new Map();
+  }
+  return new Map((data as StaffContact[]).map((u) => [u.id, u]));
+}
+
 export async function listOrdersByUserId(userId: string): Promise<OrderRow[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;

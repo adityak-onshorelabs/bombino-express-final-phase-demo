@@ -647,14 +647,10 @@ function MyShipmentsTable({
                 <StatusBadge status={row.statusLabel} tone={row.statusTone} className="shrink-0" />
               </>
             );
-            return row.isOrder ? (
-              <div key={row.key} className={rowClassName} data-testid={`shipment-row-${row.displayId}`}>
-                {content}
-              </div>
-            ) : (
+            return (
               <Link
                 key={row.key}
-                href={`/shipment/${encodeURIComponent(row.displayId)}`}
+                href={`${row.isOrder ? '/order' : '/shipment'}/${encodeURIComponent(row.displayId)}`}
                 className={rowClassName}
                 data-testid={`shipment-row-${row.displayId}`}
               >
