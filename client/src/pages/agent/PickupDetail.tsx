@@ -6,35 +6,61 @@ import { AgentShell } from '@/components/agent/AgentShell';
 import { PickupCard } from '@/components/agent/PickupCard';
 import { ActionButtons } from '@/components/agent/ActionButtons';
 import { CollectPaymentSheet } from '@/components/agent/CollectPaymentSheet';
-import { useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';
+import { useAvailablePickups, useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';
 
 /**
  * A5 screen 3 — one job, and the buttons to work through it.
  *
- * Reads from the `mine` list rather than a per-order endpoint: the list is
- * already cached, already scoped to this agent by the server, and avoids a
- * second round trip on a phone that may be on bad network.
+ * Reads from the two cached lists rather than a per-order endpoint: both are
+ * already scoped by the server, and this avoids a second round trip on a phone
+ * that may be on bad network.
+ *
+ * Both lists, not just `mine`: the dashboard links unclaimed jobs straight
+ * here, so a job the agent has not taken yet must resolve too — otherwise the
+ * screen decides the job has vanished and bounces them to My pickups. The
+ * buttons come from the server either way, so an unclaimed job simply offers
+ * Accept and then carries on down the same screen once claimed.
  *
  * A consequence worth knowing: when the agent marks `received_at_hub` the
- * server drops the job from `mine`, so it vanishes from this screen too. That
- * is the handoff working, not an error — we redirect back to the list.
+ * server drops the job from `mine`, and it is in neither list. That is the
+ * handoff working, not an error — we redirect back.
  */
 export default function PickupDetail() {
   const [, params] = useRoute('/agent/pickup/:id');
   const [, setLocation] = useLocation();
-  const { data: pickups, isLoading, isError } = useMyPickups();
+  const mine = useMyPickups();
+  const available = useAvailablePickups();
   const action = useOrderAction();
   const { toast } = useToast();
 
-  const entry = pickups?.find((p) => p.order.id === params?.id);
+  const entry =
+    mine.data?.find((p) => p.order.id === params?.id) ??
+    available.data?.find((p) => p.order.id === params?.id);
   const order = entry?.order;
 
-  // The job left our queue (handed to ops, or cancelled). Go back rather than
-  // sitting on a screen with nothing on it.
-  const vanished = !isLoading && !isError && !entry;
+  const isLoading = mine.isLoading || available.isLoading;
+  // Only fatal when we have nothing to show. One list failing while the other
+  // holds the job is not worth an error screen.
+  const isError = (mine.isError || available.isError) && !entry;
+
+  // The job left both queues (handed to ops, or cancelled). Go back rather
+  // than sitting on a screen with nothing on it.
+  //
+  // Suppressed while either list is in flight: claiming removes the job from
+  // `available` and adds it to `mine`, and if those two refetches land a beat
+  // apart there is a moment where neither list has it. Redirecting on that
+  // would throw the agent off the job they just accepted.
+  const settling = mine.isFetching || available.isFetching;
+  const vanished = !isLoading && !settling && !isError && !entry;
   useEffect(() => {
     if (vanished) setLocation('/agent/mine', { replace: true });
   }, [vanished, setLocation]);
+
+  // Where "back" goes depends on where the job actually is, not on where the
+  // agent happened to tap in from.
+  const isUnclaimed = !!entry && !mine.data?.some((p) => p.order.id === entry.order.id);
+  const backHref = isUnclaimed ? '/agent/available' : '/agent/mine';
+  const backLabel = isUnclaimed ? 'Available' : 'My pickups';
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [receipt, setReceipt] = useState<{ txnId: string | null; amount: number } | null>(null);
@@ -87,12 +113,12 @@ export default function PickupDetail() {
     <AgentShell title="Pickup detail" subtitle={order?.order_no ?? ''}>
       <button
         type="button"
-        onClick={() => setLocation('/agent/mine')}
+        onClick={() => setLocation(backHref)}
         className="flex items-center gap-1 text-sm text-muted-foreground mb-3 -ml-1 h-11"
         data-testid="button-back-mine"
       >
         <ArrowLeft className="w-4 h-4" />
-        My pickups
+        {backLabel}
       </button>
 
       {isLoading && (
