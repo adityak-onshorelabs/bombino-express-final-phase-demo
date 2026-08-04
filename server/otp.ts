@@ -3,7 +3,16 @@ import crypto from "crypto";
 export const OTP_LENGTH = 6;
 export const OTP_TTL_MINUTES = 5;
 export const OTP_MAX_ATTEMPTS = 5;
-export const OTP_MAX_REQUESTS_PER_HOUR = 5;
+/**
+ * Per-phone request ceiling, per rolling hour.
+ *
+ * Higher in development because a single manual test of the login flow costs a
+ * request and five is spent in one sitting. This is an anti-abuse control on an
+ * endpoint that sends SMS at our expense, so production stays at 5 — never
+ * raise the non-dev value without a reason to.
+ */
+export const OTP_MAX_REQUESTS_PER_HOUR =
+  process.env.NODE_ENV === "development" ? 20 : 5;
 export const OTP_VERIFICATION_WINDOW_MINUTES = 10;
 
 export function generateOtp(): string {
