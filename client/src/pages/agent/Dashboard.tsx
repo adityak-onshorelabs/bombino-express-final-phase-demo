@@ -18,6 +18,7 @@ import {
   agentStatusLabel,
   amountOwedAtDoor,
   formatSlot,
+  notDueYetReason,
   shortAddress,
 } from '@/components/agent/PickupCard';
 import {
@@ -304,6 +305,7 @@ function ActiveJob({ entry }: { entry: PickupEntry }) {
   const order = entry.order;
   const owed = amountOwedAtDoor(order);
   const next = entry.availableActions[0];
+  const notDueYet = notDueYetReason(order);
 
   // Actions needing input (payment) open the detail screen, which owns the
   // sheet. Plain status advances fire from here — the whole point of this card
@@ -383,23 +385,37 @@ function ActiveJob({ entry }: { entry: PickupEntry }) {
         </div>
       )}
 
-      {next && (
-        <button
-          type="button"
-          onClick={run}
-          disabled={action.isPending}
-          className="mt-3 w-full h-14 rounded-xl bg-primary text-white text-base font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-60"
-          data-testid="button-active-next"
+      {/* A job held for a future date has no next step — the server withholds
+          start_pickup until the day. Show the date rather than a dead card. */}
+      {notDueYet ? (
+        <div
+          className="mt-3 rounded-xl border-2 border-dashed border-border px-4 py-3 text-center"
+          data-testid="active-not-due"
         >
-          {action.isPending ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
-          ) : (
-            <>
-              {next.label}
-              <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
-            </>
-          )}
-        </button>
+          <p className="text-base font-extrabold text-foreground">{notDueYet}</p>
+          <p className="text-xs font-medium text-muted-foreground mt-0.5">
+            You can start this pickup on the day
+          </p>
+        </div>
+      ) : (
+        next && (
+          <button
+            type="button"
+            onClick={run}
+            disabled={action.isPending}
+            className="mt-3 w-full h-14 rounded-xl bg-primary text-white text-base font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-60"
+            data-testid="button-active-next"
+          >
+            {action.isPending ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <>
+                {next.label}
+                <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
+              </>
+            )}
+          </button>
+        )
       )}
     </div>
   );
@@ -639,9 +655,15 @@ export default function Dashboard() {
   const todaySlots = weeklyPattern?.[todayDow] ?? [];
   const isLoading = loadingAvailable || loadingMine;
 
-  const active = [...(mine ?? [])].sort(
-    (a, b) => (PROGRESS_RANK[b.order.status] ?? 0) - (PROGRESS_RANK[a.order.status] ?? 0),
-  )[0];
+  // A job that can be worked now beats one that cannot, whatever their
+  // statuses — an agent holding tomorrow's pickup and today's must be shown
+  // today's. Within that, furthest-along wins: it is the one in their hands.
+  const active = [...(mine ?? [])].sort((a, b) => {
+    const workable = (e: PickupEntry) => (notDueYetReason(e.order) ? 0 : 1);
+    const byWorkable = workable(b) - workable(a);
+    if (byWorkable !== 0) return byWorkable;
+    return (PROGRESS_RANK[b.order.status] ?? 0) - (PROGRESS_RANK[a.order.status] ?? 0);
+  })[0];
 
   const recent = newestFirst(available ?? []);
 

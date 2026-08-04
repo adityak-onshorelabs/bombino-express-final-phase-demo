@@ -23,6 +23,7 @@ import type {
   Role,
 } from "../shared/orderContract.js";
 import { isPaymentSatisfied, roleSatisfies } from "../shared/orderContract.js";
+import { todayInIst } from "../shared/pickupSlots.js";
 
 /**
  * Context the guards need beyond the order itself — chiefly "who is asking",
@@ -61,6 +62,31 @@ const isUnclaimed = (order: Order): boolean => order.agent_id === null;
 const isOwningAgent = (order: Order, ctx: TransitionContext): boolean =>
   ctx.userId !== null && order.agent_id === ctx.userId;
 
+/**
+ * The pickup date has arrived.
+ *
+ * Claiming ahead is normal — an agent plans tomorrow's route today — but
+ * *starting* a job is a statement that they are on their way, and that cannot
+ * be true before the day the customer was promised. Without this an agent can
+ * run a 5 Aug pickup to completion on the 4th, and the customer gets a
+ * doorbell a day early or a parcel marked collected that nobody collected.
+ *
+ * Compares `YYYY-MM-DD` strings, where lexicographic order is chronological
+ * order. `todayInIst` is used rather than `new Date()` because the server runs
+ * in UTC while `pickup_date` is an Indian calendar date — between 18:30 and
+ * midnight UTC the two disagree, which is the middle of an Indian evening.
+ *
+ * Deliberately `<=`, not `===`: a pickup that slipped to the next day is late,
+ * not void, and the parcel still has to be collected. Blocking an overdue job
+ * would strand it with no available action and no way back — ops cannot
+ * rescue it either, since those handlers are not built yet. Change to `===`
+ * if a missed date should instead require rebooking.
+ */
+const pickupDateArrived = (order: Order): boolean => {
+  if (!order.pickup_date) return true; // drop-offs and legacy rows carry none
+  return order.pickup_date <= todayInIst();
+};
+
 /** Money is owed at the door and has not been taken yet. */
 const owesAtPickup = (order: Order): boolean =>
   order.payment_method === "pay_at_pickup" && order.payment_status !== "paid";
@@ -90,7 +116,11 @@ export const TRANSITIONS: readonly Transition[] = [
     role: "agent",
     to: "out_for_pickup",
     label: "Start pickup",
-    guard: isOwningAgent,
+    // Only on or after the promised day. Everything downstream — collection,
+    // pickup, hub handoff — is reachable only through here, so gating this one
+    // transition keeps a future-dated job out of the whole flow without
+    // stranding a late one mid-way.
+    guard: (order, ctx) => isOwningAgent(order, ctx) && pickupDateArrived(order),
   },
   {
     // No status change — collection is a `payments` write, and the order is

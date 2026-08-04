@@ -1,6 +1,7 @@
 import { Link } from 'wouter';
 import { MapPin, Clock, Weight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { todayInIst } from '@shared/pickupSlots';
 import type { AgentPickup } from '@/hooks/useAgentPickups';
 
 /**
@@ -41,6 +42,39 @@ export function shortAddress(pickup: AgentPickup): string {
   const a = pickup.origin_address;
   if (!a) return 'Address unavailable';
   return [a.address_line_1, a.city, a.pincode].filter(Boolean).join(', ');
+}
+
+/**
+ * Why a claimed job has no next step, when the reason is the calendar rather
+ * than the state machine.
+ *
+ * The server refuses `start_pickup` before the pickup date (see
+ * `pickupDateArrived` in server/orderLifecycle.ts) and simply omits it from
+ * `availableActions`. Without this the agent is told "Nothing to do here" on a
+ * job they hold and are expecting to work, which reads as a bug.
+ *
+ * Mirrors the server rule; it does not enforce it. The refusal is server-side
+ * and stands whatever this returns.
+ */
+export function notDueYetReason(pickup: AgentPickup): string | null {
+  if (pickup.status !== 'agent_accepted') return null;
+  if (!pickup.pickup_date) return null;
+
+  const today = todayInIst();
+  if (pickup.pickup_date <= today) return null;
+
+  const days = Math.round(
+    (new Date(`${pickup.pickup_date}T00:00:00Z`).getTime() -
+      new Date(`${today}T00:00:00Z`).getTime()) /
+      86_400_000,
+  );
+  if (days === 1) return 'Starts tomorrow';
+
+  const when = new Date(`${pickup.pickup_date}T00:00:00Z`).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+  });
+  return `Starts ${when} · in ${days} days`;
 }
 
 /** Money the agent must physically collect. Nothing else is their problem. */

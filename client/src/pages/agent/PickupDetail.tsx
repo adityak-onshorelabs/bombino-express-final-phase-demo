@@ -3,7 +3,7 @@ import { useLocation, useRoute } from 'wouter';
 import { ArrowLeft, Loader2, Phone, Navigation, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { AgentShell } from '@/components/agent/AgentShell';
-import { PickupCard } from '@/components/agent/PickupCard';
+import { PickupCard, notDueYetReason } from '@/components/agent/PickupCard';
 import { ActionButtons } from '@/components/agent/ActionButtons';
 import { CollectPaymentSheet } from '@/components/agent/CollectPaymentSheet';
 import { useAvailablePickups, useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';
@@ -61,6 +61,8 @@ export default function PickupDetail() {
   const isUnclaimed = !!entry && !mine.data?.some((p) => p.order.id === entry.order.id);
   const backHref = isUnclaimed ? '/agent/available' : '/agent/mine';
   const backLabel = isUnclaimed ? 'Available' : 'My pickups';
+
+  const notDueYet = order ? notDueYetReason(order) : null;
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [receipt, setReceipt] = useState<{ txnId: string | null; amount: number } | null>(null);
@@ -198,12 +200,24 @@ export default function PickupDetail() {
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-3">
               Next step
             </p>
-            <ActionButtons
-              actions={entry.availableActions}
-              pendingAction={action.isPending ? action.variables?.action ?? null : null}
-              disabled={action.isPending}
-              onAction={handleAction}
-            />
+            {notDueYet ? (
+              // The server withholds start_pickup until the pickup date, so
+              // the action list is empty. Say why — "Nothing to do here" on a
+              // job the agent is holding reads as a fault.
+              <div className="text-center py-2" data-testid="not-due-yet">
+                <p className="text-base font-extrabold text-foreground">{notDueYet}</p>
+                <p className="text-sm font-medium text-muted-foreground mt-1">
+                  You can start this pickup on the day.
+                </p>
+              </div>
+            ) : (
+              <ActionButtons
+                actions={entry.availableActions}
+                pendingAction={action.isPending ? action.variables?.action ?? null : null}
+                disabled={action.isPending}
+                onAction={handleAction}
+              />
+            )}
           </div>
 
           <CollectPaymentSheet
