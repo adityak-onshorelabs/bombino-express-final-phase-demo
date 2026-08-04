@@ -1,10 +1,17 @@
 import { Loader2, ClipboardList, AlertTriangle } from 'lucide-react';
 import { AgentShell } from '@/components/agent/AgentShell';
 import { PickupCard } from '@/components/agent/PickupCard';
+import { BandHeader } from '@/components/agent/BandHeader';
+import { BAND_LABEL, groupByDate, isUrgentBand } from '@/lib/agentGrouping';
 import { useMyPickups } from '@/hooks/useAgentPickups';
 
 /**
- * A5 screen 2 — the agent's own live jobs.
+ * A5 screen 2 — the agent's own jobs, segregated by when they are due.
+ *
+ * Today's work and a commitment for Thursday are different things and were
+ * previously one undifferentiated stack, so the count in the nav badge told an
+ * agent nothing about how much of it was actually theirs to do now. Overdue
+ * leads, then today, then everything dated forward.
  *
  * Cards navigate to the detail screen rather than carrying their action
  * buttons inline. Unlike accepting, the field actions ("picked up", "received
@@ -17,6 +24,8 @@ import { useMyPickups } from '@/hooks/useAgentPickups';
  */
 export default function MyPickups() {
   const { data: pickups, isLoading, isError, refetch } = useMyPickups();
+
+  const bands = groupByDate(pickups ?? []);
 
   return (
     <AgentShell title="My pickups" subtitle="Jobs you have accepted">
@@ -55,10 +64,22 @@ export default function MyPickups() {
         </div>
       )}
 
-      {!isLoading && !isError && pickups && pickups.length > 0 && (
-        <div className="space-y-3">
-          {pickups.map(({ order }) => (
-            <PickupCard key={order.id} pickup={order} href={`/agent/pickup/${order.id}`} />
+      {!isLoading && !isError && bands.length > 0 && (
+        <div className="space-y-7">
+          {bands.map(({ band, entries }) => (
+            <section key={band}>
+              <BandHeader
+                label={BAND_LABEL[band]}
+                count={entries.length}
+                urgent={isUrgentBand(band)}
+                testId={`band-${band}`}
+              />
+              <div className="space-y-3">
+                {entries.map(({ order }) => (
+                  <PickupCard key={order.id} pickup={order} href={`/agent/pickup/${order.id}`} />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}

@@ -1,7 +1,9 @@
 import { Link } from 'wouter';
-import { MapPin, Clock, Weight } from 'lucide-react';
+import { MapPin, Weight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { todayInIst } from '@shared/pickupSlots';
+import { bandForDate, toneForBand } from '@/lib/agentGrouping';
+import { SlotChip } from '@/components/agent/SlotChip';
 import type { AgentPickup } from '@/hooks/useAgentPickups';
 
 /**
@@ -95,12 +97,21 @@ export function PickupCard({
 }) {
   const owed = amountOwedAtDoor(pickup);
   const address = pickup.origin_address;
+  const band = bandForDate(pickup.pickup_date);
+  const tone = toneForBand(band);
 
   const body = (
     <>
       <div className="flex items-baseline justify-between gap-3">
-        <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground">
-          {agentStatusLabel(pickup.status)}
+        <p
+          className={cn(
+            'text-[11px] uppercase tracking-[0.14em] font-bold',
+            tone.eyebrow,
+          )}
+        >
+          {/* An overdue job says so before it says what state it is in — the
+              status is what the agent already knows, the slipped date is not. */}
+          {band === 'overdue' ? `Overdue · ${agentStatusLabel(pickup.status)}` : agentStatusLabel(pickup.status)}
         </p>
         <p className="font-mono text-[11px] font-semibold text-muted-foreground shrink-0">
           {pickup.order_no}
@@ -118,13 +129,8 @@ export function PickupCard({
         </p>
       </div>
 
-      <div className="flex items-center gap-4 mt-2.5">
-        <span className="flex items-center gap-1.5">
-          <Clock className="w-3.5 h-3.5 text-foreground/60" strokeWidth={2.5} />
-          <span className="text-xs font-semibold text-foreground/70">
-            {formatSlot(pickup.pickup_date, pickup.pickup_slot)}
-          </span>
-        </span>
+      <div className="flex items-center gap-3 flex-wrap mt-2.5">
+        <SlotChip pickupDate={pickup.pickup_date} pickupSlot={pickup.pickup_slot} />
         <span className="flex items-center gap-1.5">
           <Weight className="w-3.5 h-3.5 text-foreground/60" strokeWidth={2.5} />
           <span className="text-xs font-semibold text-foreground/70 tabular-nums">
@@ -151,7 +157,7 @@ export function PickupCard({
     </>
   );
 
-  const shell = 'block rounded-xl border-2 border-border bg-white p-4';
+  const shell = cn('block rounded-xl border-2 p-4', tone.shell);
 
   if (!href) {
     return (

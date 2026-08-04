@@ -3,12 +3,23 @@ import { useToast } from '@/hooks/use-toast';
 import { AgentShell } from '@/components/agent/AgentShell';
 import { PickupCard } from '@/components/agent/PickupCard';
 import { ActionButtons } from '@/components/agent/ActionButtons';
+import { BandHeader } from '@/components/agent/BandHeader';
+import { BAND_LABEL, groupByDate, isUrgentBand } from '@/lib/agentGrouping';
 import { useAvailablePickups, useOrderAction } from '@/hooks/useAgentPickups';
 
 /**
- * A5 screen 1 — jobs nobody has claimed, oldest first.
+ * A5 screen 1 — jobs nobody has claimed, segregated by when they are due.
  *
- * The claim button lives on the card rather than behind a detail screen: an
+ * Flat FIFO order was right for fairness and wrong for reading: an agent
+ * scanning for work today had to read the date on every card to find out
+ * whether it was even relevant, and a job overdue since yesterday sat wherever
+ * the queue happened to put it. Bands answer that before the agent reads a
+ * single card.
+ *
+ * Within a band the queue is still oldest-first, so nothing rots at the bottom
+ * of the list — the fairness the FIFO ordering existed for is untouched.
+ *
+ * The claim button stays on the card rather than behind a detail screen: an
  * agent deciding whether to take a job needs one tap, not two, and a job can
  * be gone by the time a second screen loads.
  */
@@ -39,6 +50,8 @@ export default function AvailablePickups() {
       },
     );
   };
+
+  const bands = groupByDate(pickups ?? []);
 
   return (
     <AgentShell title="Available pickups" subtitle="Tap a job to accept it">
@@ -80,21 +93,33 @@ export default function AvailablePickups() {
         </div>
       )}
 
-      {!isLoading && !isError && pickups && pickups.length > 0 && (
-        <div className="space-y-3">
-          {pickups.map(({ order, availableActions }) => (
-            <PickupCard key={order.id} pickup={order}>
-              <ActionButtons
-                actions={availableActions}
-                pendingAction={
-                  action.isPending && action.variables?.orderId === order.id
-                    ? action.variables.action
-                    : null
-                }
-                disabled={action.isPending}
-                onAction={(actionName) => handleAction(order.id, actionName)}
+      {!isLoading && !isError && bands.length > 0 && (
+        <div className="space-y-7">
+          {bands.map(({ band, entries }) => (
+            <section key={band}>
+              <BandHeader
+                label={BAND_LABEL[band]}
+                count={entries.length}
+                urgent={isUrgentBand(band)}
+                testId={`band-${band}`}
               />
-            </PickupCard>
+              <div className="space-y-3">
+                {entries.map(({ order, availableActions }) => (
+                  <PickupCard key={order.id} pickup={order}>
+                    <ActionButtons
+                      actions={availableActions}
+                      pendingAction={
+                        action.isPending && action.variables?.orderId === order.id
+                          ? action.variables.action
+                          : null
+                      }
+                      disabled={action.isPending}
+                      onAction={(actionName) => handleAction(order.id, actionName)}
+                    />
+                  </PickupCard>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}
