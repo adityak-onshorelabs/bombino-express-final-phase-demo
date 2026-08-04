@@ -405,6 +405,217 @@ function ActiveJob({ entry }: { entry: PickupEntry }) {
   );
 }
 
+/**
+ * A booking counts as "just in" for this long after it was created.
+ *
+ * Long enough that an agent who glances at the app a few minutes after a
+ * customer books still sees the call-out, short enough that it does not sit
+ * there shouting about a job nobody took an hour ago — at which point it is
+ * just queue, and the queue already has a screen.
+ */
+const NEW_BOOKING_WINDOW_MS = 30 * 60_000;
+
+function minutesAgo(iso: string): number {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+}
+
+/** "just now" / "12 min" / "2 hr" — short enough to sit inside a dense row. */
+function shortAge(iso: string): string {
+  const mins = minutesAgo(iso);
+  if (!Number.isFinite(mins) || mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs} hr`;
+}
+
+/** Newest first. The server returns available jobs oldest-first (FIFO, so a
+ *  job cannot sit at the bottom of every agent's list forever) and that
+ *  ordering is right for the Available screen — but "what just came in" is the
+ *  opposite question, so it is re-sorted here rather than changing the API. */
+function newestFirst(entries: PickupEntry[]): PickupEntry[] {
+  return [...entries].sort(
+    (a, b) =>
+      new Date(b.order.created_at).getTime() - new Date(a.order.created_at).getTime(),
+  );
+}
+
+/**
+ * A booking that landed in the last half hour, called out hard.
+ *
+ * Distinctiveness is carried by weight, size and motion — a heavy ring, the
+ * largest type on the screen, and a live pulse — not by a new colour. Per
+ * PRODUCT.md amber means money and nothing else, so a "new job" accent in
+ * amber would quietly break the one colour rule the agent surface has.
+ */
+function NewBookingHit({ entry }: { entry: PickupEntry }) {
+  const action = useOrderAction();
+  const { toast } = useToast();
+  const order = entry.order;
+  const owed = amountOwedAtDoor(order);
+  const claim = entry.availableActions.find((a) => a.action === 'claim');
+
+  const run = (): void => {
+    if (!claim) return;
+    action.mutate(
+      { orderId: order.id, action: claim.action },
+      {
+        onSuccess: (r) =>
+          toast({ title: 'Job accepted', description: `${r.order.order_no} is yours` }),
+        onError: (err) =>
+          toast({
+            title: err.status === 409 ? 'Another agent took it' : 'Could not accept',
+            description: err.message,
+            variant: 'destructive',
+          }),
+      },
+    );
+  };
+
+  return (
+    <div
+      className="rounded-xl border-2 border-primary bg-primary text-white p-4 ring-4 ring-primary/25"
+      data-testid="new-booking-hit"
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] font-bold">
+          <span className="relative flex w-2 h-2 shrink-0" aria-hidden>
+            <span className="absolute inline-flex w-full h-full rounded-full bg-white opacity-75 animate-ping" />
+            <span className="relative inline-flex w-2 h-2 rounded-full bg-white" />
+          </span>
+          Just booked · {shortAge(order.created_at)}
+        </span>
+        <span className="font-mono text-[11px] font-semibold text-white/70 shrink-0">
+          {order.order_no}
+        </span>
+      </div>
+
+      <p className="text-2xl font-extrabold tracking-tight leading-tight mt-2">
+        {order.origin_address?.full_name ?? 'Unknown sender'}
+      </p>
+
+      <div className="flex items-start gap-2 mt-2">
+        <MapPin className="w-4 h-4 shrink-0 mt-0.5 text-white/80" strokeWidth={2.5} />
+        <p className="text-sm font-medium text-white/90 leading-snug">{shortAddress(order)}</p>
+      </div>
+
+      <div className="flex items-center gap-4 mt-2">
+        <span className="flex items-center gap-1.5">
+          <Clock className="w-3.5 h-3.5 text-white/70" strokeWidth={2.5} />
+          <span className="text-xs font-semibold text-white/80">
+            {formatSlot(order.pickup_date, order.pickup_slot)}
+          </span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <Weight className="w-3.5 h-3.5 text-white/70" strokeWidth={2.5} />
+          <span className="text-xs font-semibold text-white/80 tabular-nums">
+            {order.booked_weight ? `${order.booked_weight} kg est.` : 'No weight'}
+          </span>
+        </span>
+      </div>
+
+      {owed !== null && (
+        <div className="flex items-baseline gap-2 mt-3 rounded-lg bg-[#F2A123] px-3 py-2">
+          <span className="text-[10px] uppercase tracking-[0.12em] font-bold text-[#1B2A41]">
+            Collect
+          </span>
+          <span className="text-lg font-extrabold text-[#1B2A41] tabular-nums leading-none">
+            ₹{owed}
+          </span>
+        </div>
+      )}
+
+      {claim && (
+        <button
+          type="button"
+          onClick={run}
+          disabled={action.isPending}
+          className="mt-3 w-full h-14 rounded-xl bg-white text-primary text-base font-bold flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-60"
+          data-testid="button-claim-hit"
+        >
+          {action.isPending ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <>
+              {claim.label}
+              <ArrowRight className="w-4 h-4" strokeWidth={2.5} />
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The newest unclaimed bookings, as a scannable list.
+ *
+ * Deliberately not the whole queue — that is what /agent/available is for.
+ * This answers "has anything come in since I last looked", which is a glance,
+ * not a browse.
+ */
+function RecentBookings({ entries }: { entries: PickupEntry[] }) {
+  if (entries.length === 0) {
+    return (
+      <div
+        className="rounded-xl border-2 border-dashed border-border bg-white px-4 py-3.5"
+        data-testid="recent-bookings-empty"
+      >
+        <p className="text-base font-extrabold text-foreground leading-tight">
+          Nothing new
+        </p>
+        <p className="text-xs font-medium text-muted-foreground mt-0.5">
+          New bookings show up here as customers make them
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-xl border-2 border-border bg-white divide-y divide-border overflow-hidden"
+      data-testid="recent-bookings"
+    >
+      {entries.map(({ order }) => {
+        const owed = amountOwedAtDoor(order);
+        return (
+          <Link
+            key={order.id}
+            href={`/agent/pickup/${order.id}`}
+            className="flex items-center gap-3 px-3.5 py-3 active:bg-muted/50 transition-colors"
+            data-testid={`recent-booking-${order.order_no}`}
+          >
+            <span className="min-w-0 flex-1">
+              <span className="flex items-baseline gap-2">
+                <span className="text-base font-extrabold text-foreground leading-tight truncate">
+                  {order.origin_address?.full_name ?? 'Unknown sender'}
+                </span>
+                <span className="text-[11px] font-bold text-muted-foreground tabular-nums shrink-0">
+                  {shortAge(order.created_at)}
+                </span>
+              </span>
+              <span className="block text-xs font-medium text-muted-foreground truncate mt-0.5">
+                {shortAddress(order)}
+              </span>
+              <span className="block text-[11px] font-semibold text-muted-foreground tabular-nums mt-0.5">
+                {formatSlot(order.pickup_date, order.pickup_slot)}
+              </span>
+            </span>
+
+            {owed !== null && (
+              <span className="rounded-md bg-[#F2A123] px-2 py-1 shrink-0">
+                <span className="text-xs font-extrabold text-[#1B2A41] tabular-nums">
+                  ₹{owed}
+                </span>
+              </span>
+            )}
+            <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" strokeWidth={2.5} />
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { data: available, isLoading: loadingAvailable } = useAvailablePickups();
   const { data: mine, isLoading: loadingMine } = useMyPickups();
@@ -432,6 +643,19 @@ export default function Dashboard() {
     (a, b) => (PROGRESS_RANK[b.order.status] ?? 0) - (PROGRESS_RANK[a.order.status] ?? 0),
   )[0];
 
+  const recent = newestFirst(available ?? []);
+
+  // The hit card is the newest booking only while it is genuinely new. After
+  // that it stops being an event and becomes queue, which the list below and
+  // the Available screen already cover.
+  const hit =
+    recent[0] && Date.now() - new Date(recent[0].order.created_at).getTime() < NEW_BOOKING_WINDOW_MS
+      ? recent[0]
+      : null;
+
+  // Never show the same job twice on one screen.
+  const recentList = (hit ? recent.slice(1) : recent).slice(0, 4);
+
   return (
     <AgentShell title="Today" subtitle={`${greeting()} — here's your shift`}>
       {isLoading ? (
@@ -443,27 +667,37 @@ export default function Dashboard() {
         <div className="space-y-6">
           {/* ── Act: NOW + QUEUE sit tight together ──────────────────────── */}
           <div className="space-y-3">
+            {/* A job that just came in outranks everything, including a job in
+                hand: it is the only thing on this screen that expires. Another
+                agent can take it while this one reads. */}
+            {hit && <NewBookingHit entry={hit} />}
+
             {active ? (
               <ActiveJob entry={active} />
             ) : (
-              <Link
-                href="/agent/available"
-                className="flex items-center gap-3 rounded-xl border-2 border-primary bg-primary p-4 text-white active:scale-[0.99] transition-transform"
-                data-testid="cta-find-work"
-              >
-                <Search className="w-6 h-6 shrink-0" strokeWidth={2.5} />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-lg font-extrabold leading-tight">
-                    {available?.length
-                      ? `${available.length} job${available.length === 1 ? '' : 's'} waiting`
-                      : 'No jobs waiting'}
+              // Suppressed under a hit card: that card already presents
+              // claimable work, and two full-width navy panels stacked would
+              // cancel out the emphasis the hit is supposed to carry.
+              !hit && (
+                <Link
+                  href="/agent/available"
+                  className="flex items-center gap-3 rounded-xl border-2 border-primary bg-primary p-4 text-white active:scale-[0.99] transition-transform"
+                  data-testid="cta-find-work"
+                >
+                  <Search className="w-6 h-6 shrink-0" strokeWidth={2.5} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-lg font-extrabold leading-tight">
+                      {available?.length
+                        ? `${available.length} job${available.length === 1 ? '' : 's'} waiting`
+                        : 'No jobs waiting'}
+                    </span>
+                    <span className="block text-sm font-medium text-white/75 mt-0.5">
+                      {available?.length ? 'Tap to pick one up' : 'New jobs appear as they book'}
+                    </span>
                   </span>
-                  <span className="block text-sm font-medium text-white/75 mt-0.5">
-                    {available?.length ? 'Tap to pick one up' : 'New jobs appear as they book'}
-                  </span>
-                </span>
-                <ArrowRight className="w-5 h-5 shrink-0" strokeWidth={2.5} />
-              </Link>
+                  <ArrowRight className="w-5 h-5 shrink-0" strokeWidth={2.5} />
+                </Link>
+              )
             )}
 
             <div className="grid grid-cols-2 gap-2.5">
@@ -484,6 +718,26 @@ export default function Dashboard() {
               />
             </div>
           </div>
+
+          {/* ── Reference: what has just come in ─────────────────────────── */}
+          <section>
+            <SectionLabel
+              action={
+                (available?.length ?? 0) > recentList.length ? (
+                  <Link
+                    href="/agent/available"
+                    className="text-[11px] font-bold text-primary shrink-0"
+                    data-testid="link-all-available"
+                  >
+                    See all {available?.length}
+                  </Link>
+                ) : undefined
+              }
+            >
+              Just booked
+            </SectionLabel>
+            <RecentBookings entries={recentList} />
+          </section>
 
           {/* ── Reference: today's shift ─────────────────────────────────── */}
           <section>
