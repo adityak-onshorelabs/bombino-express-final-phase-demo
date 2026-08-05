@@ -114,7 +114,7 @@ export default function Onboarding() {
       <div className="px-6 pb-8">
         <Button
           onClick={handleNext}
-          className="doc-btn-cta w-full h-14 text-base active:scale-[0.98]"
+          className="w-full h-14 text-base font-semibold bg-primary hover:bg-primary/90 rounded-2xl shadow-lg shadow-primary/20 active:scale-[0.98] transition-transform"
           data-testid="button-next"
         >
           {isLast ? 'Get Started' : 'Next'}

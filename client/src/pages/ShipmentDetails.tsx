@@ -192,7 +192,7 @@ function ShipmentHero({
     <section className="space-y-6 md:space-y-7">
       {/* SHIPMENT eyebrow + amber gradient line */}
       <div className="flex items-center gap-2">
-        <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-accent">Shipment</span>
+        <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#F2A123]">Shipment</span>
         <span className="h-px flex-1 bg-gradient-to-r from-[#F2A123]/30 to-transparent" aria-hidden />
       </div>
 
@@ -229,7 +229,7 @@ function ShipmentHero({
 
       {/* Route — bigger, visual lane with dot ··· plane ··· dot */}
       {(fromLine || toLine) && (
-        <div className="rounded-xl bg-gradient-to-br from-[#F8F9FA] to-white border border-border p-4 md:p-5">
+        <div className="rounded-xl bg-gradient-to-br from-[#F8F9FA] to-white border border-[#E2E8F0] p-4 md:p-5">
           <div className="flex items-center gap-3 md:gap-5">
             <div className="flex-1 min-w-0">
               <p className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
@@ -240,11 +240,11 @@ function ShipmentHero({
               </p>
             </div>
             <div className="flex items-center gap-1.5 shrink-0" aria-hidden>
-              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#F2A123]" />
               <span className="block h-px w-6 md:w-10 bg-gradient-to-r from-[#F2A123]/60 to-[#F2A123]/20" />
-              <Plane className="w-4 h-4 rotate-45 text-accent" />
+              <Plane className="w-4 h-4 rotate-45 text-[#F2A123]" />
               <span className="block h-px w-6 md:w-10 bg-gradient-to-r from-[#F2A123]/20 to-[#F2A123]/60" />
-              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#F2A123]" />
             </div>
             <div className="flex-1 min-w-0 text-right">
               <p className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
@@ -307,7 +307,7 @@ function ActionRow({
               onClick={() => onDownloadDocument(kind)}
               className={
                 i === 0
-                  ? 'doc-btn-cta inline-flex items-center gap-2 h-10 px-4 text-sm'
+                  ? 'inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[lab(34.0831_-9.57756_-27.7093)] text-white text-sm font-semibold hover:bg-[#2F4468] transition-colors'
                   : 'inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-border bg-white text-sm font-semibold text-foreground hover:border-foreground/30 hover:bg-muted/40 transition-colors'
               }
               data-testid={testId}
@@ -708,9 +708,9 @@ export default function ShipmentDetails() {
 
       {/* Details — asymmetric panels (4-field meta + 6-field parties) */}
       <section className="mt-10 md:mt-12 grid grid-cols-1 md:grid-cols-[5fr_7fr] gap-4 md:gap-5">
-        <div className="relative rounded-xl bg-white border border-border shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_12px_28px_-14px_lab(34.0831_-9.57756_-27.7093_/_0.16)] p-5 md:p-6">
+        <div className="relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_12px_28px_-14px_lab(34.0831_-9.57756_-27.7093_/_0.16)] p-5 md:p-6">
           <div className="flex items-center gap-2 mb-5">
-            <span className="block w-1 h-3.5 rounded-sm bg-accent" aria-hidden />
+            <span className="block w-1 h-3.5 rounded-sm bg-[#F2A123]" aria-hidden />
             <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
               Shipment
             </h2>
@@ -721,9 +721,9 @@ export default function ShipmentDetails() {
             ))}
           </dl>
         </div>
-        <div className="relative rounded-xl bg-white border border-border shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_12px_28px_-14px_lab(34.0831_-9.57756_-27.7093_/_0.16)] p-5 md:p-6">
+        <div className="relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_12px_28px_-14px_lab(34.0831_-9.57756_-27.7093_/_0.16)] p-5 md:p-6">
           <div className="flex items-center gap-2 mb-5">
-            <span className="block w-1 h-3.5 rounded-sm bg-accent" aria-hidden />
+            <span className="block w-1 h-3.5 rounded-sm bg-[#F2A123]" aria-hidden />
             <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
               Parties
             </h2>
@@ -750,7 +750,7 @@ export default function ShipmentDetails() {
               <button
                 type="button"
                 onClick={() => void handleShareLabel(pdfDataUrl)}
-                className="text-sm font-medium text-accent hover:underline"
+                className="text-sm font-medium text-[#F2A123] hover:underline"
               >
                 Share
               </button>

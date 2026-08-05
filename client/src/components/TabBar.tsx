@@ -64,7 +64,7 @@ export function TabBar({
                 <Icon className={cn('w-5 h-5 transition-all', isActive && 'stroke-[2.5]')} />
                 {typeof badge === 'number' && badge > 0 && (
                   <span
-                    className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-accent text-[10px] font-bold text-[#1B2A41] grid place-items-center tabular-nums"
+                    className="absolute -top-1.5 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-[#F2A123] text-[10px] font-bold text-[#1B2A41] grid place-items-center tabular-nums"
                     data-testid={`nav-badge-${label.toLowerCase().replace(/\s+/g, '-')}`}
                   >
                     {badge > 99 ? '99+' : badge}

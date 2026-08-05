@@ -89,7 +89,7 @@ export default function Notifications() {
 
   return (
     <div className="min-h-[100dvh] bg-background" data-testid="screen-notifications">
-      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-border shadow-[0_1px_3px_oklch(17%_0.048_248_/_0.06)] safe-top md:hidden">
+      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-[#E2E8F0] shadow-[0_1px_3px_oklch(17%_0.048_248_/_0.06)] safe-top md:hidden">
         <div className="flex items-center h-14 px-4 max-w-md mx-auto">
           <button
             onClick={() => window.history.back()}
@@ -105,16 +105,16 @@ export default function Notifications() {
       <main className="max-w-4xl mx-auto w-full px-4 md:px-8 py-6">
         {!isLoggedIn ? (
           <div className="text-center py-12 max-w-sm mx-auto">
-            <div className="w-16 h-16 bg-primary/8 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Bell className="w-8 h-8 text-foreground" />
+            <div className="w-16 h-16 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Bell className="w-8 h-8 text-[lab(34.0831_-9.57756_-27.7093)]" />
             </div>
-            <h2 className="font-semibold text-foreground mb-2">No notifications yet</h2>
+            <h2 className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)] mb-2">No notifications yet</h2>
             <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
               Login to receive shipment updates and alerts.
             </p>
             <Button
               onClick={() => setLocation('/login')}
-              className="doc-btn-cta h-11 px-6"
+              className="bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-11 px-6 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
               data-testid="button-login-notifications"
             >
               <LogIn className="w-4 h-4 mr-2" />
@@ -125,10 +125,10 @@ export default function Notifications() {
           <div className="text-center py-8 text-sm text-muted-foreground">Loading…</div>
         ) : items.length === 0 ? (
           <div className="text-center py-12 max-w-sm mx-auto">
-            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto mb-4">
+            <div className="w-16 h-16 bg-[#F3F4F6] rounded-full flex items-center justify-center mx-auto mb-4">
               <Bell className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h2 className="font-semibold text-foreground mb-2">No notifications yet</h2>
+            <h2 className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)] mb-2">No notifications yet</h2>
             <p className="text-sm text-muted-foreground leading-relaxed">
               You'll see updates here when you have shipments.
             </p>
@@ -151,8 +151,8 @@ export default function Notifications() {
                   className={cn(
                     'w-full text-left flex items-start gap-3 p-4 rounded-xl border transition-all',
                     unread
-                      ? 'bg-primary/[0.04] border-border border-l-4 border-l-[lab(34.0831_-9.57756_-27.7093)] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.08),_0_1px_3px_oklch(17%_0.048_248_/_0.05)]'
-                      : 'bg-white border-border shadow-[0_1px_3px_oklch(17%_0.048_248_/_0.04)] hover:shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.08)]'
+                      ? 'bg-[lab(34.0831_-9.57756_-27.7093)]/[0.04] border-[#E2E8F0] border-l-4 border-l-[lab(34.0831_-9.57756_-27.7093)] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.08),_0_1px_3px_oklch(17%_0.048_248_/_0.05)]'
+                      : 'bg-white border-[#E2E8F0] shadow-[0_1px_3px_oklch(17%_0.048_248_/_0.04)] hover:shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.08)]'
                   )}
                   data-testid={`notification-item-${notif.id}`}
                 >
@@ -162,8 +162,8 @@ export default function Notifications() {
                       isWarn && !isShipmentCreated
                         ? 'bg-amber-50 text-amber-600'
                         : isShipmentCreated
-                          ? 'bg-primary/8 text-foreground'
-                          : 'bg-muted text-secondary'
+                          ? 'bg-[lab(34.0831_-9.57756_-27.7093)]/8 text-[lab(34.0831_-9.57756_-27.7093)]'
+                          : 'bg-[#F3F4F6] text-[#2F4468]'
                     )}
                   >
                     {isWarn && !isShipmentCreated ? (
@@ -176,12 +176,12 @@ export default function Notifications() {
                     <div className="flex items-start justify-between gap-2">
                       <p className={cn(
                         'font-semibold text-sm leading-snug',
-                        unread ? 'text-foreground' : 'text-foreground'
+                        unread ? 'text-[lab(34.0831_-9.57756_-27.7093)]' : 'text-foreground'
                       )}>
                         {notif.title ?? ''}
                       </p>
                       {unread && (
-                        <span className="w-2 h-2 bg-accent rounded-full flex-shrink-0 mt-1.5" />
+                        <span className="w-2 h-2 bg-[#F2A123] rounded-full flex-shrink-0 mt-1.5" />
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">
@@ -192,7 +192,7 @@ export default function Notifications() {
                         {formatTime(notif.created_at)}
                       </p>
                       {data.awb && (
-                        <span className="text-[10px] font-mono font-semibold text-secondary bg-[#2F4468]/8 px-2 py-0.5 rounded-full">
+                        <span className="text-[10px] font-mono font-semibold text-[#2F4468] bg-[#2F4468]/8 px-2 py-0.5 rounded-full">
                           {data.awb}
                         </span>
                       )}
