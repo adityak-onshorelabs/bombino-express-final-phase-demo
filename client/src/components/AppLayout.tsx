@@ -24,7 +24,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         className={`app-content-desktop flex-1 flex flex-col ${
           isFullscreenPage
             ? 'overflow-hidden fullscreen-page bg-[#080808]'
-            : 'overflow-y-auto bg-[#F8F9FA]'
+            : 'overflow-y-auto bg-background'
         }`}
       >
         <DesktopTopBar />

@@ -47,14 +47,14 @@ function NavItem({
       className={cn(
         'flex items-center gap-3 px-3 py-2.5 rounded-xl mx-2 my-0.5 transition-all duration-150 cursor-pointer select-none group',
         active
-          ? 'bg-[#F2A123]/[0.12] text-white'
+          ? 'bg-accent/[0.12] text-white'
           : 'text-white/50 hover:bg-white/[0.06] hover:text-white/80'
       )}
     >
       <Icon
         className={cn(
           'w-[18px] h-[18px] flex-shrink-0 transition-colors',
-          active ? 'text-[#F2A123]' : 'text-white/40 group-hover:text-white/70'
+          active ? 'text-accent' : 'text-white/40 group-hover:text-white/70'
         )}
       />
       <span className={cn('text-sm leading-none', active ? 'font-semibold' : 'font-medium')}>
@@ -153,11 +153,11 @@ export function DesktopSidebar() {
         <div
           className={cn(
             'w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center',
-            isLoggedIn ? 'bg-[#F2A123]/20' : 'bg-white/[0.08]'
+            isLoggedIn ? 'bg-accent/20' : 'bg-white/[0.08]'
           )}
         >
           {isLoggedIn ? (
-            <span className="text-[#F2A123] text-xs font-bold">
+            <span className="text-accent text-xs font-bold">
               {initials || 'U'}
             </span>
           ) : (
@@ -222,7 +222,7 @@ export function DesktopSidebar() {
         ) : (
           <Link
             href="/login"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-[#F2A123]/70 hover:bg-[#F2A123]/[0.08] hover:text-[#F2A123] transition-all duration-150"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-accent/70 hover:bg-accent/[0.08] hover:text-accent transition-all duration-150"
           >
             <LogIn className="w-[18px] h-[18px]" />
             <span className="text-sm font-medium">Sign in</span>

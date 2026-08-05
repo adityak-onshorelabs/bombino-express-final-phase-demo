@@ -241,13 +241,13 @@ export function KycOnFileCard({
   return (
     <div
       className={cn(
-        'rounded-xl border border-green-200 bg-green-50/50 p-4 shadow-sm space-y-3',
+        'rounded-md border border-border bg-muted/50 p-4 space-y-3',
         className,
       )}
       data-testid="kyc-on-file-badge"
     >
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
+        <div className="w-9 h-9 rounded-md bg-accent/10 flex items-center justify-center flex-shrink-0">
           <ShieldCheck className="w-5 h-5 text-green-700" />
         </div>
         <div className="min-w-0 flex-1">

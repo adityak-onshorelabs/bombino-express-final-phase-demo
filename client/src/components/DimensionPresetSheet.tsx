@@ -159,7 +159,7 @@ export function DimensionPresetSheet({
                 }}
                 className={cn(
                   'w-full flex items-center',
-                  'gap-3 p-3 rounded-xl',
+                  'gap-3 p-3 rounded-md',
                   'border text-left',
                   'transition-colors',
                   isSelected ? 'border-[#14567C] bg-blue-50' : 'border-border hover:border-[#14567C]/40'
@@ -196,7 +196,7 @@ export function DimensionPresetSheet({
               onSelectPreset(null, '', '', '');
               onClose();
             }}
-            className="w-full p-3 rounded-xl border border-dashed border-border text-sm text-muted-foreground hover:border-[#14567C]/40 transition-colors text-center"
+            className="w-full p-3 rounded-md border border-dashed border-border text-sm text-muted-foreground hover:border-[#14567C]/40 transition-colors text-center"
           >
             Enter custom dimensions manually
           </button>

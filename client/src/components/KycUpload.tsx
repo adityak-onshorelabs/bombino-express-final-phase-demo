@@ -337,7 +337,7 @@ export function KycUpload({
     selectedDocType === 'Aadhaar Number' ? 14 : docConfig.maxLength;
 
   return (
-    <div className="bg-card rounded-xl border border-border p-4 shadow-sm space-y-4">
+    <div className="doc-card space-y-4">
       <div className="flex items-center justify-between">
         <Label className="text-sm font-semibold">KYC Details</Label>
         <span className="text-[10px] text-muted-foreground">Required for Indian customs</span>
@@ -374,7 +374,7 @@ export function KycUpload({
           maxLength={inputMaxLength}
           inputMode={selectedDocType === 'Aadhaar Number' ? 'numeric' : 'text'}
           className={cn(
-            'h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl',
+            'h-11 mt-1 text-sm bg-muted/30 border-border rounded-md',
             selectedDocType === 'Aadhaar Number' && 'font-mono tracking-widest',
             showDocNoError && 'border-2 border-primary',
           )}
@@ -421,7 +421,7 @@ export function KycUpload({
           onDragOver={handleDragOver}
           onDrop={handleDrop}
           className={cn(
-            'border-2 border-dashed rounded-xl p-5 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors min-h-[96px] select-none',
+            'border-2 border-dashed rounded-md p-5 flex flex-col items-center justify-center gap-2 cursor-pointer transition-colors min-h-[96px] select-none',
             uploadStatus === 'idle'      && 'border-border hover:border-primary/50 hover:bg-primary/5',
             uploadStatus === 'pending'   && 'border-sky-300 bg-sky-50/50 hover:border-primary/50',
             uploadStatus === 'uploading' && 'border-amber-300 bg-amber-50 pointer-events-none',

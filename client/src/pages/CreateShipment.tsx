@@ -21,7 +21,9 @@ import {
 import { format } from 'date-fns';
 import { useLocation } from 'wouter';
 import { useMutation } from '@tanstack/react-query';
+import { SignedOutState } from '@/components/StateBlock';
 import { BottomNav } from '@/components/BottomNav';
+import { DocStepper } from '@/components/doc/DocStepper';
 import { CorridorRouteInfo } from '@/components/CorridorRouteInfo';
 import { AddressPicker, type SavedAddress } from '@/components/AddressPicker';
 import { KycUpload, type KycUploadResult } from '@/components/KycUpload';
@@ -287,11 +289,23 @@ function itemizedChargesEmpty(service: ITDRateRow): boolean {
   return !d || Object.keys(d).length === 0;
 }
 
+/**
+ * Five stages, not four.
+ *
+ * Step 4 previously carried service selection, live rate fetching, the
+ * commercial invoice, the CSB-V customs block and the submit button on one
+ * screen. Splitting service off is not cosmetic: product type is chosen there
+ * and it decides whether the CSB-V fields apply at all, so the customer was
+ * answering customs questions above the control that governs them.
+ *
+ * Nothing was removed. The same fields are collected in the same order.
+ */
 const steps = [
   { id: 1, title: 'Sender', icon: User },
   { id: 2, title: 'Receiver', icon: MapPin },
   { id: 3, title: 'Package', icon: Package },
-  { id: 4, title: 'Invoice', icon: FileText },
+  { id: 4, title: 'Service', icon: Zap },
+  { id: 5, title: 'Invoice', icon: FileText },
 ];
 
 interface CountryComboboxProps {
@@ -312,7 +326,7 @@ function CountryCombobox({ value, onValueChange }: CountryComboboxProps) {
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-full h-11 justify-between font-normal text-sm bg-muted/30 border-border rounded-xl px-3"
+          className="doc-field w-full justify-between font-medium text-sm px-3 hover:bg-muted/40"
         >
           <span className="truncate text-left">{displayName}</span>
           <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -355,6 +369,29 @@ function getDispatchType(serviceCode: string): string | undefined {
 export default function CreateShipment() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user, logout } = useAppStore();
+
+  // The customer's own number is on their profile, not in the session user.
+  // Without this they retyped a number the account already knows.
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/user/profile', { credentials: 'include' });
+        if (!res.ok) return;
+        const profile = (await res.json()) as { phone?: string | null };
+        const digits = String(profile.phone ?? '').replace(/\D/g, '').slice(-10);
+        if (!cancelled && digits.length === 10) {
+          setSenderPhone((prev) => prev || digits);
+        }
+      } catch {
+        // Prefill is a convenience; the field stays editable either way.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn]);
   const [currentStep, setCurrentStep] = useState(1);
   const [newOrderNo, setNewOrderNo] = useState('');
   const [submitError, setSubmitError] = useState('');
@@ -371,6 +408,12 @@ export default function CreateShipment() {
   const [senderName, setSenderName] = useState(isLoggedIn ? user?.fullName ?? '' : '');
   const [senderEmail, setSenderEmail] = useState(isLoggedIn ? user?.email ?? '' : '');
   const [senderPhone, setSenderPhone] = useState('');
+  /**
+   * Sender is the customer themselves on almost every booking, so the form
+   * starts collapsed once we have enough to identify them. Expanded when
+   * something is missing, or when they choose to edit.
+   */
+  const [senderExpanded, setSenderExpanded] = useState(!isLoggedIn);
   const [senderCompany, setSenderCompany] = useState('');
   const [senderCity, setSenderCity] = useState('');
   const [senderState, setSenderState] = useState('');
@@ -529,7 +572,7 @@ export default function CreateShipment() {
 
   const fieldBorderClass = (key: string) =>
     cn(
-      'h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl',
+      'doc-field mt-1 text-sm',
       fieldErrors[key] && 'border-2 border-primary'
     );
 
@@ -660,33 +703,33 @@ export default function CreateShipment() {
   if (!isLoggedIn) {
     return (
       <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create-login-required">
-        <header className="sticky top-0 z-50 bg-white border-b border-[#E2E8F0] safe-top md:hidden">
-          <div className="flex items-center h-14 px-4 max-w-md mx-auto">
+        <header className="sticky top-0 z-20 bg-card border-b border-border safe-top">
+          <div className="flex items-center h-14 px-5 max-w-md mx-auto">
             <button
               onClick={() => setLocation('/home')}
-              className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
+              className="tap-target focus-ring -ml-2 hover:bg-muted transition-colors"
+              style={{ borderRadius: 'var(--doc-radius)' }}
+              aria-label="Go back"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1 className="ml-2 font-semibold text-sm">Ship</h1>
+            <h1
+              className="doc-mono ml-1 text-xs font-semibold uppercase text-foreground"
+              style={{ letterSpacing: '0.14em' }}
+            >
+              Ship
+            </h1>
           </div>
         </header>
 
-        <main className="flex flex-col items-center justify-center min-h-[60vh] max-w-md mx-auto px-4 text-center">
-          <div className="w-16 h-16 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Send className="w-8 h-8 text-[lab(34.0831_-9.57756_-27.7093)]" />
-          </div>
-          <h2 className="text-lg font-semibold text-[lab(34.0831_-9.57756_-27.7093)] mb-2">Please login to continue</h2>
-          <p className="text-sm text-muted-foreground mb-6">
-            Sign in to create and manage your shipments
-          </p>
-          <Button
-            onClick={() => setLocation('/login?redirect=/create')}
-            className="bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-12 px-8 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
-            data-testid="button-login-to-create"
-          >
-            Login
-          </Button>
+        <main className="max-w-md mx-auto">
+          <SignedOutState
+            icon={Send}
+            title="Sign in to book a shipment"
+            description="You'll need an account to create and track shipments."
+            redirectTo="/create"
+            testId="state-create-signed-out"
+          />
         </main>
 
         <BottomNav />
@@ -721,7 +764,7 @@ export default function CreateShipment() {
               : 'Drop your parcel off whenever suits you.'}
           </p>
 
-          <div className="bg-card rounded-xl border border-border p-4 mb-6 text-left shadow-sm w-full">
+          <div className="doc-card mb-6 text-left w-full">
             <button
               type="button"
               onClick={copyOrderNo}
@@ -766,7 +809,7 @@ export default function CreateShipment() {
           <div className="space-y-2">
             <Button
               onClick={() => setLocation('/orders')}
-              className="w-full h-12 bg-primary hover:bg-primary/90 text-sm rounded-xl shadow-md flex items-center justify-center gap-2"
+              className="doc-btn-cta w-full h-12 text-sm flex items-center justify-center gap-2"
               data-testid="button-view-orders"
             >
               <FileText className="w-4 h-4" />
@@ -775,7 +818,7 @@ export default function CreateShipment() {
             <Button
               variant="outline"
               onClick={() => setLocation('/home')}
-              className="w-full h-12 text-sm rounded-xl border-border"
+              className="doc-btn-quiet w-full h-12 text-sm"
               data-testid="button-go-home"
             >
               Go Home
@@ -787,6 +830,19 @@ export default function CreateShipment() {
       </div>
     );
   }
+
+  /**
+   * Mirrors the step-1 sender validation below. Kept adjacent to it on
+   * purpose: if one gains a required field and the other does not, the summary
+   * would claim the step is done while Continue refuses to advance.
+   */
+  const senderComplete =
+    Boolean(senderName.trim()) &&
+    /^\d{10}$/.test(senderPhone.trim()) &&
+    Boolean(senderAddress.trim()) &&
+    Boolean(senderCity.trim()) &&
+    Boolean(senderState.trim()) &&
+    Boolean(senderZip.trim());
 
   const handleNext = () => {
     setStepError('');
@@ -836,7 +892,7 @@ export default function CreateShipment() {
       const trimmedContent = shipmentContent.trim();
       setHsCode(trimmedContent ? (getHsnCode(trimmedContent) || '') : '');
     }
-    if (currentStep < 4) setCurrentStep(currentStep + 1);
+    if (currentStep < 5) setCurrentStep(currentStep + 1);
   };
 
   const handleBack = () => {
@@ -1088,122 +1144,71 @@ export default function CreateShipment() {
 
   return (
     <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create">
-      <header className="sticky top-0 z-50 bg-white border-b border-[#E2E8F0] safe-top md:hidden">
-        <div className="flex items-center h-14 px-4 w-full max-w-6xl mx-auto md:px-6">
+      {/* Same header construction as every other screen: mono uppercase title,
+          44px back target, hairline rule. Was sentence-case text at 14px with
+          a 36px tap area. */}
+      <header className="sticky top-0 z-20 bg-card border-b border-border safe-top">
+        <div className="flex items-center h-14 px-5 w-full max-w-6xl mx-auto md:px-6">
           <button
             onClick={handleBack}
-            className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
+            className="tap-target focus-ring -ml-2 hover:bg-muted transition-colors"
+            style={{ borderRadius: 'var(--doc-radius)' }}
+            aria-label="Go back"
             data-testid="button-back-create"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <h1 className="ml-2 font-semibold text-sm">Create Shipment</h1>
+          <h1
+            className="doc-mono ml-1 text-xs font-semibold uppercase text-foreground"
+            style={{ letterSpacing: '0.14em' }}
+          >
+            Create shipment
+          </h1>
         </div>
       </header>
 
-      {/* Desktop title bar — Booking eyebrow + H1 + segmented stepper */}
-      <div className="hidden md:block bg-background border-b border-[#E2E8F0]/60">
-        <div className="w-full max-w-6xl mx-auto px-4 md:px-6 pt-6 pb-5">
-          <div className="flex items-start justify-between gap-6 flex-wrap">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#F2A123]">Booking</span>
-                <span className="h-px w-24 bg-gradient-to-r from-[#F2A123]/30 to-transparent" aria-hidden />
-              </div>
-              <h1 className="text-[26px] font-bold tracking-[-0.02em] text-[lab(34.0831_-9.57756_-27.7093)] leading-tight">Create shipment</h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                Step <span className="text-[lab(34.0831_-9.57756_-27.7093)] font-semibold tabular-nums">{currentStep < 4 ? currentStep : steps.length}</span> of <span className="tabular-nums">{steps.length}</span> · {steps[Math.min(currentStep, steps.length) - 1]?.title}
-              </p>
-            </div>
-
-            {/* Desktop segmented stepper */}
-            <div className="flex items-center gap-0 pt-1 shrink-0">
-              {steps.map((step, index) => {
-                const isActive = currentStep === step.id;
-                const isCompleted = currentStep > step.id;
-                return (
-                  <div key={step.id} className="flex items-center">
-                    <div className="flex items-center gap-2.5">
-                      <div
-                        className={cn(
-                          'w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-bold tabular-nums transition-all shrink-0',
-                          isActive && 'bg-[#F2A123] text-[lab(34.0831_-9.57756_-27.7093)] shadow-[0_0_0_3px_rgba(242,161,35,0.18)]',
-                          isCompleted && 'bg-[lab(34.0831_-9.57756_-27.7093)] text-white',
-                          !isActive && !isCompleted && 'bg-[#F3F4F6] text-muted-foreground border border-[#E2E8F0]'
-                        )}
-                      >
-                        {isCompleted ? <Check className="w-3.5 h-3.5" strokeWidth={2.5} /> : step.id}
-                      </div>
-                      <span
-                        className={cn(
-                          'text-[13px] font-medium whitespace-nowrap transition-colors',
-                          isActive ? 'text-[lab(34.0831_-9.57756_-27.7093)] font-semibold' : isCompleted ? 'text-[lab(34.0831_-9.57756_-27.7093)]/70' : 'text-muted-foreground'
-                        )}
-                      >
-                        {step.title}
-                      </span>
-                    </div>
-                    {index < steps.length - 1 && (
-                      <div
-                        className={cn(
-                          'h-px w-10 mx-3 transition-colors',
-                          isCompleted ? 'bg-[lab(34.0831_-9.57756_-27.7093)]/40' : 'bg-[#E2E8F0]'
-                        )}
-                        aria-hidden
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="px-4 py-3 bg-white border-b border-[#E2E8F0] md:hidden">
-        <div className="flex items-center w-full max-w-6xl mx-auto">
-          {steps.map((step, index) => {
-            const Icon = step.icon;
-            const isActive = currentStep === step.id;
-            const isCompleted = currentStep > step.id;
-
-            return (
-              <div key={step.id} className="flex items-center flex-1 last:flex-none">
-                <div className="flex flex-col items-center">
-                  <div
-                    className={cn(
-                      'w-10 h-10 rounded-xl flex items-center justify-center transition-all',
-                      isActive && 'bg-[#F2A123] text-[lab(34.0831_-9.57756_-27.7093)]',
-                      isCompleted && 'bg-green-500 text-white',
-                      !isActive && !isCompleted && 'bg-muted text-muted-foreground'
-                    )}
-                  >
-                    {isCompleted ? <Check className="w-4 h-4" /> : <Icon className="w-4 h-4" />}
-                  </div>
-                  <span className={cn(
-                    'text-[10px] mt-1 whitespace-nowrap',
-                    isActive ? 'text-[lab(34.0831_-9.57756_-27.7093)] font-semibold' : 'text-muted-foreground'
-                  )}>
-                    {step.title}
-                  </span>
-                </div>
-                {index < steps.length - 1 && (
-                  <div className={cn(
-                    'flex-1 h-0.5 mx-2',
-                    currentStep > step.id ? 'bg-green-500' : 'bg-[#E2E8F0]'
-                  )} />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <DocStepper
+        steps={steps}
+        current={currentStep}
+        onStepSelect={(id) => {
+          setCurrentStep(id);
+          setStepError('');
+        }}
+      />
 
       <main className="max-w-6xl mx-auto w-full px-4 md:px-6 py-4 md:py-6 lg:grid lg:grid-cols-12 lg:gap-8 lg:items-start">
         <div className="lg:col-span-7 min-w-0">
         {currentStep === 1 && (
           <div className="space-y-4 animate-fade-in">
             <CorridorRouteInfo originOnly />
+
+            {senderComplete && !senderExpanded ? (
+              /* The sender is the account holder on nearly every booking, and
+                 the details are already on file. Showing eight prefilled
+                 inputs asked them to re-read what they had not changed; this
+                 states it once and gets out of the way. */
+              <div className="doc-card" data-testid="sender-summary">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="doc-heading">Sending from</p>
+                  <button
+                    type="button"
+                    onClick={() => setSenderExpanded(true)}
+                    className="doc-link focus-ring shrink-0"
+                    data-testid="button-edit-sender"
+                  >
+                    Edit
+                  </button>
+                </div>
+                <p className="text-sm font-semibold text-foreground mt-2">{senderName}</p>
+                <p className="doc-mono text-xs text-muted-foreground mt-0.5">+91 {senderPhone}</p>
+                <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+                  {[senderAddress, senderCity, senderState, senderZip]
+                    .filter(Boolean)
+                    .join(', ')}
+                </p>
+              </div>
+            ) : (
+              <>
             <AddressPicker
               type="sender"
               isLoggedIn={isLoggedIn}
@@ -1219,9 +1224,9 @@ export default function CreateShipment() {
               }}
             />
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="doc-card p-4 space-y-3 ">
               <div>
-                <Label className="text-xs text-muted-foreground">Full Name <span className="text-red-400">*</span></Label>
+                <Label className="doc-label">Full Name <span className="text-destructive">*</span></Label>
                 <Input
                   value={senderName}
                   onChange={(e) => {
@@ -1233,34 +1238,34 @@ export default function CreateShipment() {
                   data-testid="input-sender-name"
                 />
                 {fieldErrors.senderName && (
-                  <p className="text-xs text-red-600 mt-1">This field is required</p>
+                  <p className="text-xs text-destructive mt-1">This field is required</p>
                 )}
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Company Name <span className="text-muted-foreground/60">(optional)</span></Label>
+                <Label className="doc-label">Company Name <span className="text-muted-foreground/60">(optional)</span></Label>
                 <Input
                   value={senderCompany}
                   onChange={(e) => setSenderCompany(e.target.value)}
                   placeholder="Company name"
-                  className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl"
+                  className="doc-field mt-1 text-sm"
                   data-testid="input-sender-company"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-xs text-muted-foreground">Email</Label>
+                  <Label className="doc-label">Email</Label>
                   <Input
                     type="email"
                     value={senderEmail}
                     onChange={(e) => setSenderEmail(e.target.value)}
-                    className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl"
+                    className="doc-field mt-1 text-sm"
                     data-testid="input-sender-email"
                   />
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">
+                  <Label className="doc-label">
                     Phone
-                    <span className="text-red-400">*</span>
+                    <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     value={senderPhone}
@@ -1274,12 +1279,12 @@ export default function CreateShipment() {
                     data-testid="input-sender-phone"
                   />
                   {fieldErrors.senderPhone && (
-                    <p className="text-xs text-red-600 mt-1">Must be exactly 10 digits</p>
+                    <p className="text-xs text-destructive mt-1">Must be exactly 10 digits</p>
                   )}
                 </div>
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Address</Label>
+                <Label className="doc-label">Address</Label>
                 <Input
                   value={senderAddress}
                   onChange={(e) => {
@@ -1291,12 +1296,12 @@ export default function CreateShipment() {
                   data-testid="input-sender-address"
                 />
                 {fieldErrors.senderAddress && (
-                  <p className="text-xs text-red-600 mt-1">This field is required</p>
+                  <p className="text-xs text-destructive mt-1">This field is required</p>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <Label className="text-xs text-muted-foreground">Pincode</Label>
+                  <Label className="doc-label">Pincode</Label>
                   <Input
                     value={senderZip}
                     onChange={(e) => {
@@ -1321,11 +1326,11 @@ export default function CreateShipment() {
                     </p>
                   )}
                   {fieldErrors.senderZip && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-destructive mt-1">This field is required</p>
                   )}
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">City</Label>
+                  <Label className="doc-label">City</Label>
                   <Input
                     value={senderCity}
                     onChange={(e) => {
@@ -1336,11 +1341,11 @@ export default function CreateShipment() {
                     data-testid="input-sender-city"
                   />
                   {fieldErrors.senderCity && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-destructive mt-1">This field is required</p>
                   )}
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">State</Label>
+                  <Label className="doc-label">State</Label>
                   <Input
                     value={senderState}
                     onChange={(e) => {
@@ -1351,17 +1356,19 @@ export default function CreateShipment() {
                     data-testid="input-sender-state"
                   />
                   {fieldErrors.senderState && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-destructive mt-1">This field is required</p>
                   )}
                 </div>
               </div>
             </div>
+              </>
+            )}
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
-              <Label className="text-sm font-semibold mb-3 block">Pickup or Drop-off?</Label>
+            <div className="doc-card">
+              <Label className="doc-heading mb-3 block">Pickup or Drop-off?</Label>
 
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">How should we get your parcel?</span>
+                <span className="doc-label">How should we get your parcel?</span>
                 <div className="flex gap-3">
                   {(
                     [
@@ -1400,9 +1407,9 @@ export default function CreateShipment() {
               {pickupRequest === '1' && (
                 <div className="mt-3 space-y-3 pt-3 border-t border-border">
                   <div>
-                    <Label className="text-xs text-muted-foreground">
+                    <Label className="doc-label">
                       Pickup date
-                      <span className="text-red-400">*</span>
+                      <span className="text-destructive">*</span>
                     </Label>
                     <button
                       type="button"
@@ -1421,13 +1428,13 @@ export default function CreateShipment() {
                       <CalendarIcon className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden />
                     </button>
                     {fieldErrors.pickupDate && (
-                      <p className="text-xs text-red-600 mt-1">This field is required</p>
+                      <p className="text-xs text-destructive mt-1">This field is required</p>
                     )}
                   </div>
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1.5 block">
                       Pickup window
-                      <span className="text-red-400">*</span>
+                      <span className="text-destructive">*</span>
                     </Label>
                     <div className="grid grid-cols-2 gap-2">
                       {slotOffers.map(({ value, label, available, reason }) => (
@@ -1464,13 +1471,13 @@ export default function CreateShipment() {
                       <p className="text-xs text-muted-foreground mt-1">Checking availability…</p>
                     )}
                     {!slotsLoading && slotOffers.every((s) => !s.available) && (
-                      <p className="text-xs text-red-600 mt-1" data-testid="text-no-slots">
+                      <p className="text-xs text-destructive mt-1" data-testid="text-no-slots">
                         No pickup windows left on this date. Pick another date, or choose
                         drop-off.
                       </p>
                     )}
                     {fieldErrors.pickupSlot && (
-                      <p className="text-xs text-red-600 mt-1">Please choose a pickup window</p>
+                      <p className="text-xs text-destructive mt-1">Please choose a pickup window</p>
                     )}
                   </div>
                 </div>
@@ -1514,15 +1521,15 @@ export default function CreateShipment() {
             )}
 
             {stepError && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
-                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{stepError}</p>
+              <div className="flex items-start gap-2 bg-destructive/5 border border-destructive/30 p-3">
+                <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-destructive">{stepError}</p>
               </div>
             )}
 
             <Button
               onClick={handleNext}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+              className="w-full h-12 doc-btn-cta"
               data-testid="button-next-step"
             >
               Continue
@@ -1539,8 +1546,8 @@ export default function CreateShipment() {
                 ITD_COUNTRY_MAP[destinationCountry]?.name ?? destinationCountry
               )}
             />
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-2">
-              <Label className="text-xs text-muted-foreground">Destination Country</Label>
+            <div className="doc-card space-y-2">
+              <Label className="doc-label">Destination Country</Label>
               <CountryCombobox
                 value={destinationCountry}
                 onValueChange={(code) => {
@@ -1577,9 +1584,9 @@ export default function CreateShipment() {
               }}
             />
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="doc-card p-4 space-y-3 ">
               <div>
-                <Label className="text-xs text-muted-foreground">Receiver Name</Label>
+                <Label className="doc-label">Receiver Name</Label>
                 <Input
                   value={receiverName}
                   onChange={(e) => {
@@ -1590,27 +1597,27 @@ export default function CreateShipment() {
                   data-testid="input-receiver-name"
                 />
                 {fieldErrors.receiverName && (
-                  <p className="text-xs text-red-600 mt-1">This field is required</p>
+                  <p className="text-xs text-destructive mt-1">This field is required</p>
                 )}
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Company Name <span className="text-muted-foreground/60">(optional)</span></Label>
+                <Label className="doc-label">Company Name <span className="text-muted-foreground/60">(optional)</span></Label>
                 <Input
                   value={receiverCompany}
                   onChange={(e) => setReceiverCompany(e.target.value)}
                   placeholder="Company name"
-                  className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl"
+                  className="doc-field mt-1 text-sm"
                   data-testid="input-receiver-company"
                 />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">
+                <Label className="doc-label">
                   Phone
-                  <span className="text-red-400">*</span>
+                  <span className="text-destructive">*</span>
                 </Label>
                 <div className="flex gap-2 mt-1">
                   {ITD_COUNTRY_MAP[destinationCountry]?.dialCode ? (
-                    <div className="h-11 px-3 flex items-center bg-muted/50 border border-border rounded-xl text-sm text-muted-foreground shrink-0 font-medium">
+                    <div className="doc-field px-3 flex items-center text-sm text-muted-foreground shrink-0 font-medium">
                       {ITD_COUNTRY_MAP[destinationCountry].dialCode}
                     </div>
                   ) : null}
@@ -1630,23 +1637,23 @@ export default function CreateShipment() {
                   />
                 </div>
                 {fieldErrors.receiverPhone && (
-                  <p className="text-xs text-red-600 mt-1">Must be 6–15 digits</p>
+                  <p className="text-xs text-destructive mt-1">Must be 6–15 digits</p>
                 )}
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">
+                <Label className="doc-label">
                   Email <span className="text-muted-foreground/60 ml-1">(optional)</span>
                 </Label>
                 <Input
                   type="email"
                   value={receiverEmail}
                   onChange={(e) => setReceiverEmail(e.target.value)}
-                  className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl"
+                  className="doc-field mt-1 text-sm"
                   data-testid="input-receiver-email"
                 />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Address</Label>
+                <Label className="doc-label">Address</Label>
                 <Input
                   value={receiverAddress}
                   onChange={(e) => {
@@ -1657,12 +1664,12 @@ export default function CreateShipment() {
                   data-testid="input-receiver-address"
                 />
                 {fieldErrors.receiverAddress && (
-                  <p className="text-xs text-red-600 mt-1">This field is required</p>
+                  <p className="text-xs text-destructive mt-1">This field is required</p>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <Label className="text-xs text-muted-foreground">Postal Code</Label>
+                  <Label className="doc-label">Postal Code</Label>
                   <Input
                     value={receiverZip}
                     onChange={(e) => {
@@ -1686,11 +1693,11 @@ export default function CreateShipment() {
                     </p>
                   )}
                   {fieldErrors.receiverZip && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-destructive mt-1">This field is required</p>
                   )}
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">City</Label>
+                  <Label className="doc-label">City</Label>
                   <Input
                     value={receiverCity}
                     onChange={(e) => {
@@ -1701,11 +1708,11 @@ export default function CreateShipment() {
                     data-testid="input-receiver-city"
                   />
                   {fieldErrors.receiverCity && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-destructive mt-1">This field is required</p>
                   )}
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">State</Label>
+                  <Label className="doc-label">State</Label>
                   <Input
                     value={receiverState}
                     onChange={(e) => {
@@ -1716,22 +1723,22 @@ export default function CreateShipment() {
                     data-testid="input-receiver-state"
                   />
                   {fieldErrors.receiverState && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-destructive mt-1">This field is required</p>
                   )}
                 </div>
               </div>
             </div>
 
             {stepError && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
-                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{stepError}</p>
+              <div className="flex items-start gap-2 bg-destructive/5 border border-destructive/30 p-3">
+                <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-destructive">{stepError}</p>
               </div>
             )}
 
             <Button
               onClick={handleNext}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+              className="w-full h-12 doc-btn-cta"
               data-testid="button-next-step"
             >
               Continue
@@ -1742,7 +1749,7 @@ export default function CreateShipment() {
 
         {currentStep === 3 && (
           <div className="space-y-4 animate-fade-in">
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="doc-card">
               <ShipmentContentSearch
                 value={shipmentContent}
                 onChange={(v) => {
@@ -1758,13 +1765,13 @@ export default function CreateShipment() {
                 error={!!fieldErrors.shipmentContent}
               />
               {fieldErrors.shipmentContent && (
-                <p className="text-xs text-red-600 mt-1">This field is required</p>
+                <p className="text-xs text-destructive mt-1">This field is required</p>
               )}
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="doc-card">
               <div className="flex items-center justify-between mb-3">
-                <Label className="text-sm font-semibold">Weight</Label>
+                <Label className="doc-heading">Weight</Label>
                 <div className="flex bg-muted rounded-lg p-0.5">
                   <button
                     onClick={() => setWeightUnit('lb')}
@@ -1788,9 +1795,9 @@ export default function CreateShipment() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-xs text-muted-foreground">
+                  <Label className="doc-label">
                     Weight ({weightUnit})
-                    <span className="text-red-400">*</span>
+                    <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     type="number"
@@ -1805,16 +1812,16 @@ export default function CreateShipment() {
                     data-testid="input-package-weight"
                   />
                   {fieldErrors.weight && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-destructive mt-1">This field is required</p>
                   )}
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">Pieces</Label>
+                  <Label className="doc-label">Pieces</Label>
                   <Input
                     type="number"
                     value={pieces}
                     onChange={(e) => setPieces(e.target.value)}
-                    className="h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl"
+                    className="doc-field mt-1 text-sm"
                     min="1"
                     data-testid="input-package-pieces"
                   />
@@ -1825,10 +1832,10 @@ export default function CreateShipment() {
               </p>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="doc-card">
               <div className="flex items-center justify-between mb-3">
-                <Label className="text-sm font-semibold">
-                  Dimensions <span className="text-red-400">*</span>
+                <Label className="doc-heading">
+                  Dimensions <span className="text-destructive">*</span>
                 </Label>
                 <div className="flex bg-muted rounded-lg p-0.5">
                   <button
@@ -1855,7 +1862,7 @@ export default function CreateShipment() {
                 <button
                   type="button"
                   onClick={() => setShowPresetSheet(true)}
-                  className="w-full py-2 px-3 border border-dashed border-[#14567C] rounded-xl bg-blue-50/40 text-[#14567C] text-xs font-medium flex items-center justify-center gap-2 hover:bg-blue-50 transition-colors"
+                  className="w-full py-2 px-3 border border-dashed border-border rounded-md bg-muted/40 text-[#14567C] text-xs font-medium flex items-center justify-center gap-2 hover:bg-blue-50 transition-colors"
                 >
                   <svg
                     width="14"
@@ -1893,8 +1900,8 @@ export default function CreateShipment() {
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <Label className="text-xs text-muted-foreground">
-                    L<span className="text-red-400">*</span>
+                  <Label className="doc-label">
+                    L<span className="text-destructive">*</span>
                   </Label>
                   <Input
                     type="number"
@@ -1907,12 +1914,12 @@ export default function CreateShipment() {
                     className={fieldBorderClass('dimL')}
                   />
                   {fieldErrors.dimL && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-destructive mt-1">This field is required</p>
                   )}
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">
-                    W<span className="text-red-400">*</span>
+                  <Label className="doc-label">
+                    W<span className="text-destructive">*</span>
                   </Label>
                   <Input
                     type="number"
@@ -1925,12 +1932,12 @@ export default function CreateShipment() {
                     className={fieldBorderClass('dimW')}
                   />
                   {fieldErrors.dimW && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-destructive mt-1">This field is required</p>
                   )}
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">
-                    H<span className="text-red-400">*</span>
+                  <Label className="doc-label">
+                    H<span className="text-destructive">*</span>
                   </Label>
                   <Input
                     type="number"
@@ -1943,19 +1950,19 @@ export default function CreateShipment() {
                     className={fieldBorderClass('dimH')}
                   />
                   {fieldErrors.dimH && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-destructive mt-1">This field is required</p>
                   )}
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
-              <Label className="text-sm font-semibold mb-3 block">Shipment Value</Label>
+            <div className="doc-card">
+              <Label className="doc-heading mb-3 block">Shipment Value</Label>
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2">
-                  <Label className="text-xs text-muted-foreground">
+                  <Label className="doc-label">
                     Declared Value
-                    <span className="text-red-400">*</span>
+                    <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     type="number"
@@ -1971,17 +1978,17 @@ export default function CreateShipment() {
                     data-testid="input-shipment-value"
                   />
                   {fieldErrors.shipmentValue && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-destructive mt-1">This field is required</p>
                   )}
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">Currency</Label>
+                  <Label className="doc-label">Currency</Label>
                   {(() => {
                     const destCurrency = getDestinationCurrency(destinationCountry);
                     const showToggle = destCurrency !== null && destCurrency !== 'INR';
                     if (!showToggle) {
                       return (
-                        <div className="h-11 mt-1 flex items-center justify-center bg-muted/50 border border-border rounded-xl text-sm font-medium text-muted-foreground">
+                        <div className="doc-field mt-1 flex items-center justify-center text-sm font-medium text-muted-foreground">
                           INR
                         </div>
                       );
@@ -2010,15 +2017,15 @@ export default function CreateShipment() {
             </div>
 
             {stepError && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
-                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{stepError}</p>
+              <div className="flex items-start gap-2 bg-destructive/5 border border-destructive/30 p-3">
+                <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-destructive">{stepError}</p>
               </div>
             )}
 
             <Button
               onClick={handleNext}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+              className="w-full h-12 doc-btn-cta"
               data-testid="button-next-step"
             >
               Continue
@@ -2029,12 +2036,12 @@ export default function CreateShipment() {
 
         {currentStep === 4 && (
           <div className="space-y-4 animate-fade-in">
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
+            <div className="bg-muted border border-border p-3 text-xs text-muted-foreground" style={{ borderRadius: 'var(--doc-radius)' }}>
               Required for Indian customs clearance. These details appear on the commercial invoice.
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
-              <Label className="text-sm font-semibold mb-3 block">Service Details</Label>
+            <div className="doc-card">
+              <Label className="doc-heading mb-3 block">Service Details</Label>
               <div className="space-y-2">
                 <div className="space-y-1">
                   <div className="flex items-center gap-1.5">
@@ -2087,9 +2094,9 @@ export default function CreateShipment() {
                     </p>
 
                     <div>
-                      <Label className="text-xs text-muted-foreground">
+                      <Label className="doc-label">
                         HS Code (10 digits)
-                        <span className="text-red-400">
+                        <span className="text-destructive">
                           *
                         </span>
                       </Label>
@@ -2111,7 +2118,7 @@ export default function CreateShipment() {
                         )}
                       />
                       {fieldErrors.csbvHsCode && (
-                        <p className="text-xs text-red-600 mt-1">
+                        <p className="text-xs text-destructive mt-1">
                           HS code must be exactly
                           10 digits
                         </p>
@@ -2119,7 +2126,7 @@ export default function CreateShipment() {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">
+                      <span className="doc-label">
                         E-commerce Shipment?
                       </span>
                       <div className="flex gap-3">
@@ -2147,7 +2154,7 @@ export default function CreateShipment() {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">
+                      <span className="doc-label">
                         Under a Scheme?
                       </span>
                       <div className="flex gap-3">
@@ -2175,9 +2182,9 @@ export default function CreateShipment() {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">
+                      <span className="doc-label">
                         Postal Product Type
-                        <span className="text-red-400 ml-0.5">*</span>
+                        <span className="text-destructive ml-0.5">*</span>
                       </span>
                       <div className="flex gap-2 flex-wrap justify-end max-w-[200px]">
                         {(
@@ -2208,7 +2215,7 @@ export default function CreateShipment() {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">
+                      <span className="doc-label">
                         Bond UT / IGST
                       </span>
                       <div className="flex gap-3">
@@ -2243,9 +2250,9 @@ export default function CreateShipment() {
 
                     {csbvBondType === 'igst' ? (
                       <div>
-                        <Label className="text-xs text-muted-foreground">
+                        <Label className="doc-label">
                           IGST Amount ({selectedCurrency})
-                          <span className="text-red-400">
+                          <span className="text-destructive">
                             *
                           </span>
                         </Label>
@@ -2263,7 +2270,7 @@ export default function CreateShipment() {
                           )}
                         />
                         {fieldErrors.csbvIgstAmount && (
-                          <p className="text-xs text-red-600 mt-1">
+                          <p className="text-xs text-destructive mt-1">
                             IGST amount is required
                           </p>
                         )}
@@ -2271,9 +2278,9 @@ export default function CreateShipment() {
                     ) : (
                       <div className="space-y-3">
                         <div>
-                          <Label className="text-xs text-muted-foreground">
+                          <Label className="doc-label">
                             LUT Number
-                            <span className="text-red-400">
+                            <span className="text-destructive">
                               *
                             </span>
                           </Label>
@@ -2293,16 +2300,16 @@ export default function CreateShipment() {
                             )}
                           />
                           {fieldErrors.csbvLutNumber && (
-                            <p className="text-xs text-red-600 mt-1">
+                            <p className="text-xs text-destructive mt-1">
                               LUT number is required
                             </p>
                           )}
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <Label className="text-xs text-muted-foreground">
+                            <Label className="doc-label">
                               LUT Issue From
-                              <span className="text-red-400">
+                              <span className="text-destructive">
                                 *
                               </span>
                             </Label>
@@ -2321,15 +2328,15 @@ export default function CreateShipment() {
                               )}
                             />
                             {fieldErrors.csbvLutFrom && (
-                              <p className="text-xs text-red-600 mt-1">
+                              <p className="text-xs text-destructive mt-1">
                                 Required
                               </p>
                             )}
                           </div>
                           <div>
-                            <Label className="text-xs text-muted-foreground">
+                            <Label className="doc-label">
                               LUT Issue Till
-                              <span className="text-red-400">
+                              <span className="text-destructive">
                                 *
                               </span>
                             </Label>
@@ -2348,7 +2355,7 @@ export default function CreateShipment() {
                               )}
                             />
                             {fieldErrors.csbvLutTill && (
-                              <p className="text-xs text-red-600 mt-1">
+                              <p className="text-xs text-destructive mt-1">
                                 Required
                               </p>
                             )}
@@ -2370,30 +2377,30 @@ export default function CreateShipment() {
                 <div className="pt-2 lg:hidden">
                   <Label className="text-xs text-muted-foreground mb-1.5 block">
                     Shipping Service
-                    <span className="text-red-400">*</span>
+                    <span className="text-destructive">*</span>
                   </Label>
 
                   {selectedService ? (
                     <button
                       type="button"
                       onClick={handleOpenServiceModal}
-                      className="w-full flex items-center justify-between gap-3 rounded-xl border border-[#E2E8F0] bg-white px-4 py-3 text-left hover:border-[#F2A123]/50 transition-colors"
+                      className="w-full flex items-center justify-between gap-3 rounded-md border border-border bg-white px-4 py-3 text-left hover:border-accent/50 transition-colors"
                       data-testid="button-change-service"
                     >
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)] truncate">
+                        <p className="text-sm font-semibold text-foreground truncate">
                           {selectedService.internal_api_service_code || selectedService.code}
                         </p>
-                        <p className="text-xs text-muted-foreground">{formatInr(selectedService.total)} · incl. GST</p>
+                        <p className="doc-label">{formatInr(selectedService.total)} · incl. GST</p>
                       </div>
-                      <span className="text-xs font-medium text-[#F2A123] shrink-0">Change</span>
+                      <span className="text-xs font-medium text-accent shrink-0">Change</span>
                     </button>
                   ) : (
                     <Button
                       type="button"
                       onClick={handleOpenServiceModal}
                       disabled={!productType.trim() || rateMutation.isPending}
-                      className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
+                      className="w-full h-12 doc-btn-cta disabled:opacity-70 flex items-center justify-center gap-2"
                       data-testid="button-get-rates-invoice"
                     >
                       {rateMutation.isPending ? (
@@ -2408,40 +2415,44 @@ export default function CreateShipment() {
                   )}
 
                   {ratesError ? (
-                    <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mt-3">
-                      <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                      <p className="text-xs text-red-600">{ratesError}</p>
+                    <div className="flex items-start gap-2 bg-destructive/5 border border-destructive/30 p-3 mt-3">
+                      <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-destructive">{ratesError}</p>
                     </div>
                   ) : null}
 
                   {serviceSelectionError ? (
-                    <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mt-3">
-                      <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                      <p className="text-xs text-red-600">{serviceSelectionError}</p>
+                    <div className="flex items-start gap-2 bg-destructive/5 border border-destructive/30 p-3 mt-3">
+                      <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-destructive">{serviceSelectionError}</p>
                     </div>
                   ) : null}
                 </div>
               </div>
             </div>
+          </div>
+        )}
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+        {currentStep === 5 && (
+          <div className="space-y-4 animate-fade-in">
+            <div className="doc-card p-4 space-y-3 ">
               <div>
-                <Label className="text-sm font-semibold">Invoice Item</Label>
+                <Label className="doc-heading">Invoice Item</Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   For the customs invoice — how many units are in this shipment, what one unit weighs, and its declared value per unit.
                 </p>
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">Description</Label>
-                <div className="h-11 mt-1 px-3 flex items-center bg-muted/50 border border-border rounded-xl text-sm text-muted-foreground">
+                <Label className="doc-label">Description</Label>
+                <div className="doc-field mt-1 px-3 flex items-center text-sm text-muted-foreground">
                   {shipmentContent.trim() || 'GIFTS'}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-xs text-muted-foreground">
+                  <Label className="doc-label">
                     Quantity
-                    <span className="text-red-400">*</span>
+                    <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     type="number"
@@ -2456,13 +2467,13 @@ export default function CreateShipment() {
                   />
                   <p className="text-[10px] text-muted-foreground mt-1">Number of units of this item</p>
                   {fieldErrors.invoiceQty && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-destructive mt-1">This field is required</p>
                   )}
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">
+                  <Label className="doc-label">
                     Unit Weight (kg)
-                    <span className="text-red-400">*</span>
+                    <span className="text-destructive">*</span>
                   </Label>
                   <Input
                     type="number"
@@ -2478,14 +2489,14 @@ export default function CreateShipment() {
                   />
                   <p className="text-[10px] text-muted-foreground mt-1">Weight of one unit, not the total parcel</p>
                   {fieldErrors.invoiceUnitWeight && (
-                    <p className="text-xs text-red-600 mt-1">This field is required</p>
+                    <p className="text-xs text-destructive mt-1">This field is required</p>
                   )}
                 </div>
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">
+                <Label className="doc-label">
                   Unit Rate ({selectedCurrency})
-                  <span className="text-red-400">*</span>
+                  <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   type="number"
@@ -2502,7 +2513,7 @@ export default function CreateShipment() {
                   Declared value per unit in {selectedCurrency} — quantity × rate becomes the invoice total below
                 </p>
                 {fieldErrors.invoiceUnitRate && (
-                  <p className="text-xs text-red-600 mt-1">This field is required</p>
+                  <p className="text-xs text-destructive mt-1">This field is required</p>
                 )}
               </div>
               {invoiceQty && invoiceUnitRate && (
@@ -2518,16 +2529,16 @@ export default function CreateShipment() {
 
             <div className="lg:hidden space-y-4">
             {submitError && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
-                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{submitError}</p>
+              <div className="flex items-start gap-2 bg-destructive/5 border border-destructive/30 p-3">
+                <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-destructive">{submitError}</p>
               </div>
             )}
 
             <Button
               onClick={handleSubmit}
               disabled={createMutation.isPending || !selectedService}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+              className="w-full h-12 doc-btn-cta disabled:opacity-70"
               data-testid="button-submit-shipment"
             >
               {createMutation.isPending ? (
@@ -2545,21 +2556,21 @@ export default function CreateShipment() {
         <div className="hidden lg:block lg:col-span-5">
           <div className="sticky top-6 space-y-4">
             {currentStep < 4 && (
-              <div className="bg-white rounded-2xl border border-[#E2E8F0] overflow-hidden shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
-                <div className="px-5 py-3.5 border-b border-[#E2E8F0] flex items-center justify-between">
+              <div className="doc-card p-0 overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-[#F2A123]">Draft</span>
+                    <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-accent">Draft</span>
                     <span className="text-[11px] text-muted-foreground tabular-nums">{currentStep}/{steps.length}</span>
                   </div>
                   <span className="text-[11px] text-muted-foreground">Auto-saved</span>
                 </div>
 
                 {/* Sender section */}
-                <div className="px-5 py-4 border-b border-[#E2E8F0]">
+                <div className="px-5 py-4 border-b border-border">
                   <div className="flex items-center gap-2 mb-2">
                     <div className={cn(
                       'w-5 h-5 rounded-full flex items-center justify-center shrink-0',
-                      senderName.trim() ? 'bg-emerald-500 text-white' : currentStep === 1 ? 'bg-[#F2A123]/15 text-[#F2A123] border border-[#F2A123]/30' : 'bg-[#F3F4F6] text-muted-foreground'
+                      senderName.trim() ? 'bg-emerald-500 text-white' : currentStep === 1 ? 'bg-accent/15 text-accent border border-accent/30' : 'bg-muted text-muted-foreground'
                     )}>
                       {senderName.trim() ? <Check className="w-3 h-3" strokeWidth={3} /> : <span className="text-[10px] font-bold tabular-nums">1</span>}
                     </div>
@@ -2580,11 +2591,11 @@ export default function CreateShipment() {
                 </div>
 
                 {/* Receiver section */}
-                <div className="px-5 py-4 border-b border-[#E2E8F0]">
+                <div className="px-5 py-4 border-b border-border">
                   <div className="flex items-center gap-2 mb-2">
                     <div className={cn(
                       'w-5 h-5 rounded-full flex items-center justify-center shrink-0',
-                      receiverName.trim() ? 'bg-emerald-500 text-white' : currentStep === 2 ? 'bg-[#F2A123]/15 text-[#F2A123] border border-[#F2A123]/30' : 'bg-[#F3F4F6] text-muted-foreground'
+                      receiverName.trim() ? 'bg-emerald-500 text-white' : currentStep === 2 ? 'bg-accent/15 text-accent border border-accent/30' : 'bg-muted text-muted-foreground'
                     )}>
                       {receiverName.trim() ? <Check className="w-3 h-3" strokeWidth={3} /> : <span className="text-[10px] font-bold tabular-nums">2</span>}
                     </div>
@@ -2609,7 +2620,7 @@ export default function CreateShipment() {
                   <div className="flex items-center gap-2 mb-2">
                     <div className={cn(
                       'w-5 h-5 rounded-full flex items-center justify-center shrink-0',
-                      (weight && parseFloat(weight) > 0) ? 'bg-emerald-500 text-white' : currentStep === 3 ? 'bg-[#F2A123]/15 text-[#F2A123] border border-[#F2A123]/30' : 'bg-[#F3F4F6] text-muted-foreground'
+                      (weight && parseFloat(weight) > 0) ? 'bg-emerald-500 text-white' : currentStep === 3 ? 'bg-accent/15 text-accent border border-accent/30' : 'bg-muted text-muted-foreground'
                     )}>
                       {(weight && parseFloat(weight) > 0) ? <Check className="w-3 h-3" strokeWidth={3} /> : <span className="text-[10px] font-bold tabular-nums">3</span>}
                     </div>
@@ -2632,7 +2643,7 @@ export default function CreateShipment() {
                   </div>
                 </div>
 
-                <div className="px-5 py-3 bg-[#F8F9FA] border-t border-[#E2E8F0]">
+                <div className="px-5 py-3 bg-background border-t border-border">
                   <p className="text-[11px] text-muted-foreground leading-relaxed">
                     Complete all three steps to get a live rate quote.
                   </p>
@@ -2640,13 +2651,16 @@ export default function CreateShipment() {
               </div>
             )}
 
-            {currentStep === 4 && (
+            {/* Service + submit panel, shown across the last two stages: the
+                rate can still be changed while the invoice is filled in, and
+                submit stays visible but disabled until a service is chosen. */}
+            {currentStep >= 4 && (
               <div className="space-y-4">
                 <Button
                   type="button"
                   onClick={handleOpenServiceModal}
                   disabled={!productType.trim() || rateMutation.isPending}
-                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
+                  className="w-full h-12 doc-btn-cta disabled:opacity-70 flex items-center justify-center gap-2"
                 >
                   {rateMutation.isPending ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
@@ -2659,39 +2673,39 @@ export default function CreateShipment() {
                 </Button>
 
                 {ratesError ? (
-                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
-                    <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-red-600">{ratesError}</p>
+                  <div className="flex items-start gap-2 bg-destructive/5 border border-destructive/30 p-3">
+                    <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-destructive">{ratesError}</p>
                   </div>
                 ) : null}
 
                 {selectedService && (
-                  <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-1.5 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06)]">
+                  <div className="doc-card p-4 space-y-1.5 ">
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Selected service</p>
-                    <p className="font-semibold text-sm text-[lab(34.0831_-9.57756_-27.7093)]">{selectedService.internal_api_service_code || selectedService.code}</p>
-                    <p className="font-mono text-lg font-semibold text-[#2F4468]">{formatInr(selectedService.total)}</p>
+                    <p className="font-semibold text-sm text-foreground">{selectedService.internal_api_service_code || selectedService.code}</p>
+                    <p className="font-mono text-lg font-semibold text-secondary">{formatInr(selectedService.total)}</p>
                     <p className="text-[10px] text-muted-foreground">incl. GST · estimated</p>
                   </div>
                 )}
 
                 {serviceSelectionError ? (
-                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
-                    <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-red-600">{serviceSelectionError}</p>
+                  <div className="flex items-start gap-2 bg-destructive/5 border border-destructive/30 p-3">
+                    <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-destructive">{serviceSelectionError}</p>
                   </div>
                 ) : null}
 
                 {submitError && (
-                  <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
-                    <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-red-600">{submitError}</p>
+                  <div className="flex items-start gap-2 bg-destructive/5 border border-destructive/30 p-3">
+                    <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-destructive">{submitError}</p>
                   </div>
                 )}
 
                 <Button
                   onClick={handleSubmit}
                   disabled={createMutation.isPending || !selectedService}
-                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+                  className="w-full h-12 doc-btn-cta disabled:opacity-70"
                   data-testid="button-submit-shipment-desktop"
                 >
                   {createMutation.isPending ? (
@@ -2714,7 +2728,7 @@ export default function CreateShipment() {
           onClick={() => setShowProductTypeInfo(false)}
         >
           <div
-            className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl"
+            className="bg-card p-5 max-w-sm w-full shadow-[var(--shadow-modal)]" style={{ borderRadius: 'var(--doc-radius)' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
@@ -2827,13 +2841,13 @@ export default function CreateShipment() {
                           }
                         }}
                         className={cn(
-                          'rounded-xl border border-[#E2E8F0] bg-white overflow-hidden relative outline-none focus-visible:ring-2 focus-visible:ring-[#2F4468] cursor-pointer shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]',
-                          isSelected && 'ring-2 ring-[#F2A123] border-[#F2A123]'
+                          'rounded-md border border-border bg-card overflow-hidden relative outline-none focus-visible:ring-2 focus-visible:ring-[#2F4468] cursor-pointer shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]',
+                          isSelected && 'ring-2 ring-[#F2A123] border-accent'
                         )}
                         data-testid={`invoice-rate-card-${idx}`}
                       >
                         {isSelected ? (
-                          <div className="absolute top-3 right-3 z-10 rounded-full bg-[#F2A123] p-0.5 text-[lab(34.0831_-9.57756_-27.7093)]">
+                          <div className="absolute top-3 right-3 z-10 rounded-full bg-accent p-0.5 text-foreground">
                             <Check className="w-3.5 h-3.5" strokeWidth={3} aria-hidden />
                           </div>
                         ) : null}
@@ -2845,7 +2859,7 @@ export default function CreateShipment() {
                             {letter}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-semibold text-[lab(34.0831_-9.57756_-27.7093)] leading-snug">
+                            <p className="text-[13px] font-semibold text-foreground leading-snug">
                               {displayName}
                             </p>
                             <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
@@ -2863,7 +2877,7 @@ export default function CreateShipment() {
                             </div>
                           </div>
                           <div className="shrink-0 text-right pr-6">
-                            <p className="text-[20px] font-semibold tabular-nums font-mono text-[#2F4468]">
+                            <p className="text-[20px] font-semibold tabular-nums font-mono text-secondary">
                               {formatInr(service.total)}
                             </p>
                             <p className="text-[10px] text-muted-foreground">incl. GST</p>
@@ -2954,7 +2968,7 @@ export default function CreateShipment() {
 
                             <div className="flex justify-between gap-3 items-baseline">
                               <span className="text-[11px] text-muted-foreground">Total payable</span>
-                              <span className="text-[13px] font-semibold tabular-nums font-mono text-[#2F4468]">
+                              <span className="text-[13px] font-semibold tabular-nums font-mono text-secondary">
                                 {formatInr(service.total)}
                               </span>
                             </div>
@@ -2984,7 +2998,7 @@ export default function CreateShipment() {
                   setShowServiceModal(false);
                 }}
                 disabled={!pendingService}
-                className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+                className="w-full h-12 doc-btn-cta disabled:opacity-70"
                 data-testid="button-confirm-service"
               >
                 {pendingService ? 'Confirm Selection' : 'Select a service to continue'}
@@ -3050,7 +3064,7 @@ export default function CreateShipment() {
               />
               {!coverageLoading && coveredDates?.length === 0 && (
                 <p
-                  className="text-xs text-red-600 mt-3 text-center"
+                  className="text-xs text-destructive mt-3 text-center"
                   data-testid="text-no-coverage"
                 >
                   No pickup agent is scheduled in this period. Choose drop-off instead,
@@ -3068,7 +3082,7 @@ export default function CreateShipment() {
           onClick={() => !createMutation.isPending && setShowConfirmModal(false)}
         >
           <div
-            className="bg-white rounded-t-2xl sm:rounded-2xl p-5 max-w-sm w-full shadow-xl max-h-[90vh] overflow-y-auto"
+            className="bg-card p-5 max-w-sm w-full shadow-[var(--shadow-modal)] max-h-[90vh] overflow-y-auto rounded-t-lg sm:rounded-lg"
             onClick={(e) => e.stopPropagation()}
             data-testid="modal-confirm-booking"
           >
@@ -3084,7 +3098,7 @@ export default function CreateShipment() {
               </button>
             </div>
 
-            <div className="bg-muted/30 rounded-xl border border-border p-4 space-y-2 text-sm mb-5">
+            <div className="doc-card space-y-2 text-sm mb-5">
               <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground">Service</span>
                 <span className="font-medium text-foreground text-right text-xs break-words">
@@ -3103,7 +3117,7 @@ export default function CreateShipment() {
               </div>
               <div className="flex justify-between gap-3 pt-2 border-t border-border">
                 <span className="text-muted-foreground font-medium">Total</span>
-                <span className="font-mono text-base font-semibold text-[#2F4468]">
+                <span className="font-mono text-base font-semibold text-secondary">
                   {selectedService ? formatInr(selectedService.total) : '—'}
                 </span>
               </div>
@@ -3116,7 +3130,7 @@ export default function CreateShipment() {
                 <label
                   key={val}
                   className={cn(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors',
+                    'flex items-center gap-3 px-3 py-2.5 rounded-md border cursor-pointer transition-colors',
                     paymentMethod === val ? 'border-primary bg-primary/5' : 'border-border'
                   )}
                 >
@@ -3137,16 +3151,16 @@ export default function CreateShipment() {
             </div>
 
             {paymentError && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
-                <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-600">{paymentError}</p>
+              <div className="flex items-start gap-2 bg-destructive/5 border border-destructive/30 p-3 mb-4">
+                <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-destructive">{paymentError}</p>
               </div>
             )}
 
             <Button
               onClick={handleConfirmBooking}
               disabled={createMutation.isPending}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+              className="w-full h-12 doc-btn-cta disabled:opacity-70"
               data-testid="button-confirm-booking"
             >
               {createMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Booking'}

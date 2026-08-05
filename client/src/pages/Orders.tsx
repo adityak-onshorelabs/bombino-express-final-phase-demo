@@ -2,11 +2,13 @@ import { useEffect, useState, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { Package, Copy, Send, Search, ArrowRight, Download } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
-import { Header } from '@/components/Header';
+import { SignedOutState } from '@/components/StateBlock';
+import { DocPage } from '@/components/doc/DocPage';
 import { BottomNav } from '@/components/BottomNav';
 import { SideMenu } from '@/components/SideMenu';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAppStore } from '@/lib/store';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
@@ -63,43 +65,6 @@ function formatBookingDate(value: string | null): string {
   return format(d, 'dd MMM yyyy');
 }
 
-// ─── Compact track bar (mobile + desktop) ───────────────────────────────────
-function TrackBar({
-  value,
-  onChange,
-  onSubmit,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  onSubmit: () => void;
-}) {
-  return (
-    <div className="rounded-xl bg-white border border-border shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] p-1.5 flex items-center gap-2">
-      <div className="relative flex-1">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && onSubmit()}
-          placeholder="Track AWB number — e.g. BMB123456789"
-          className="w-full h-11 pl-10 pr-3 text-sm bg-transparent border-0 outline-none placeholder:text-muted-foreground/70 font-medium tabular-nums tracking-tight"
-          data-testid="input-tracking-orders"
-        />
-      </div>
-      <button
-        type="button"
-        onClick={onSubmit}
-        className="h-11 px-5 inline-flex items-center gap-2 text-sm font-semibold rounded-lg bg-[lab(34.0831_-9.57756_-27.7093)] text-white hover:bg-[#2F4468] transition-colors"
-        data-testid="button-track-orders"
-      >
-        Track
-        <ArrowRight className="w-3.5 h-3.5" />
-      </button>
-    </div>
-  );
-}
-
 // ─── Row (responsive) ───────────────────────────────────────────────────────
 function ShipmentRow({
   row,
@@ -122,24 +87,12 @@ function ShipmentRow({
       className="w-full text-left transition-colors md:grid md:grid-cols-[1.6fr_1.7fr_1.2fr_0.9fr_0.7fr_auto] md:gap-x-6 md:items-center md:px-4 md:py-3 md:hover:bg-muted/40"
       data-testid={`order-row-${displayId}`}
     >
-      {/* ─── MOBILE CARD — amber-rail brand accent ──────────────── */}
-      <div className="md:hidden relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.06),0_12px_28px_-12px_lab(34.0831_-9.57756_-27.7093_/_0.18)] active:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_4px_10px_-4px_lab(34.0831_-9.57756_-27.7093_/_0.12)] active:translate-y-px transition-[transform,box-shadow] duration-150 overflow-hidden">
-        {/* Amber accent rail (full height, left edge) */}
-        <span
-          className="absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-[#F2A123] via-[#F2A123] to-[#F2A123]/60 rounded-l-xl"
-          aria-hidden
-        />
-        {/* Subtle warm tint sweep — paper-like, brand aware */}
-        <div
-          className="absolute inset-0 pointer-events-none opacity-[0.55]"
-          style={{
-            background:
-              'linear-gradient(115deg, transparent 0%, transparent 55%, oklch(96% 0.04 70 / 0.5) 100%)',
-          }}
-          aria-hidden
-        />
-
-        <div className="relative pl-5 pr-4 py-3.5">
+      {/* ─── MOBILE CARD ─────────────────────────────────────────── */}
+      <div
+        className="md:hidden relative bg-card border border-border overflow-hidden transition-colors active:bg-muted/40"
+        style={{ borderRadius: 'var(--doc-radius)' }}
+      >
+        <div className="relative px-4 py-3.5">
           {/* Header — AWB/Order number + status pill */}
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center min-w-0">
@@ -148,7 +101,7 @@ function ShipmentRow({
                   Order
                 </span>
               )}
-              <span className="font-bold tabular-nums text-[16px] tracking-tight text-[#112330] truncate">
+              <span className="doc-mono font-semibold tabular-nums text-[15px] text-foreground truncate">
                 {displayId}
               </span>
               <span
@@ -169,7 +122,7 @@ function ShipmentRow({
 
           {/* Recipient — primary line */}
           <p className="mt-2 text-[14px] leading-snug truncate">
-            <span className={recipientRaw ? 'font-semibold text-[#112330]' : 'text-muted-foreground italic'}>
+            <span className={recipientRaw ? 'font-semibold text-foreground' : 'text-muted-foreground italic'}>
               {recipient}
             </span>
             {city && <span className="text-muted-foreground/90 font-normal">{' · '}{city}</span>}
@@ -177,10 +130,10 @@ function ShipmentRow({
 
           {/* Meta footer — hairline above, service + date + amount */}
           {(service || amountStr || bookingDate !== '—') && (
-            <div className="mt-3 pt-2.5 border-t border-dashed border-[#E2E8F0] flex items-center justify-between gap-3">
+            <div className="mt-3 pt-2.5 border-t border-dashed border-border flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 {service && (
-                  <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-[#F2A123] truncate">
+                  <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-accent truncate">
                     {service}
                   </span>
                 )}
@@ -194,7 +147,7 @@ function ShipmentRow({
                 )}
               </div>
               {amountStr && (
-                <span className="text-[13px] font-bold tabular-nums text-[#112330] shrink-0">
+                <span className="text-[13px] font-bold tabular-nums text-foreground shrink-0">
                   {amountStr}
                 </span>
               )}
@@ -339,42 +292,58 @@ export default function Orders() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-orders">
-      <Header onMenuClick={() => setMenuOpen(true)} />
+    <>
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 
-      <main className="max-w-5xl mx-auto px-4 md:px-0 py-5 md:py-6 space-y-6">
-
-        {/* Compact track bar */}
-        <TrackBar
-          value={trackingInput}
-          onChange={setTrackingInput}
-          onSubmit={submitTrack}
-        />
-
-        {/* Header row */}
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <h1 className="text-lg md:text-[22px] font-bold tracking-tight text-foreground">
-              My shipments
-              {isLoggedIn && !loading && rows.length > 0 && (
-                <span className="ml-2 text-sm font-medium text-muted-foreground tabular-nums">
-                  · {rows.length}
-                </span>
-              )}
-            </h1>
-            <p className="text-xs md:text-sm text-muted-foreground mt-0.5">
-              Track your outgoing and incoming shipments.
-            </p>
+      <DocPage title="Shipments" onMenuClick={() => setMenuOpen(true)} testId="screen-orders">
+        {/* Look up any AWB, including one not on this account. This is the
+            single home for tracking now — /track and /receive both redirect
+            here, because "where is my stuff?" was being answered by two tabs
+            and a customer had to guess which one held a given shipment. */}
+        <div className="doc-panel" data-testid="zone-track">
+          <h2 className="doc-label">Track any order</h2>
+          <div className="flex gap-2 mt-3">
+            <div
+              className="flex flex-1 items-stretch border border-border bg-card focus-within:border-accent transition-colors min-w-0"
+              style={{ borderRadius: 'var(--doc-radius)' }}
+            >
+              <span className="flex items-center pl-3 text-muted-foreground">
+                <Search className="w-4 h-4" />
+              </span>
+              <Input
+                value={trackingInput}
+                onChange={(e) => setTrackingInput(e.target.value)}
+                placeholder="AWB number"
+                className="doc-mono h-12 flex-1 min-w-0 border-0 bg-transparent text-sm shadow-none focus-visible:ring-0 rounded-none"
+                onKeyDown={(e) => e.key === 'Enter' && submitTrack()}
+                data-testid="input-track-awb"
+              />
+            </div>
+            <Button
+              onClick={submitTrack}
+              disabled={!trackingInput.trim()}
+              className="doc-btn-cta h-12 px-5 shrink-0 text-xs uppercase tracking-[0.1em]"
+              data-testid="button-track-submit"
+            >
+              Track
+            </Button>
           </div>
+        </div>
+
+        <div className="flex items-baseline justify-between gap-3 mt-7">
+          <p className="doc-label">
+            {isLoggedIn && !loading && rows.length > 0
+              ? `${rows.length} shipment${rows.length === 1 ? '' : 's'}`
+              : 'Outgoing and incoming'}
+          </p>
           {isLoggedIn && (
             <button
               type="button"
               onClick={handleDownloadCSV}
-              className="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-semibold rounded-lg border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+              className="doc-link focus-ring shrink-0"
               data-testid="button-export-csv"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="w-3 h-3 shrink-0" />
               Export CSV
             </button>
           )}
@@ -382,43 +351,73 @@ export default function Orders() {
 
         {/* Body */}
         {!isLoggedIn ? (
-          <div className="text-center py-16">
-            <p className="text-sm text-muted-foreground mb-4">Sign in to view your shipments.</p>
-            <Button className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg" onClick={() => setLocation('/login')}>
-              Login
-            </Button>
-          </div>
+          <SignedOutState
+            icon={Package}
+            title="Sign in to see your shipments"
+            description="Your bookings and their live status appear here once you're signed in."
+            redirectTo="/orders"
+            testId="state-orders-signed-out"
+          />
         ) : loading ? (
           <>
-            {/* Mobile skeleton */}
-            <div className="md:hidden space-y-2.5">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="rounded-2xl border border-[#E2E8F0] bg-white p-4 space-y-2.5 animate-pulse">
-                  <div className="flex items-center justify-between">
-                    <Skeleton className="h-4 w-32" />
-                    <Skeleton className="h-5 w-16 rounded-full" />
+            <p className="sr-only" role="status">
+              Loading your shipments
+            </p>
+            {/* Mobile skeleton.
+                A skeleton's only job is to predict the layout that replaces
+                it, so this mirrors the real row: same border, same 6px radius,
+                same px-4/py-3.5, same three lines in the same places. The
+                previous one was a 2xl card with pill placeholders — it
+                predicted a shape the list no longer has, so content visibly
+                jumped when it resolved.
+
+                Widths vary per row. A column of identical bars reads as a
+                loading graphic; uneven ones read as text about to arrive. */}
+            <div className="md:hidden space-y-2">
+              {[
+                { id: 'w-28', dest: 'w-44', meta: 'w-24' },
+                { id: 'w-32', dest: 'w-36', meta: 'w-28' },
+                { id: 'w-24', dest: 'w-48', meta: 'w-20' },
+                { id: 'w-32', dest: 'w-40', meta: 'w-24' },
+              ].map((w, i) => (
+                <div
+                  key={i}
+                  className="border border-border bg-card px-4 py-3.5 animate-pulse"
+                  style={{ borderRadius: 'var(--doc-radius)' }}
+                  aria-hidden
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <Skeleton className={`h-4 ${w.id} rounded-sm`} />
+                    <Skeleton className="h-5 w-16 rounded-sm" />
                   </div>
-                  <Skeleton className="h-3.5 w-52" />
-                  <div className="flex items-center justify-between pt-1">
-                    <Skeleton className="h-3 w-28" />
-                    <Skeleton className="h-3.5 w-12" />
+                  <Skeleton className={`h-3.5 ${w.dest} rounded-sm mt-2.5`} />
+                  <div className="mt-3 pt-2.5 border-t border-dashed border-border flex items-center justify-between gap-3">
+                    <Skeleton className={`h-3 ${w.meta} rounded-sm`} />
+                    <Skeleton className="h-3 w-14 rounded-sm" />
                   </div>
                 </div>
               ))}
             </div>
             {/* Desktop skeleton */}
-            <div className="hidden md:block rounded-xl border border-border bg-white overflow-hidden">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className={`px-4 py-3.5 ${i > 1 ? 'border-t border-border' : ''} space-y-2 animate-pulse`}>
-                  <Skeleton className="h-4 w-44" />
-                  <Skeleton className="h-3 w-60" />
+            <div
+              className="hidden md:block border border-border bg-card overflow-hidden"
+              style={{ borderRadius: 'var(--doc-radius)' }}
+              aria-hidden
+            >
+              {['w-40', 'w-52', 'w-36', 'w-48'].map((w, i) => (
+                <div
+                  key={i}
+                  className={`px-4 py-3.5 ${i > 0 ? 'border-t border-border' : ''} space-y-2 animate-pulse`}
+                >
+                  <Skeleton className={`h-4 ${w} rounded-sm`} />
+                  <Skeleton className="h-3 w-60 rounded-sm" />
                 </div>
               ))}
             </div>
           </>
         ) : rows.length === 0 ? (
           <div className="text-center py-16">
-            <div className="w-12 h-12 mx-auto rounded-full bg-[#F3F4F6] flex items-center justify-center">
+            <div className="w-12 h-12 mx-auto rounded-full bg-muted flex items-center justify-center">
               <Package className="w-5 h-5 text-muted-foreground" />
             </div>
             <h2 className="font-semibold text-foreground mt-4">No shipments yet</h2>
@@ -426,7 +425,7 @@ export default function Orders() {
               Create your first shipment to get started.
             </p>
             <Button
-              className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg h-10 px-5 mt-5"
+              className="doc-btn-cta h-10 px-5 mt-5"
               onClick={() => setLocation('/create')}
               data-testid="button-orders-create"
             >
@@ -445,7 +444,7 @@ export default function Orders() {
 
             {/* Desktop — single bordered table */}
             <div className="hidden md:block rounded-xl border border-border bg-white overflow-hidden">
-              <div className="grid grid-cols-[1.6fr_1.7fr_1.2fr_0.9fr_0.7fr_auto] gap-x-6 px-4 py-2.5 text-[10px] font-bold tracking-[0.12em] uppercase text-muted-foreground border-b border-border bg-[#F8F9FA]">
+              <div className="grid grid-cols-[1.6fr_1.7fr_1.2fr_0.9fr_0.7fr_auto] gap-x-6 px-4 py-2.5 text-[10px] font-bold tracking-[0.12em] uppercase text-muted-foreground border-b border-border bg-background">
                 <span>AWB / Order number</span>
                 <span>Recipient</span>
                 <span>Service</span>
@@ -468,7 +467,7 @@ export default function Orders() {
             Showing {rows.length} {rows.length === 1 ? 'shipment' : 'shipments'} · Tap any row for details
           </p>
         )}
-      </main>
+      </DocPage>
 
       <BottomNav />
 
@@ -481,7 +480,7 @@ export default function Orders() {
               <button
                 type="button"
                 onClick={() => void handleShareCSV()}
-                className="text-sm font-medium text-[#F2A123] hover:underline"
+                className="text-sm font-medium text-accent hover:underline"
               >
                 Share
               </button>
@@ -538,7 +537,6 @@ export default function Orders() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
-

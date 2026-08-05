@@ -1,17 +1,20 @@
 import { useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useLocation, Link } from 'wouter';
-import { Search, ArrowRight, BadgeDollarSign, Send, Phone, Bell, ChevronRight } from 'lucide-react';
-import { Header } from '@/components/Header';
+import { Search, ArrowRight, BadgeDollarSign, Send, Phone, Bell } from 'lucide-react';
 import { BottomNav } from '@/components/BottomNav';
 import { SideMenu } from '@/components/SideMenu';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useAppStore } from '@/lib/store';
+import { cn } from '@/lib/utils';
+import { currentGreeting } from '@/lib/greeting';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useIsMobile } from '@/hooks/use-mobile';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
+import bombinoLogo from '@/assets/bombino-logo.png';
 import { fetchMergedShipmentRows, type DisplayRow } from '@/lib/shipmentRows';
 import HomeDesktop from '@/pages/HomeDesktop';
+import { DocPage, DocSection, DocRows } from '@/components/doc/DocPage';
 
 interface HomeNotificationRow {
   id: string;
@@ -21,66 +24,48 @@ interface HomeNotificationRow {
   created_at: string;
 }
 
-function HomeShipmentsSkeleton() {
-  return (
-    <div className="bg-white rounded-xl border border-[rgba(198,40,40,0.08)] p-4 animate-pulse">
-      <div className="flex justify-between items-start">
-        <div className="space-y-2">
-          <div className="h-4 w-32 bg-gray-100 rounded-md" />
-          <div className="h-3 w-20 bg-gray-100 rounded-md" />
-        </div>
-        <div className="h-5 w-14 bg-gray-100 rounded-full" />
-      </div>
-    </div>
-  );
-}
-
-function HomeNotificationsSkeleton() {
-  return (
-    <div className="bg-white rounded-xl border border-[rgba(198,40,40,0.08)] p-4 animate-pulse">
-      <div className="flex items-start gap-3">
-        <div className="w-9 h-9 bg-gray-100 rounded-full shrink-0" />
-        <div className="space-y-2 flex-1">
-          <div className="h-4 w-36 bg-gray-100 rounded-md" />
-          <div className="h-3 w-48 bg-gray-100 rounded-md" />
-        </div>
-      </div>
-    </div>
-  );
-}
+/**
+ * Trust figures, set as a ledger rather than a marketing hero.
+ *
+ * Was three centred display numbers with a shimmer animation — the last block
+ * on this screen still speaking the old language. The figures themselves are
+ * worth keeping for a first-time visitor; the presentation is now the same
+ * mono-and-hairline treatment as everything else, and it sits below the fold.
+ */
+const TRUST_FIGURES = [
+  { value: '30+', unit: 'Years', note: 'Of global logistics excellence' },
+  { value: '140+', unit: 'Kg / hour', note: 'Shipped around the world' },
+  { value: '250+', unit: 'Clients', note: 'Sending and receiving worldwide' },
+] as const;
 
 function WhyBombinoSection() {
   return (
-    <section className="pt-2 text-center" data-testid="zone-trust">
-      <div className="px-1 pb-8">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground/90 mb-1">Why <span className="text-primary">Bombino</span>?</h2>
-        <p className="text-xs text-muted-foreground/90 tracking-wide">Trusted worldwide. Reliable, efficient, premium logistics.</p>
-      </div>
+    <section className="mt-8" data-testid="zone-trust">
+      <div className="doc-rule pt-5">
+        <h2 className="doc-label">Why Bombino</h2>
+        <p className="text-sm text-muted-foreground mt-2">
+          Trusted worldwide. Reliable, efficient, premium logistics.
+        </p>
 
-      <div className="flex flex-wrap justify-center gap-x-8 gap-y-8 sm:gap-x-10">
-        <div className="flex flex-col items-center min-w-0 flex-1 basis-24">
-          <p className="text-[1.625rem] font-bold tabular-nums tracking-tight leading-none text-foreground">
-            <span className="metric-number-shimmer">30+</span>
-          </p>
-          <p className="text-sm font-medium text-gray-500 tracking-tight mt-0.5 min-h-[2.25rem] flex items-center justify-center">Years</p>
-          <p className="text-xs text-muted-foreground mt-3 tracking-wide max-w-[11rem]">Of global logistics excellence</p>
-        </div>
-
-        <div className="flex flex-col items-center min-w-0 flex-1 basis-24">
-          <p className="text-[1.625rem] font-bold tabular-nums tracking-tight leading-none text-foreground">
-            <span className="metric-number-shimmer">140+</span>
-          </p>
-          <p className="text-sm font-medium text-gray-500 tracking-tight mt-0.5 min-h-[2.25rem] flex items-center justify-center">Kilograms</p>
-          <p className="text-xs text-muted-foreground mt-3 tracking-wide max-w-[11rem]">Shipped around the world per hour</p>
-        </div>
-
-        <div className="flex flex-col items-center min-w-0 flex-1 basis-24">
-          <p className="text-[1.625rem] font-bold tabular-nums tracking-tight leading-none text-foreground">
-            <span className="metric-number-shimmer">250+</span>
-          </p>
-          <p className="text-sm font-medium text-gray-500 tracking-tight mt-0.5 min-h-[2.25rem] flex items-center justify-center">Happy Clients</p>
-          <p className="text-xs text-muted-foreground mt-3 tracking-wide max-w-[11rem]">Sending and receiving shipments worldwide</p>
-        </div>
+        <dl className="mt-4">
+          {TRUST_FIGURES.map(({ value, unit, note }, i) => (
+            <div
+              key={unit}
+              className={cn(
+                'flex items-baseline gap-4 py-3',
+                i > 0 && 'border-t border-border',
+              )}
+            >
+              <dt className="doc-mono text-xl font-semibold text-foreground tabular-nums w-16 shrink-0">
+                {value}
+              </dt>
+              <dd className="min-w-0">
+                <span className="doc-label block">{unit}</span>
+                <span className="block text-xs text-muted-foreground mt-0.5">{note}</span>
+              </dd>
+            </div>
+          ))}
+        </dl>
       </div>
     </section>
   );
@@ -166,261 +151,258 @@ function HomeMobile() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-home">
-      <Header onMenuClick={() => setMenuOpen(true)} />
+    <>
       <SideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
 
-      <main className="px-4 py-5 max-w-md mx-auto space-y-7 md:max-w-none md:px-0 md:py-0">
-        {isLoggedIn && (
-          <div className="mb-6">
-            <p className="text-muted-foreground text-sm">
-              Welcome back, <span className="font-semibold text-foreground">{user?.fullName?.split(' ')[0] || user?.email}</span>
-            </p>
+      <DocPage
+        /* Who you are signed in as belongs in the chrome, not as a block of
+           page content pushing the primary task down. Falls back to the
+           product name when signed out, where there is no name to greet. */
+        eyebrow={isLoggedIn ? currentGreeting() : undefined}
+        title={
+          isLoggedIn ? (
+            user?.fullName?.split(' ')[0] || user?.email || 'Account'
+          ) : (
+            /* Signed out there is no name to show, so the mark speaks instead
+               of setting the product name in a nav-bar label. */
+            <img
+              src={bombinoLogo}
+              alt="Bombino Express"
+              className="h-9 w-auto object-contain"
+            />
+          )
+        }
+        onMenuClick={() => setMenuOpen(true)}
+        testId="screen-home"
+        headerRight={
+          <Link
+            href="/notifications"
+            className="tap-target focus-ring hover:bg-muted transition-colors"
+            style={{ borderRadius: 'var(--doc-radius)' }}
+            aria-label="Notifications"
+          >
+            <Bell className="w-5 h-5" />
+          </Link>
+        }
+      >
+        {/* The screen's one emphasis panel. Tracking is the most frequent task
+            a courier customer has, and the flat treatment gave it no more
+            weight than the footer. Same panel shape customers already know
+            from the previous hero, minus the gradient and blur shadow. */}
+        <div className="doc-panel" data-testid="zone-hero">
+          <h2 className="doc-label">Track any order</h2>
+          <p className="text-sm text-muted-foreground mt-1.5">
+            Enter an AWB number for live status.
+          </p>
+          <div className="flex gap-2 mt-3">
+            <div
+              className="flex flex-1 items-stretch border border-border bg-card focus-within:border-accent transition-colors min-w-0"
+              style={{ borderRadius: 'var(--doc-radius)' }}
+            >
+              <span className="flex items-center pl-3 text-muted-foreground">
+                <Search className="w-4 h-4" />
+              </span>
+              <Input
+                value={trackingNumber}
+                onChange={(e) => setTrackingNumber(e.target.value)}
+                placeholder="AWB number"
+                className="doc-mono h-12 flex-1 min-w-0 border-0 bg-transparent text-sm shadow-none focus-visible:ring-0 rounded-none"
+                onKeyDown={(e) => e.key === 'Enter' && handleTrack()}
+                data-testid="input-tracking"
+              />
+            </div>
+            {/* .doc-btn is the full-width stamped CTA — it applies w-full,
+                which starved the input beside it. This one sizes to content. */}
+            <Button
+              onClick={handleTrack}
+              disabled={!trackingNumber.trim()}
+              className="doc-btn-cta h-12 px-5 shrink-0 text-xs uppercase tracking-[0.1em]"
+              data-testid="button-track"
+            >
+              Track
+            </Button>
           </div>
-        )}
+        </div>
 
-        {/* ZONE 1: Hero - Track Shipment (Primary Action) */}
-        <div 
-          className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary/8 via-primary/4 to-transparent border border-primary/10 p-5 shadow-[0_8px_32px_rgba(198,40,40,0.10)] md:py-8 md:px-8"
-          data-testid="zone-hero"
-        >
-          <div className="relative z-10">
-            <h1 className="text-lg font-semibold text-foreground mb-1 md:text-2xl md:font-bold md:mb-2">Track Any Order</h1>
-            <p className="text-sm text-muted-foreground mb-4">Enter AWB number to get real-time status</p>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  value={trackingNumber}
-                  onChange={(e) => setTrackingNumber(e.target.value)}
-                  placeholder="e.g. BMB123456789"
-                  className="h-12 pl-10 text-sm bg-white border-border rounded-xl shadow-sm md:h-14 md:text-base md:pl-12"
-                  onKeyDown={(e) => e.key === 'Enter' && handleTrack()}
-                  data-testid="input-tracking"
-                />
-              </div>
-              <Button
-                onClick={handleTrack}
-                className="h-12 px-5 bg-primary hover:bg-primary/90 rounded-xl shadow-lg shadow-primary/25 active:scale-[0.97] transition-all font-semibold md:h-14 md:px-8 md:text-base"
-                data-testid="button-track"
+        {/* Two tiles rather than ruled rows: these are alternatives of equal
+            weight, and a list would imply an order between them. */}
+        <DocSection label="Quick actions">
+          <div className="flex gap-2.5" data-testid="zone-actions">
+            <Link href="/rates" className="doc-tile focus-ring" data-testid="button-get-rates">
+              <span className="doc-tile-icon">
+                <BadgeDollarSign className="w-[18px] h-[18px]" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-foreground">Get rates</span>
+                <span className="block text-[11px] text-muted-foreground mt-0.5">Check costs</span>
+              </span>
+            </Link>
+            <Link href="/create" className="doc-tile focus-ring" data-testid="button-ship">
+              <span className="doc-tile-icon">
+                <Send className="w-[18px] h-[18px]" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-foreground">Ship now</span>
+                <span className="block text-[11px] text-muted-foreground mt-0.5">
+                  Create shipment
+                </span>
+              </span>
+            </Link>
+          </div>
+        </DocSection>
+
+        {isLoggedIn && !shipmentsError && (
+          <DocSection label="My shipments" action={{ label: 'View all', href: '/orders' }}>
+            {shipmentsLoading ? (
+              <DocRows>
+                <div className="doc-choice animate-pulse">
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3.5 w-32 bg-muted rounded" />
+                    <div className="h-3 w-20 bg-muted rounded" />
+                  </div>
+                </div>
+                <div className="doc-choice animate-pulse">
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3.5 w-28 bg-muted rounded" />
+                    <div className="h-3 w-24 bg-muted rounded" />
+                  </div>
+                </div>
+              </DocRows>
+            ) : userShipments.length > 0 ? (
+              <DocRows>
+                {userShipments.map((row) => {
+                  const dest = [row.city, row.country].filter(Boolean).join(', ') || '—';
+                  return (
+                    <Link
+                      key={row.key}
+                      href={`${row.isOrder ? '/order' : '/shipment'}/${encodeURIComponent(row.displayId)}`}
+                      className="doc-choice focus-ring"
+                      data-testid={`shipment-card-${row.displayId}`}
+                    >
+                      <span className="flex-1 min-w-0">
+                        <span className="flex items-center gap-2">
+                          {row.isOrder && <span className="doc-label text-[9px]">Order</span>}
+                          <span className="doc-mono text-sm font-semibold text-foreground">
+                            {row.displayId}
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                          <span className="truncate">{dest}</span>
+                          {row.amountStr && (
+                            <>
+                              <span className="text-border">·</span>
+                              <span className="doc-mono">{row.amountStr}</span>
+                            </>
+                          )}
+                        </span>
+                      </span>
+                      <StatusBadge status={row.statusLabel} tone={row.statusTone} />
+                    </Link>
+                  );
+                })}
+              </DocRows>
+            ) : (
+              <p
+                className="text-sm text-muted-foreground py-6 text-center border border-border"
+                style={{ borderRadius: 'var(--doc-radius)' }}
               >
-                Track
-                <ArrowRight className="w-4 h-4 ml-1" />
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* ZONE 2: Action Strip - Core Actions */}
-        <div className="flex gap-3" data-testid="zone-actions">
-          <Link
-            href="/rates"
-            className="flex-1 flex items-center gap-3 p-4 card-elevated active:scale-[0.98] transition-transform md:py-6 md:px-6 md:gap-4 md:rounded-2xl"
-            data-testid="button-get-rates"
-          >
-            <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center flex-shrink-0 md:w-14 md:h-14 md:rounded-2xl">
-              <BadgeDollarSign className="w-5 h-5 text-amber-600 md:w-7 md:h-7" />
-            </div>
-            <div>
-              <p className="font-medium text-sm text-foreground md:text-base md:font-semibold">Get Rates</p>
-              <p className="text-[11px] text-muted-foreground md:text-sm md:mt-1">Check costs</p>
-            </div>
-          </Link>
-
-          <Link
-            href="/create"
-            className="flex-1 flex items-center gap-3 p-4 card-elevated active:scale-[0.98] transition-transform md:py-6 md:px-6 md:gap-4 md:rounded-2xl"
-            data-testid="button-ship"
-          >
-            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 md:w-14 md:h-14 md:rounded-2xl">
-              <Send className="w-5 h-5 text-primary md:w-7 md:h-7" />
-            </div>
-            <div>
-              <p className="font-medium text-sm text-foreground md:text-base md:font-semibold">Ship Now</p>
-              <p className="text-[11px] text-muted-foreground md:text-sm md:mt-1">Create shipment</p>
-            </div>
-          </Link>
-        </div>
-
-        {/* ZONE 3: Auth Banner (Guest Only) */}
-        {!isLoggedIn && (
-          <div className="flex items-center justify-between py-4 px-1" data-testid="zone-auth">
-            <p className="text-sm text-muted-foreground">Sign in to manage your shipments</p>
-            <div className="flex gap-2.5">
-              <Link href="/login">
-                <Button size="sm" className="h-9 px-4 bg-primary hover:bg-primary/90 rounded-xl text-xs font-medium shadow-[0_2px_8px_rgba(198,40,40,0.2)]" data-testid="button-login">
-                  Login
-                </Button>
-              </Link>
-              <Link href="/signup">
-                <Button size="sm" variant="outline" className="h-9 px-4 rounded-xl text-xs font-medium border-border text-foreground hover:bg-muted/80" data-testid="button-signup">
-                  Sign Up
-                </Button>
-              </Link>
-            </div>
-          </div>
+                No shipments yet
+              </p>
+            )}
+          </DocSection>
         )}
 
-        {/* ZONE 4: Support + Trust (Guest Only) */}
+        {isLoggedIn && !notificationsError && (
+          <DocSection label="Recent updates" action={{ label: 'View all', href: '/notifications' }}>
+            {userNotifications.length > 0 ? (
+              <DocRows>
+                {userNotifications.map((notif) => (
+                  <div key={notif.id} className="doc-choice" data-testid={`notification-${notif.id}`}>
+                    <Bell className="w-[18px] h-[18px] text-accent shrink-0 mt-0.5" />
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-semibold text-foreground">
+                        {notif.title ?? ''}
+                      </span>
+                      <span className="block text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                        {notif.body ?? ''}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </DocRows>
+            ) : (
+              <p
+                className="text-sm text-muted-foreground py-6 text-center border border-border"
+                style={{ borderRadius: 'var(--doc-radius)' }}
+              >
+                No recent updates
+              </p>
+            )}
+          </DocSection>
+        )}
+
+        {/* Signed out: the ask, then support, then the marketing block last.
+            It used to sit above the fold on the screen people open most. */}
         {!isLoggedIn && (
           <>
-            {/* Support Pills - refined */}
-            <div className="flex gap-3" data-testid="zone-support">
-              <a
-                href="https://api.whatsapp.com/send?phone=917045999553"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-green-700 text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-green-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
-                data-testid="button-whatsapp-home"
-              >
-                <img src={whatsAppLogo} alt="WhatsApp" className="w-4 h-4 object-contain" />
-                WhatsApp
-              </a>
-              <a
-                href="tel:+912266400000"
-                className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-foreground text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-primary/20 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
-                data-testid="button-call-home"
-              >
-                <Phone className="w-4 h-4 text-muted-foreground" />
-                Call Us
-              </a>
+            <div className="doc-rule mt-8 pt-5">
+              <p className="text-sm text-muted-foreground">
+                Sign in to see your shipments and book a pickup.
+              </p>
+              <div className="flex items-center gap-2 mt-3">
+                <Link href="/login" className="flex-1">
+                  <Button className="doc-btn-cta w-full h-11" data-testid="button-login">
+                    Sign in
+                  </Button>
+                </Link>
+                <Link href="/signup" className="flex-1">
+                  <Button className="doc-btn-quiet w-full h-11" data-testid="button-signup">
+                    Create account
+                  </Button>
+                </Link>
+              </div>
             </div>
+
+            <DocSection label="Need a hand?">
+              <DocRows>
+                <a
+                  href="https://api.whatsapp.com/send?phone=917045999553"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="doc-choice focus-ring"
+                  data-testid="button-whatsapp-home"
+                >
+                  <img
+                    src={whatsAppLogo}
+                    alt=""
+                    className="w-[18px] h-[18px] object-contain shrink-0 mt-0.5"
+                  />
+                  <span className="flex-1 text-sm font-semibold text-foreground">WhatsApp us</span>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                </a>
+                <a
+                  href="tel:+912266400000"
+                  className="doc-choice focus-ring"
+                  data-testid="button-call-home"
+                >
+                  <Phone className="w-[18px] h-[18px] text-accent shrink-0 mt-0.5" />
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm font-semibold text-foreground">Call us</span>
+                    <span className="doc-mono block text-xs text-muted-foreground mt-0.5">
+                      +91 22 6640 0000
+                    </span>
+                  </span>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                </a>
+              </DocRows>
+            </DocSection>
 
             <WhyBombinoSection />
           </>
         )}
-
-        {isLoggedIn && (
-          <div className="space-y-7 md:space-y-0 md:grid md:grid-cols-[1fr_320px] md:gap-8 md:items-start">
-            <div className="space-y-7">
-              {!shipmentsError && (
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <h2 className="text-sm font-medium text-foreground md:text-base md:font-semibold">My Shipments</h2>
-                    <Link href="/orders" className="text-xs text-[#FBAD1F] font-medium flex items-center gap-0.5 hover:underline">
-                      View all <ChevronRight className="w-3 h-3" />
-                    </Link>
-                  </div>
-
-                  <div className="hidden md:grid md:grid-cols-[2fr_1fr_auto_auto] md:gap-4 md:px-4 md:py-2 md:text-xs md:font-medium md:text-muted-foreground md:border-b md:border-border">
-                    <span>AWB Number</span>
-                    <span>Destination</span>
-                    <span className="text-right">Amount</span>
-                    <span>Status</span>
-                  </div>
-
-                  <div className="space-y-2 md:space-y-0">
-                    {shipmentsLoading && (
-                      <>
-                        <HomeShipmentsSkeleton />
-                        <HomeShipmentsSkeleton />
-                      </>
-                    )}
-                    {!shipmentsLoading &&
-                      userShipments.length > 0 &&
-                      userShipments.map((row) => {
-                        const dest = [row.city, row.country].filter(Boolean).join(', ') || '—';
-                        const rowClassName =
-                          'block card-accent hover:border-primary/25 active:scale-[0.99] transition-all md:grid md:grid-cols-[2fr_1fr_auto_auto] md:gap-4 md:items-center md:rounded-none md:border-0 md:border-b md:border-border md:shadow-none md:px-4 md:py-3';
-                        const content = (
-                          <>
-                            <div className="flex items-center justify-between mb-1 md:mb-0">
-                              <span className="text-sm font-semibold tabular-nums tracking-[0.02em] text-foreground">
-                                {row.isOrder && (
-                                  <span className="mr-1.5 text-[9px] font-bold uppercase tracking-[0.08em] text-muted-foreground bg-muted px-1.5 py-0.5 rounded align-middle">
-                                    Order
-                                  </span>
-                                )}
-                                {row.displayId}
-                              </span>
-                              <StatusBadge className="md:hidden" status={row.statusLabel} tone={row.statusTone} />
-                            </div>
-                            <div className="flex items-center justify-between text-xs text-muted-foreground md:contents">
-                              <span className="md:text-sm">{dest}</span>
-                              <span className="md:text-sm md:text-right">{row.amountStr ?? '—'}</span>
-                            </div>
-                            <StatusBadge
-                              className="hidden md:flex md:shrink-0"
-                              status={row.statusLabel}
-                              tone={row.statusTone}
-                            />
-                          </>
-                        );
-                        return (
-                          <Link
-                            key={row.key}
-                            href={`${row.isOrder ? '/order' : '/shipment'}/${encodeURIComponent(row.displayId)}`}
-                            className={rowClassName}
-                            data-testid={`shipment-card-${row.displayId}`}
-                          >
-                            {content}
-                          </Link>
-                        );
-                      })}
-                    {!shipmentsLoading && shipmentRows.length === 0 && (
-                      <div className="card-elevated flex items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
-                        No shipments yet
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-              <div className="hidden md:block">
-                <WhyBombinoSection />
-              </div>
-            </div>
-
-            <div>
-              {!notificationsError && (
-                <div className="md:sticky md:top-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h2 className="text-sm font-medium text-foreground md:text-base md:font-semibold">Recent Updates</h2>
-                    <Link href="/notifications" className="text-xs text-[#FBAD1F] font-medium flex items-center gap-0.5 hover:underline">
-                      View all <ChevronRight className="w-3 h-3" />
-                    </Link>
-                  </div>
-                  <div className="space-y-2">
-                    {shipmentsLoading && (
-                      <>
-                        <HomeNotificationsSkeleton />
-                        <HomeNotificationsSkeleton />
-                      </>
-                    )}
-                    {!shipmentsLoading &&
-                      userNotifications.length > 0 &&
-                      userNotifications.map((notif) => (
-                        <div
-                          key={notif.id}
-                          className="flex items-start gap-3 card-accent"
-                          data-testid={`notification-${notif.id}`}
-                        >
-                          <div className="rounded-full bg-primary/8 p-2 flex items-center justify-center flex-shrink-0">
-                            <Bell className="w-4 h-4 text-primary" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm text-foreground">{notif.title ?? ''}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{notif.body ?? ''}</p>
-                          </div>
-                        </div>
-                      ))}
-                    {!shipmentsLoading && apiNotifications.length === 0 && (
-                      <div className="card-elevated flex items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
-                        No recent updates
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="md:hidden">
-          {isLoggedIn && <WhyBombinoSection />}
-        </div>
-      </main>
+      </DocPage>
 
       <BottomNav />
-    </div>
+    </>
   );
 }

@@ -140,7 +140,7 @@ function Section({
     <section className="pt-6 mt-6 border-t border-border first:mt-0 first:pt-0 first:border-t-0">
       <div className="flex items-center justify-between gap-3 mb-3.5">
         <h2 className="inline-flex items-center gap-2 text-[11px] font-bold tracking-[0.12em] uppercase text-muted-foreground">
-          <Icon className="w-3.5 h-3.5 text-[#F2A123]" />
+          <Icon className="w-3.5 h-3.5 text-accent" />
           {title}
         </h2>
         {action}
@@ -208,7 +208,7 @@ function UpdatesTimeline({ events }: { events: OrderDetailEvent[] }) {
                 className={cn(
                   'h-3 w-3 rounded-full border-2 shrink-0',
                   isLatest
-                    ? 'border-[#F2A123] bg-[#F2A123]'
+                    ? 'border-accent bg-accent'
                     : 'border-muted-foreground/40 bg-muted'
                 )}
               />
@@ -442,8 +442,8 @@ export default function OrderDetails() {
             {agent ? (
               <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-white p-3.5 mb-5">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-full bg-[#F2A123]/15 flex items-center justify-center shrink-0">
-                    <User className="w-4 h-4 text-[#F2A123]" />
+                  <div className="w-9 h-9 rounded-full bg-accent/15 flex items-center justify-center shrink-0">
+                    <User className="w-4 h-4 text-accent" />
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-foreground truncate">

@@ -48,7 +48,7 @@ function Greeting({ firstName }: { firstName?: string | null }) {
       </div>
       <Link
         href="/create"
-        className="h-9 px-3 inline-flex items-center gap-2 text-xs font-semibold rounded-lg bg-[lab(34.0831_-9.57756_-27.7093)] text-white hover:bg-[#2F4468] transition-colors"
+        className="doc-btn-cta h-9 px-3 inline-flex items-center gap-2 text-xs"
       >
         <ArrowRight className="w-3.5 h-3.5" />
         New shipment
@@ -70,11 +70,11 @@ function TrackBar({
   recent: string[];
 }) {
   return (
-    <div className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] p-1.5 flex items-center gap-2">
-      <div className="flex items-center gap-2 px-3 text-[11px] font-semibold tracking-[0.12em] text-[#F2A123] uppercase border-r border-[#E2E8F0] pr-4 ml-2">
+    <div className="rounded-2xl bg-white border border-border shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] p-1.5 flex items-center gap-2">
+      <div className="flex items-center gap-2 px-3 text-[11px] font-semibold tracking-[0.12em] text-accent uppercase border-r border-border pr-4 ml-2">
         <span className="relative flex h-1.5 w-1.5">
-          <span className="absolute inline-flex h-full w-full rounded-full bg-[#F2A123] opacity-60 animate-ping" />
-          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#F2A123]" />
+          <span className="absolute inline-flex h-full w-full rounded-full bg-accent opacity-60 animate-ping" />
+          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-accent" />
         </span>
         Track
       </div>
@@ -91,13 +91,13 @@ function TrackBar({
         />
       </div>
       {recent.length > 0 && (
-        <div className="hidden lg:flex items-center gap-1.5 pr-2 border-r border-[#E2E8F0] pl-2">
+        <div className="hidden lg:flex items-center gap-1.5 pr-2 border-r border-border pl-2">
           <span className="text-[11px] text-muted-foreground mr-1">Recent:</span>
           {recent.slice(0, 2).map((awb) => (
             <button
               key={awb}
               onClick={() => onTrack(awb)}
-              className="px-2.5 h-7 rounded-md bg-[#F3F4F6] hover:bg-[#E2E8F0] text-[11px] font-semibold tabular-nums text-foreground/80 transition-colors"
+              className="px-2.5 h-7 rounded-md bg-muted hover:bg-[#E2E8F0] text-[11px] font-semibold tabular-nums text-foreground/80 transition-colors"
               data-testid={`recent-awb-${awb}`}
             >
               {awb}
@@ -107,7 +107,7 @@ function TrackBar({
       )}
       <button
         onClick={() => onTrack()}
-        className="h-11 px-6 inline-flex items-center gap-2 text-sm font-semibold rounded-xl bg-[lab(34.0831_-9.57756_-27.7093)] text-white hover:bg-[#2F4468] transition-colors"
+        className="doc-btn-cta h-11 px-6 inline-flex items-center gap-2 text-sm"
         data-testid="button-track"
       >
         Track
@@ -124,16 +124,16 @@ function ActionCards() {
       {/* Get Rates */}
       <Link
         href="/rates"
-        className="group relative rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] hover:shadow-[0_6px_24px_lab(34.0831_-9.57756_-27.7093_/_0.10),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05)] transition-all overflow-hidden"
+        className="group relative rounded-2xl bg-white border border-border shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] hover:shadow-[0_6px_24px_lab(34.0831_-9.57756_-27.7093_/_0.10),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05)] transition-all overflow-hidden"
         data-testid="card-get-rates"
       >
         <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-[#FFF6E5] to-transparent pointer-events-none" />
         <div className="relative p-6">
           <div className="flex items-start justify-between mb-5">
-            <div className="w-12 h-12 rounded-2xl bg-[#F2A123]/15 flex items-center justify-center">
-              <BadgeDollarSign className="w-[22px] h-[22px] text-[#F2A123]" />
+            <div className="w-12 h-12 rounded-2xl bg-accent/15 flex items-center justify-center">
+              <BadgeDollarSign className="w-[22px] h-[22px] text-accent" />
             </div>
-            <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-[#F2A123] bg-[#FFF6E5] px-2.5 py-1 rounded-full">
+            <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-accent bg-[#FFF6E5] px-2.5 py-1 rounded-full">
               Most used
             </span>
           </div>
@@ -146,17 +146,17 @@ function ActionCards() {
             {['IN → US', 'IN → UK', 'IN → AE', 'IN → CA'].map((r) => (
               <span
                 key={r}
-                className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md bg-[#F3F4F6] text-foreground/70 group-hover:bg-[#FFF6E5] group-hover:text-foreground transition-colors"
+                className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md bg-muted text-foreground/70 group-hover:bg-[#FFF6E5] group-hover:text-foreground transition-colors"
               >
                 {r}
               </span>
             ))}
-            <span className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md bg-[#F3F4F6] text-muted-foreground">
+            <span className="text-[11px] font-semibold px-2.5 py-1.5 rounded-md bg-muted text-muted-foreground">
               + custom route
             </span>
           </div>
 
-          <div className="mt-6 pt-5 border-t border-[#E2E8F0] flex items-center justify-between">
+          <div className="mt-6 pt-5 border-t border-border flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div>
                 <p className="text-[10px] font-semibold tracking-[0.12em] uppercase text-muted-foreground/80">
@@ -172,7 +172,7 @@ function ActionCards() {
                 <p className="text-sm font-bold tabular-nums mt-0.5">3–5 days</p>
               </div>
             </div>
-            <span className="inline-flex items-center gap-1 text-xs font-semibold text-foreground group-hover:text-[#F2A123] transition-colors">
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-foreground group-hover:text-accent transition-colors">
               Calculate
               <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
             </span>
@@ -195,8 +195,8 @@ function ActionCards() {
         />
         <div className="relative p-6">
           <div className="flex items-start justify-between mb-5">
-            <div className="w-12 h-12 rounded-2xl bg-[#F2A123] flex items-center justify-center">
-              <Send className="w-[22px] h-[22px] text-[lab(34.0831_-9.57756_-27.7093)]" />
+            <div className="w-12 h-12 rounded-2xl bg-accent flex items-center justify-center">
+              <Send className="w-[22px] h-[22px] text-foreground" />
             </div>
             <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-white/70 bg-gradient-to-r from-white/[0.12] to-white/[0.06] border border-white/15 px-2.5 py-1 rounded-full">
               3-step flow
@@ -217,7 +217,7 @@ function ActionCards() {
                 <div
                   className={
                     s.on
-                      ? 'w-5 h-5 rounded-full bg-[#F2A123] text-[lab(34.0831_-9.57756_-27.7093)] text-[10px] font-bold flex items-center justify-center'
+                      ? 'w-5 h-5 rounded-full bg-accent text-foreground text-[10px] font-bold flex items-center justify-center'
                       : 'w-5 h-5 rounded-full bg-white/12 text-white/60 text-[10px] font-bold flex items-center justify-center'
                   }
                 >
@@ -243,7 +243,7 @@ function ActionCards() {
                 <p className="text-sm font-bold mt-0.5">150+ countries</p>
               </div>
             </div>
-            <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#F2A123]">
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-accent">
               Create shipment
               <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
             </span>
@@ -257,15 +257,15 @@ function ActionCards() {
 // ─── Popular routes ───
 function PopularRoutes() {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
-      <div className="px-6 py-4 flex items-center justify-between border-b border-[#E2E8F0]">
+    <section className="rounded-2xl bg-white border border-border shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
+      <div className="px-6 py-4 flex items-center justify-between border-b border-border">
         <div>
           <h3 className="text-sm font-bold tracking-tight text-foreground">Popular routes this week</h3>
           <p className="text-xs text-muted-foreground mt-0.5">Most-quoted destinations from India.</p>
         </div>
         <Link
           href="/rates"
-          className="text-xs font-semibold text-[#F2A123] inline-flex items-center gap-1 hover:underline"
+          className="text-xs font-semibold text-accent inline-flex items-center gap-1 hover:underline"
         >
           View all rates <ChevronRight className="w-3 h-3" />
         </Link>
@@ -275,12 +275,12 @@ function PopularRoutes() {
           <Link
             key={r.label}
             href="/rates"
-            className="group p-5 hover:bg-[#F8F9FA] transition-colors"
+            className="group p-5 hover:bg-background transition-colors"
             data-testid={`popular-route-${r.label}`}
           >
             <div className="flex items-center gap-2 mb-3">
               <span className="text-[22px] leading-none">{r.from}</span>
-              <svg width="22" height="10" viewBox="0 0 22 10" className="text-[#F2A123]">
+              <svg width="22" height="10" viewBox="0 0 22 10" className="text-accent">
                 <line x1="2" y1="5" x2="18" y2="5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 6" />
                 <path d="M16 1l4 4-4 4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -316,7 +316,7 @@ function StatsBand() {
       />
       <div className="relative px-7 py-7 flex items-center gap-8">
         <div className="flex-shrink-0 max-w-[200px]">
-          <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#F2A123]/90">Bombino at a glance</p>
+          <p className="text-[10px] font-bold tracking-[0.18em] uppercase text-accent/90">Bombino at a glance</p>
           <h3 className="text-xl font-bold tracking-tight mt-2 leading-tight">
             Operating worldwide since <span className="tabular-nums">1995</span>.
           </h3>
@@ -347,7 +347,7 @@ function StatsBand() {
 // ─── Support widget (right rail) ───
 function SupportWidget() {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-border shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
       <div className="px-5 pt-5 pb-3 flex items-center justify-between">
         <h3 className="text-sm font-bold tracking-tight text-foreground">Need to talk to us?</h3>
         <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
@@ -360,7 +360,7 @@ function SupportWidget() {
           href="https://api.whatsapp.com/send?phone=917045999553"
           target="_blank"
           rel="noopener noreferrer"
-          className="group flex items-center gap-3 p-3 rounded-xl border border-[#E2E8F0] hover:border-emerald-200 hover:bg-emerald-50/50 transition-colors"
+          className="group flex items-center gap-3 p-3 rounded-xl border border-border hover:border-emerald-200 hover:bg-emerald-50/50 transition-colors"
           data-testid="button-whatsapp-desktop"
         >
           <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
@@ -374,11 +374,11 @@ function SupportWidget() {
         </a>
         <a
           href="tel:+912266400000"
-          className="group flex items-center gap-3 p-3 rounded-xl border border-[#E2E8F0] hover:border-[lab(34.0831_-9.57756_-27.7093)]/30 hover:bg-[#F8F9FA] transition-colors"
+          className="group flex items-center gap-3 p-3 rounded-xl border border-border hover:border-[lab(34.0831_-9.57756_-27.7093)]/30 hover:bg-background transition-colors"
           data-testid="button-call-desktop"
         >
-          <div className="w-9 h-9 rounded-xl bg-[#F3F4F6] flex items-center justify-center flex-shrink-0">
-            <Phone className="w-4 h-4 text-[lab(34.0831_-9.57756_-27.7093)]" />
+          <div className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
+            <Phone className="w-4 h-4 text-foreground" />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold leading-tight text-foreground">Call us</p>
@@ -386,9 +386,9 @@ function SupportWidget() {
           </div>
           <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
         </a>
-        <div className="pt-3 mt-2 border-t border-[#E2E8F0] flex items-center justify-between text-[11px]">
+        <div className="pt-3 mt-2 border-t border-border flex items-center justify-between text-[11px]">
           <span className="text-muted-foreground">Mon–Sat, 9:00 AM – 7:00 PM IST</span>
-          <Link href="/help" className="text-[#F2A123] font-semibold hover:underline">
+          <Link href="/help" className="text-accent font-semibold hover:underline">
             Help &amp; FAQ →
           </Link>
         </div>
@@ -414,7 +414,7 @@ function KycHomeTip() {
             </p>
             <Link
               href="/profile#kyc"
-              className="text-[11px] font-semibold text-[#F2A123] hover:underline mt-1 inline-block"
+              className="text-[11px] font-semibold text-accent hover:underline mt-1 inline-block"
               data-testid="tip-kyc-manage"
             >
               Manage document →
@@ -426,9 +426,9 @@ function KycHomeTip() {
   }
 
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-sm p-4">
+    <section className="rounded-2xl bg-white border border-border shadow-sm p-4">
       <div className="flex items-start gap-3">
-        <div className="w-8 h-8 rounded-lg bg-[#FFF6E5] text-[#F2A123] flex items-center justify-center flex-shrink-0">
+        <div className="w-8 h-8 rounded-lg bg-[#FFF6E5] text-accent flex items-center justify-center flex-shrink-0">
           <ShieldCheck className="w-4 h-4" />
         </div>
         <div className="min-w-0 flex-1">
@@ -438,7 +438,7 @@ function KycHomeTip() {
           </p>
           <Link
             href="/profile#kyc"
-            className="text-[11px] font-semibold text-[#F2A123] hover:underline mt-1 inline-block"
+            className="text-[11px] font-semibold text-accent hover:underline mt-1 inline-block"
             data-testid="tip-kyc-upload"
           >
             Upload in profile →
@@ -452,14 +452,14 @@ function KycHomeTip() {
 // ─── Tips widget (right rail, guest / pre-KYC users) ───
 function TipsWidget() {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-border shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
       <div className="px-5 pt-5 pb-3 flex items-center justify-between">
         <h3 className="text-sm font-bold tracking-tight text-foreground">Before you ship</h3>
         <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">3 steps</span>
       </div>
       <ul className="px-5 pb-5 space-y-3">
         <li className="flex items-start gap-3">
-          <div className="w-7 h-7 rounded-lg bg-[#FFF6E5] text-[#F2A123] flex items-center justify-center flex-shrink-0">
+          <div className="w-7 h-7 rounded-lg bg-[#FFF6E5] text-accent flex items-center justify-center flex-shrink-0">
             <ShieldCheck className="w-3.5 h-3.5" />
           </div>
           <div className="min-w-0 flex-1">
@@ -469,15 +469,15 @@ function TipsWidget() {
             </p>
             <Link
               href="/login?redirect=/profile%23kyc"
-              className="text-[11px] font-semibold text-[#F2A123] hover:underline mt-1 inline-block"
+              className="text-[11px] font-semibold text-accent hover:underline mt-1 inline-block"
               data-testid="tip-kyc"
             >
               Sign in to upload →
             </Link>
           </div>
         </li>
-        <li className="flex items-start gap-3 pt-3 border-t border-[#E2E8F0]">
-          <div className="w-7 h-7 rounded-lg bg-[#F3F4F6] text-foreground/70 flex items-center justify-center flex-shrink-0">
+        <li className="flex items-start gap-3 pt-3 border-t border-border">
+          <div className="w-7 h-7 rounded-lg bg-muted text-foreground/70 flex items-center justify-center flex-shrink-0">
             <AlertTriangle className="w-3.5 h-3.5" />
           </div>
           <div className="min-w-0 flex-1">
@@ -487,15 +487,15 @@ function TipsWidget() {
             </p>
             <Link
               href="/help"
-              className="text-[11px] font-semibold text-[#F2A123] hover:underline mt-1 inline-block"
+              className="text-[11px] font-semibold text-accent hover:underline mt-1 inline-block"
               data-testid="tip-prohibited"
             >
               See the list →
             </Link>
           </div>
         </li>
-        <li className="flex items-start gap-3 pt-3 border-t border-[#E2E8F0]">
-          <div className="w-7 h-7 rounded-lg bg-[#F3F4F6] text-foreground/70 flex items-center justify-center flex-shrink-0">
+        <li className="flex items-start gap-3 pt-3 border-t border-border">
+          <div className="w-7 h-7 rounded-lg bg-muted text-foreground/70 flex items-center justify-center flex-shrink-0">
             <PackageOpen className="w-3.5 h-3.5" />
           </div>
           <div className="min-w-0 flex-1">
@@ -505,7 +505,7 @@ function TipsWidget() {
             </p>
             <Link
               href="/help"
-              className="text-[11px] font-semibold text-[#F2A123] hover:underline mt-1 inline-block"
+              className="text-[11px] font-semibold text-accent hover:underline mt-1 inline-block"
               data-testid="tip-packing"
             >
               Packing guide →
@@ -526,12 +526,12 @@ function RecentUpdates({
   loading: boolean;
 }) {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-border shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
       <div className="px-5 pt-5 pb-3 flex items-center justify-between">
         <h3 className="text-sm font-bold tracking-tight text-foreground">Recent updates</h3>
         <Link
           href="/notifications"
-          className="text-xs font-semibold text-[#F2A123] inline-flex items-center gap-1 hover:underline"
+          className="text-xs font-semibold text-accent inline-flex items-center gap-1 hover:underline"
         >
           View all <ChevronRight className="w-3 h-3" />
         </Link>
@@ -540,17 +540,17 @@ function RecentUpdates({
         {loading && (
           <>
             <li className="flex items-start gap-3 animate-pulse">
-              <div className="w-7 h-7 rounded-lg bg-[#F3F4F6] flex-shrink-0" />
+              <div className="w-7 h-7 rounded-lg bg-muted flex-shrink-0" />
               <div className="flex-1 space-y-2">
-                <div className="h-3 w-2/3 bg-[#F3F4F6] rounded" />
-                <div className="h-2.5 w-1/2 bg-[#F3F4F6] rounded" />
+                <div className="h-3 w-2/3 bg-muted rounded" />
+                <div className="h-2.5 w-1/2 bg-muted rounded" />
               </div>
             </li>
             <li className="flex items-start gap-3 animate-pulse">
-              <div className="w-7 h-7 rounded-lg bg-[#F3F4F6] flex-shrink-0" />
+              <div className="w-7 h-7 rounded-lg bg-muted flex-shrink-0" />
               <div className="flex-1 space-y-2">
-                <div className="h-3 w-2/3 bg-[#F3F4F6] rounded" />
-                <div className="h-2.5 w-1/2 bg-[#F3F4F6] rounded" />
+                <div className="h-3 w-2/3 bg-muted rounded" />
+                <div className="h-2.5 w-1/2 bg-muted rounded" />
               </div>
             </li>
           </>
@@ -561,7 +561,7 @@ function RecentUpdates({
         {!loading &&
           notifications.slice(0, 4).map((n) => (
             <li key={n.id} className="flex items-start gap-3 text-xs" data-testid={`notification-${n.id}`}>
-              <div className="w-7 h-7 rounded-lg bg-[#FFF6E5] text-[#F2A123] flex items-center justify-center flex-shrink-0">
+              <div className="w-7 h-7 rounded-lg bg-[#FFF6E5] text-accent flex items-center justify-center flex-shrink-0">
                 <Bell className="w-3.5 h-3.5" />
               </div>
               <div className="min-w-0 flex-1">
@@ -586,20 +586,20 @@ function MyShipmentsTable({
   loading: boolean;
 }) {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
-      <div className="px-6 py-4 flex items-center justify-between border-b border-[#E2E8F0]">
+    <section className="rounded-2xl bg-white border border-border shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
+      <div className="px-6 py-4 flex items-center justify-between border-b border-border">
         <div>
           <h3 className="text-sm font-bold tracking-tight text-foreground">My shipments</h3>
           <p className="text-xs text-muted-foreground mt-0.5">Your most recent orders.</p>
         </div>
         <Link
           href="/orders"
-          className="text-xs font-semibold text-[#F2A123] inline-flex items-center gap-1 hover:underline"
+          className="text-xs font-semibold text-accent inline-flex items-center gap-1 hover:underline"
         >
           View all <ChevronRight className="w-3 h-3" />
         </Link>
       </div>
-      <div className="grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-2.5 text-[10px] font-bold tracking-[0.12em] uppercase text-muted-foreground border-b border-[#E2E8F0] bg-[#F8F9FA]">
+      <div className="grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-2.5 text-[10px] font-bold tracking-[0.12em] uppercase text-muted-foreground border-b border-border bg-background">
         <span>AWB / Order number</span>
         <span>Destination</span>
         <span className="text-right">Amount</span>
@@ -609,29 +609,29 @@ function MyShipmentsTable({
         {loading && (
           <>
             <div className="grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-3.5 animate-pulse items-center">
-              <div className="h-3.5 w-32 bg-[#F3F4F6] rounded" />
-              <div className="h-3 w-24 bg-[#F3F4F6] rounded" />
-              <div className="h-3 w-16 bg-[#F3F4F6] rounded justify-self-end" />
-              <div className="h-5 w-16 bg-[#F3F4F6] rounded-full" />
+              <div className="h-3.5 w-32 bg-muted rounded" />
+              <div className="h-3 w-24 bg-muted rounded" />
+              <div className="h-3 w-16 bg-muted rounded justify-self-end" />
+              <div className="h-5 w-16 bg-muted rounded-full" />
             </div>
             <div className="grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-3.5 animate-pulse items-center">
-              <div className="h-3.5 w-32 bg-[#F3F4F6] rounded" />
-              <div className="h-3 w-24 bg-[#F3F4F6] rounded" />
-              <div className="h-3 w-16 bg-[#F3F4F6] rounded justify-self-end" />
-              <div className="h-5 w-16 bg-[#F3F4F6] rounded-full" />
+              <div className="h-3.5 w-32 bg-muted rounded" />
+              <div className="h-3 w-24 bg-muted rounded" />
+              <div className="h-3 w-16 bg-muted rounded justify-self-end" />
+              <div className="h-5 w-16 bg-muted rounded-full" />
             </div>
           </>
         )}
         {!loading && rows.length === 0 && (
           <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-            No shipments yet. <Link href="/create" className="text-[#F2A123] font-semibold hover:underline">Create your first →</Link>
+            No shipments yet. <Link href="/create" className="text-accent font-semibold hover:underline">Create your first →</Link>
           </div>
         )}
         {!loading &&
           rows.slice(0, 4).map((row) => {
             const dest = [row.city, row.country].filter(Boolean).join(', ') || '—';
             const rowClassName =
-              'grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-3.5 items-center hover:bg-[#F8F9FA] transition-colors';
+              'grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-3.5 items-center hover:bg-background transition-colors';
             const content = (
               <>
                 <span className="text-sm font-semibold tabular-nums tracking-[0.02em] text-foreground">
