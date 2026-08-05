@@ -16,10 +16,15 @@ import {
   listShipmentDocumentKinds,
   listNotificationsByUserId,
   listShipmentsByUserId,
+  insertNotification,
   insertOrderStatusNotification,
   markNotificationRead,
   mergeItdUserMetadataById,
   updateSupportSessionMessages,
+  clearItdUserPhoneById,
+  itdUserHasStoredPassword,
+  updateItdUserPhoneById,
+  updateItdUserUsernameById,
   upsertItdUserAndReturnId,
   upsertTrackingEvents,
   updateShipmentTrackingStatus,
@@ -70,12 +75,16 @@ import type { OtpPurpose } from "./otpDb.js";
 import {
   countRecentRequests,
   insertOtpCode,
-  getLatestOtpForVerify,
-  markConsumed,
   hasRecentVerification,
 } from "./otpDb.js";
-import { decryptPassword, encryptPassword } from "./crypto.js";
-import { refreshItdTokenIfNeeded } from "./itdTokenRefresh.js";
+import { consumeOtp } from "./otpVerify.js";
+import { decryptPassword, encryptPassword, isEncryptionConfigured } from "./crypto.js";
+import {
+  itdTokenExpiryIso,
+  mintItdSession,
+  refreshItdTokenIfNeeded,
+  withTimeout,
+} from "./itdTokenRefresh.js";
 import type { Server } from "http";
 import fs from "fs";
 import path from "path";
@@ -104,6 +113,10 @@ import {
   SUPPORT_CHAT_MAX_MESSAGES,
   SUPPORT_CHAT_MAX_CONTENT_LENGTH,
 } from "./supportTypes";
+
+// Matches the refresh path's ceiling (itdTokenRefresh.ts). The legacy
+// POST /api/auth/login has no timeout and can hang on a stalled ITD.
+const ITD_LINK_TIMEOUT_MS = 10_000;
 
 const kycUpload = multer({
   storage: multer.memoryStorage(),
@@ -226,7 +239,17 @@ export async function registerRoutes(
 
   // ── Signup: OTP + personal/company account creation (A2) ─────────────────
 
-  const otpPurposeSchema = z.enum(["signup_personal", "signup_company", "login"]);
+  const otpPurposeSchema = z.enum([
+    "signup_personal",
+    "signup_company",
+    "login",
+    // The unified entry point (/api/auth/phone/continue). Deliberately its own
+    // purpose rather than a reuse of "login": hasRecentVerification(phone,
+    // purpose, …) is the security boundary, and one code that authorises
+    // sign-in, account creation *and* ITD credential linking is the kind of
+    // conflation that survives review unnoticed.
+    "auth",
+  ]);
   const phoneSchema = z.string().trim().regex(/^\d{10}$/, "Enter a valid 10-digit phone number");
 
   // POST /api/auth/otp/request
@@ -278,26 +301,11 @@ export async function registerRoutes(
     }
     const { phone, purpose, code } = parsed.data;
 
-    const row = await getLatestOtpForVerify(phone, purpose as OtpPurpose);
-    if (!row) {
-      res.status(400).json({ message: "No pending OTP for this number. Request a new one." });
+    const result = await consumeOtp(phone, purpose as OtpPurpose, code);
+    if (!result.ok) {
+      res.status(result.status).json({ message: result.message });
       return;
     }
-    if (new Date(row.expires_at).getTime() < Date.now()) {
-      res.status(400).json({ message: "This OTP has expired. Request a new one." });
-      return;
-    }
-    if (row.attempts >= OTP_MAX_ATTEMPTS) {
-      res.status(429).json({ message: "Too many incorrect attempts. Request a new OTP." });
-      return;
-    }
-
-    // TODO(A2): any 6-digit code is accepted — no SMS provider is wired yet
-    // (doc §8 blocker), so there's no real code for a customer to type back.
-    // Swap this for `hashOtp(code) !== row.code_hash` once one lands; the
-    // real hash is already generated and stored, just unused for comparison.
-
-    await markConsumed(row.id);
     res.json({ verified: true });
   });
 
@@ -322,7 +330,9 @@ export async function registerRoutes(
       return;
     }
 
-    const verified = await hasRecentVerification(phone, "signup_personal", OTP_VERIFICATION_WINDOW_MINUTES);
+    // "auth" — the unified entry point issues one code before it knows whether
+    // the number ends in a sign-in, a link, or this. See otpPurposeSchema.
+    const verified = await hasRecentVerification(phone, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
     if (!verified) {
       res.status(400).json({ message: "Please verify your phone number first" });
       return;
@@ -392,7 +402,7 @@ export async function registerRoutes(
       return;
     }
 
-    const verified = await hasRecentVerification(phone, "signup_company", OTP_VERIFICATION_WINDOW_MINUTES);
+    const verified = await hasRecentVerification(phone, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
     if (!verified) {
       res.status(400).json({ message: "Please verify your phone number first" });
       return;
@@ -467,25 +477,68 @@ export async function registerRoutes(
     });
   });
 
-  // POST /api/auth/login/otp — re-authenticate an existing personal/company
-  // account by phone+OTP (the counterpart to signup/personal & signup/company).
-  app.post("/api/auth/login/otp", async (req: Request, res: Response) => {
-    const parsed = z.object({ phone: phoneSchema }).safeParse(req.body);
+  /** Shape a stored profile row into the session/client user object. */
+  function toSessionUser(profile: {
+    itd_customer_id: string;
+    itd_customer_code: string;
+    email: string | null;
+    full_name: string;
+    username: string;
+    role: string;
+    account_type?: string | null;
+  }) {
+    return {
+      id: profile.itd_customer_id,
+      customerId: profile.itd_customer_id,
+      code: profile.itd_customer_code,
+      email: profile.email ?? "",
+      fullName: profile.full_name,
+      username: profile.username,
+      role: profile.role,
+      // Persisted at signup; drives the client's KYC branch on re-login.
+      account_type:
+        profile.account_type === "company" ? ("company" as const) : ("personal" as const),
+    };
+  }
+
+  // POST /api/auth/phone/continue — the single entry point.
+  //
+  // Verifies the OTP and resolves what happens next in one round trip:
+  // either the number is already attached to an account (sign in, minting an
+  // ITD token where the account has ITD credentials) or it is not (the client
+  // then branches to linking an existing ITD account, or creating a new one).
+  //
+  // The phone lookup deliberately happens *after* verification. Resolving it
+  // earlier would turn the entry screen into an oracle for which numbers are
+  // registered, answerable without proving ownership of any of them.
+  //
+  // Replaces the old two-call sequence (POST /otp/verify then POST /login/otp),
+  // which established a session carrying no ITD token at all.
+  app.post("/api/auth/phone/continue", async (req: Request, res: Response) => {
+    const parsed = z
+      .object({
+        phone: phoneSchema,
+        code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code"),
+      })
+      .safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
       return;
     }
-    const { phone } = parsed.data;
+    const { phone, code } = parsed.data;
 
-    const verified = await hasRecentVerification(phone, "login", OTP_VERIFICATION_WINDOW_MINUTES);
-    if (!verified) {
-      res.status(400).json({ message: "Please verify your phone number first" });
+    const otp = await consumeOtp(phone, "auth", code);
+    if (!otp.ok) {
+      res.status(otp.status).json({ message: otp.message });
       return;
     }
 
     const existing = await findItdUserIdByPhone(phone);
     if (!existing) {
-      res.status(404).json({ message: "No account found for this number. Create an account instead." });
+      // Consuming the code above still leaves hasRecentVerification(phone,
+      // "auth", …) true for the next few minutes, so the follow-up link or
+      // signup call can prove ownership of this number without a second SMS.
+      res.json({ status: "needs_account" as const });
       return;
     }
 
@@ -495,22 +548,145 @@ export async function registerRoutes(
       return;
     }
 
-    const user = {
-      id: profile.itd_customer_id,
-      customerId: profile.itd_customer_id,
-      code: profile.itd_customer_code,
-      email: profile.email ?? "",
-      fullName: profile.full_name,
-      username: profile.username,
-      role: profile.role,
-      // Persisted at signup; drives the client's KYC branch on re-login.
-      account_type: profile.account_type === "company" ? ("company" as const) : ("personal" as const),
-    };
-    req.session.user = user;
+    let user = toSessionUser(profile);
     req.session.dbUserId = existing.id;
+
+    // Accounts linked to ITD get a live ITD token here. Without this the
+    // session would look valid but ITD-backed routes would either 401
+    // (/api/shipments) or silently fall back to the shared company token and
+    // query the wrong customer scope (/api/track).
+    const itdUser = await mintItdSession(req, existing.id, user.email);
+    if (itdUser) {
+      // ITD's response, not the stored row, is authoritative for identity —
+      // `code` in particular has no column in itd_users and is what tracking
+      // sends as customer_code. Keep account_type, which is Bombino-side only.
+      user = { ...user, ...itdUser, account_type: user.account_type };
+    }
+    req.session.user = user;
+
     req.session.save((err) => {
       if (err) {
-        console.error("[login/otp] session save error:", err);
+        console.error("[phone/continue] session save error:", err);
+      }
+      res.json({ status: "signed_in" as const, user });
+    });
+  });
+
+  // POST /api/auth/link/itd — attach a verified phone number to an existing
+  // ITD account, proven by that account's own email + password.
+  //
+  // The only place email/password is accepted. ITD has no endpoint to create a
+  // login user, so an ITD credential can only ever be proven, never issued —
+  // this endpoint is how an existing ITD customer moves onto phone sign-in.
+  app.post("/api/auth/link/itd", async (req: Request, res: Response) => {
+    const parsed = z
+      .object({
+        phone: phoneSchema,
+        email: z.string().trim().email("Enter a valid email"),
+        password: z.string().min(1, "Password is required"),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
+      return;
+    }
+    const { phone, email, password } = parsed.data;
+
+    const verified = await hasRecentVerification(phone, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
+    if (!verified) {
+      res.status(400).json({ message: "Please verify your phone number first" });
+      return;
+    }
+
+    // Hard failure, not a warning. The encrypted password *is* the link: ITD
+    // issues no refresh token, so replaying it is the only way to mint a token
+    // on future phone-only sign-ins. encryptPassword() returns empty strings
+    // when the key is missing, so without this guard the link would appear to
+    // succeed while storing nothing, and the customer would be unable to reach
+    // ITD ever again — discovered days later, with no trace of the cause.
+    if (!isEncryptionConfigured()) {
+      console.error("[link/itd] ENCRYPTION_KEY missing — refusing to link without storable credentials");
+      res.status(503).json({
+        message: "Account linking is temporarily unavailable. Please try again later.",
+      });
+      return;
+    }
+
+    let itdUser;
+    let itdToken: string;
+    try {
+      const result = await withTimeout(
+        itdClient.loginUser(email, password),
+        ITD_LINK_TIMEOUT_MS,
+        "ITD loginUser (link)"
+      );
+      itdUser = result.user;
+      itdToken = result.token;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not verify those credentials";
+      res.status(401).json({ message });
+      return;
+    }
+
+    // The phone column is uniquely indexed (itd_users_phone_key). Catching the
+    // clash here turns what would otherwise be an opaque 502 from a failed
+    // upsert into something the customer can act on.
+    const phoneOwner = await findItdUserIdByPhone(phone);
+    if (phoneOwner) {
+      const owningProfile = await getItdUserProfileById(phoneOwner.id);
+      if (owningProfile && owningProfile.itd_customer_id !== itdUser.id) {
+        res.status(409).json({
+          message:
+            "This mobile number is already linked to a different account. Sign in with it, or contact support to move it.",
+        });
+        return;
+      }
+    }
+
+    const enc = encryptPassword(password);
+    const row = await upsertItdUserAndReturnId({
+      itd_customer_id: itdUser.id,
+      itd_customer_code: itdUser.customerId,
+      email: itdUser.email,
+      full_name: itdUser.fullName,
+      username: itdUser.username,
+      role: itdUser.role,
+      phone,
+      itd_token: itdToken,
+      itd_token_expires_at: itdTokenExpiryIso(),
+      itd_password_encrypted: enc.encrypted,
+      encryption_iv: enc.iv,
+    });
+    if (!row?.id) {
+      res.status(502).json({ message: "Could not link your account. Please try again." });
+      return;
+    }
+
+    // Straight from ITD, not round-tripped through the row we just wrote:
+    // itd_users has no column for ITD's `code`, so rebuilding identity from
+    // storage would silently substitute `customer_id` for it.
+    const user = { ...itdUser, account_type: "personal" as const };
+    req.session.user = user;
+    req.session.dbUserId = row.id;
+    req.session.itdToken = itdToken;
+
+    void insertNotification({
+      user_id: row.id,
+      type: "account",
+      title: "Mobile number linked",
+      body: `${phone} is now linked to your Bombino account. You can sign in with this number from now on, and change it later in Settings.`,
+      data: { phone, itd_customer_id: itdUser.id },
+    });
+
+    void insertLoginAuditLog({
+      user_id: row.id,
+      metadata: { itd_customer_code: itdUser.customerId, role: itdUser.role, linked_phone: phone },
+      ip_address: req.ip ?? null,
+    });
+
+    req.session.save((err) => {
+      if (err) {
+        console.error("[link/itd] session save error:", err);
       }
       res.json(user);
     });
@@ -532,7 +708,214 @@ export async function registerRoutes(
           error: "Profile not found",
         });
       }
-      return res.json(profile);
+      // Derived, not the column itself — drives whether the "change number"
+      // flow asks for a password. Accounts created here have none.
+      const has_password = await itdUserHasStoredPassword(req.session.dbUserId);
+      return res.json({ ...profile, has_password });
+    }
+  );
+
+  // PATCH /api/user/profile — edit the fields a customer owns.
+  //
+  // Only `username` for now, and only because it is display text: nothing
+  // authenticates or looks up by it. Identity fields (email, phone, role,
+  // itd_customer_id) stay out — they are either ITD's to define or carry
+  // security meaning, and each needs its own proof-of-ownership step rather
+  // than a general-purpose edit.
+  const usernameSchema = z
+    .string()
+    .trim()
+    .min(2, "Username must be at least 2 characters")
+    .max(50, "Username must be 50 characters or fewer")
+    // Deliberately not an allowlist of Latin letters: customers have names in
+    // Devanagari and other scripts, and \p{L} needs an ES6 target this project
+    // does not set. Excluding angle brackets and control characters is enough —
+    // nothing here is interpolated into markup unescaped.
+    .regex(/^[^<>\r\n\t]+$/, "Username cannot contain < or >");
+
+  app.patch(
+    "/api/user/profile",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const parsed = z.object({ username: usernameSchema }).safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
+        return;
+      }
+      const { username } = parsed.data;
+
+      if (!req.session.dbUserId) {
+        res.status(404).json({ message: "Profile not found" });
+        return;
+      }
+
+      const ok = await updateItdUserUsernameById(req.session.dbUserId, username);
+      if (!ok) {
+        res.status(502).json({ message: "Could not save your username. Please try again." });
+        return;
+      }
+
+      // Keep the session copy in step, or /api/auth/me and anything reading
+      // req.session.user would serve the old value until the next sign-in.
+      if (req.session.user) {
+        req.session.user = { ...req.session.user, username };
+      }
+      req.session.save((err) => {
+        if (err) {
+          console.error("[PATCH /api/user/profile] session save error:", err);
+        }
+        res.json({ username });
+      });
+    }
+  );
+
+  // POST /api/user/phone/unlink — detach the phone number from this account.
+  //
+  // Only offered to accounts ITD provisioned, and the reason is a one-way door:
+  // the phone is the sole sign-in credential this app has. An ITD customer can
+  // always get back in through /api/auth/link/itd with their email and
+  // password, so unlinking costs them a re-link. An account created here has no
+  // password anywhere — no ITD login user is ever issued for one (ITD exposes
+  // no endpoint that mints them) — so unlinking would lock it shut for good.
+  // Hence the refusal below rather than a warning.
+  app.post(
+    "/api/user/phone/unlink",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        res.status(404).json({ message: "Profile not found" });
+        return;
+      }
+
+      const profile = await getItdUserProfileById(req.session.dbUserId);
+      if (!profile) {
+        res.status(404).json({ message: "Profile not found" });
+        return;
+      }
+
+      if (!profile.phone) {
+        res.status(400).json({ message: "No mobile number is linked to this account." });
+        return;
+      }
+
+      // Synthetic ids are minted by our own signup paths; a real ITD id is not
+      // shaped like this. See /api/auth/signup/personal.
+      const isLocalAccount = String(profile.itd_customer_id ?? "").startsWith("local-");
+      if (isLocalAccount) {
+        res.status(409).json({
+          message:
+            "This number is the only way to sign in to your account, so it cannot be removed. Contact support if you need to change it.",
+        });
+        return;
+      }
+
+      const ok = await clearItdUserPhoneById(req.session.dbUserId);
+      if (!ok) {
+        res.status(502).json({ message: "Could not unlink your number. Please try again." });
+        return;
+      }
+
+      void insertNotification({
+        user_id: req.session.dbUserId,
+        type: "account",
+        title: "Mobile number unlinked",
+        body: `${profile.phone} is no longer linked to your account. Sign in with your email and password to link a number again.`,
+        data: { phone: profile.phone },
+      });
+
+      res.json({ unlinked: true, phone: profile.phone });
+    }
+  );
+
+  // POST /api/user/phone/change — move the account onto a different number.
+  //
+  // Two independent proofs are required, and both matter: an active session
+  // (you are the account holder) and a fresh OTP on the NEW number (you
+  // control where sign-in codes will land from now on). Skipping the second
+  // would let anyone signed in point their account at someone else's number —
+  // or, worse, at a number they are about to hand back to a carrier.
+  app.post(
+    "/api/user/phone/change",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const parsed = z
+        .object({ phone: phoneSchema, password: z.string().optional() })
+        .safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
+        return;
+      }
+      const { phone, password } = parsed.data;
+
+      if (!req.session.dbUserId) {
+        res.status(404).json({ message: "Profile not found" });
+        return;
+      }
+
+      const verified = await hasRecentVerification(
+        phone,
+        "auth",
+        OTP_VERIFICATION_WINDOW_MINUTES
+      );
+      if (!verified) {
+        res.status(400).json({ message: "Please verify your new number first" });
+        return;
+      }
+
+      // Where a password exists, it is the stronger of the two credentials on
+      // the account, so moving the weaker one has to be signed off by it.
+      // Accounts created here have no password to ask for — the OTP on the new
+      // number, plus the live session, is everything there is.
+      const needsPassword = await itdUserHasStoredPassword(req.session.dbUserId);
+      if (needsPassword) {
+        if (!password) {
+          res.status(400).json({
+            message: "Enter your password to change your number.",
+            code: "PASSWORD_REQUIRED",
+          });
+          return;
+        }
+        const profile = await getItdUserProfileById(req.session.dbUserId);
+        if (!profile?.email) {
+          res.status(502).json({ message: "Could not verify your password. Please try again." });
+          return;
+        }
+        try {
+          await withTimeout(
+            itdClient.loginUser(profile.email, password),
+            ITD_LINK_TIMEOUT_MS,
+            "ITD loginUser (phone change)"
+          );
+        } catch {
+          res.status(401).json({ message: "That password is incorrect." });
+          return;
+        }
+      }
+
+      const result = await updateItdUserPhoneById(req.session.dbUserId, phone);
+      if (result === "taken") {
+        res.status(409).json({
+          message: "That mobile number is already linked to another account.",
+        });
+        return;
+      }
+      if (result === "error") {
+        res.status(502).json({ message: "Could not update your number. Please try again." });
+        return;
+      }
+
+      void insertNotification({
+        user_id: req.session.dbUserId,
+        type: "account",
+        title: "Mobile number changed",
+        body: `Your Bombino account now signs in with ${phone}.`,
+        data: { phone },
+      });
+
+      res.json({ phone });
     }
   );
 
@@ -914,27 +1297,9 @@ export async function registerRoutes(
   app.post(
     "/api/support/chat",
     ensureDbUser,
-  refreshItdTokenIfNeeded,
+    refreshItdTokenIfNeeded,
     supportChatRateLimit,
     async (req: Request, res: Response) => {
-    // #region agent log
-    try {
-      const debugLogPath = path.join(process.cwd(), ".cursor", "debug-643d35.log");
-      fs.mkdirSync(path.dirname(debugLogPath), { recursive: true });
-      fs.appendFileSync(
-        debugLogPath,
-        JSON.stringify({
-          sessionId: "643d35",
-          runId: "request",
-          hypothesisId: "H0_route_hit",
-          location: "routes.ts:POST /api/support/chat",
-          message: "chat route hit",
-          data: {},
-          timestamp: Date.now(),
-        }) + "\n"
-      );
-    } catch (_) {}
-    // #endregion
     const body = req.body as { messages?: unknown; sessionId?: unknown };
     const messages = body?.messages;
     const bodySessionId =

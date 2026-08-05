@@ -1,7 +1,5 @@
 import "dotenv/config";
 import { setDefaultResultOrder } from "node:dns";
-import path from "path";
-import fs from "fs";
 
 // Cloud Postgres (e.g. Supabase) often resolves to IPv6 first; some networks time out on IPv6.
 // Prefer IPv4 for all outbound connections in this process (Node 17+). Also applied via
@@ -9,50 +7,6 @@ import fs from "fs";
 if (typeof setDefaultResultOrder === "function") {
   setDefaultResultOrder("ipv4first");
 }
-// #region agent log
-const DEBUG_LOG = path.join(process.cwd(), ".cursor", "debug-643d35.log");
-function debugLog(payload: Record<string, unknown>) {
-  try {
-    fs.mkdirSync(path.dirname(DEBUG_LOG), { recursive: true });
-    fs.appendFileSync(DEBUG_LOG, JSON.stringify(payload) + "\n");
-  } catch (_) {}
-}
-(function () {
-  const key = process.env.OPENAI_API_KEY;
-  const cwd = process.cwd();
-  const envPath = path.resolve(cwd, ".env");
-  const payload = {
-    sessionId: "643d35",
-    runId: "startup",
-    hypothesisId: "H1_env",
-    location: "index.ts:env-check",
-    message: "runtime env loading",
-    data: {
-      cwd,
-      envPath,
-      keyUndefined: key === undefined,
-      keyType: typeof key,
-      keyLength: typeof key === "string" ? key.length : 0,
-      keyTrimmedLength: typeof key === "string" ? key.trim().length : 0,
-      keyHasLeadingSpace: typeof key === "string" && key.length > 0 && key[0] === " ",
-      keyHasTrailingSpace: typeof key === "string" && key.length > 0 && key[key.length - 1] === " ",
-      keyWrappedInQuotes:
-        typeof key === "string" &&
-        key.length >= 2 &&
-        ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))),
-      keyHasNewline: typeof key === "string" && (key.includes("\n") || key.includes("\r")),
-      keyValidPrefix: typeof key === "string" && key.trim().startsWith("sk-"),
-    },
-    timestamp: Date.now(),
-  };
-  debugLog(payload);
-  fetch("http://127.0.0.1:7701/ingest/99554fe6-af8f-4c6f-9a0a-628d3111f8a2", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "643d35" },
-    body: JSON.stringify(payload),
-  }).catch(() => {});
-})();
-// #endregion
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import { registerRoutes } from "./routes";
@@ -185,21 +139,6 @@ export function log(message: string, source = "express") {
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  // #region agent log
-  if (path === "/api/support/chat" && req.method === "POST") {
-    try {
-      debugLog({
-        sessionId: "643d35",
-        runId: "request",
-        hypothesisId: "H0_incoming",
-        location: "index.ts:middleware",
-        message: "incoming POST /api/support/chat",
-        data: {},
-        timestamp: Date.now(),
-      });
-    } catch (_) {}
-  }
-  // #endregion
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
   const originalResJson = res.json;
@@ -292,19 +231,6 @@ app.use((req, res, next) => {
       listenOptions,
       () => {
         log(`serving on port ${port}`);
-        // #region agent log
-        try {
-          debugLog({
-            sessionId: "643d35",
-            runId: "startup",
-            hypothesisId: "H1_env",
-            location: "index.ts:listen",
-            message: "server listening",
-            data: { port },
-            timestamp: Date.now(),
-          });
-        } catch (_) {}
-        // #endregion
       },
     )
     .on("error", (err: NodeJS.ErrnoException) => {

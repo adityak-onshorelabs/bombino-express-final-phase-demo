@@ -269,6 +269,126 @@ export async function updateItdUserTokenById(
   return true;
 }
 
+/**
+ * Move an account onto a different phone number.
+ *
+ * Callers must have verified an OTP sent to the NEW number — the phone is the
+ * primary sign-in credential, so writing one the caller has not proven they
+ * control hands the account to whoever owns that number.
+ *
+ * Returns "taken" on a collision with itd_users_phone_key rather than a bare
+ * false, so the route can say which of the two failures happened.
+ */
+export async function updateItdUserPhoneById(
+  userId: string,
+  phone: string
+): Promise<"ok" | "taken" | "error"> {
+  const client = getSupabaseClient();
+  if (!client) return "error";
+
+  const { error } = await client
+    .from("itd_users")
+    .update({ phone, updated_at: new Date().toISOString() })
+    .eq("id", userId);
+
+  if (error) {
+    // 23505 = unique_violation
+    if (error.code === "23505") return "taken";
+    logSupabaseError("updateItdUserPhoneById", error);
+    return "error";
+  }
+  return "ok";
+}
+
+/**
+ * Rename an account's display username.
+ *
+ * Display only — nothing in this app authenticates, looks up, or calls ITD with
+ * this column. (`itd.ts` builds its own `username` form field for the rate API
+ * from the email; unrelated.)
+ *
+ * Caveat worth knowing: for ITD-provisioned accounts, POST /api/auth/link/itd
+ * upserts `username` from ITD's login response, so re-linking replaces whatever
+ * was set here. Signing in by phone does not — mintItdSession only touches the
+ * token — so an edit survives ordinary use.
+ */
+export async function updateItdUserUsernameById(
+  userId: string,
+  username: string
+): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { error } = await client
+    .from("itd_users")
+    .update({ username, updated_at: new Date().toISOString() })
+    .eq("id", userId);
+
+  if (error) {
+    logSupabaseError("updateItdUserUsernameById", error);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Whether this account has an ITD password on file.
+ *
+ * Returns a boolean, never the ciphertext — callers only ever need to know
+ * whether a password step applies, and ITD_USER_PUBLIC_COLUMNS deliberately
+ * keeps the credential columns away from anything browser-facing.
+ */
+export async function itdUserHasStoredPassword(userId: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("itd_password_encrypted")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("itdUserHasStoredPassword", error);
+    return false;
+  }
+  return Boolean(data?.itd_password_encrypted);
+}
+
+/**
+ * Detach the phone number from an account and drop the ITD credential it was
+ * standing in for.
+ *
+ * The stored password exists only to mint ITD tokens on phone-only sign-ins
+ * (see mintItdSession). With no phone there are no such sign-ins, so keeping a
+ * decryptable password would be holding a credential nothing uses. Re-linking
+ * asks for it again anyway — POST /api/auth/link/itd re-authenticates against
+ * ITD rather than trusting anything stored.
+ *
+ * The live session keeps whatever token it already had; it simply will not be
+ * refreshed once that one lapses.
+ */
+export async function clearItdUserPhoneById(userId: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { error } = await client
+    .from("itd_users")
+    .update({
+      phone: null,
+      itd_password_encrypted: null,
+      encryption_iv: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", userId);
+
+  if (error) {
+    logSupabaseError("clearItdUserPhoneById", error);
+    return false;
+  }
+  return true;
+}
+
 export async function insertLoginAuditLog(input: {
   user_id: string;
   metadata: Json;
@@ -903,19 +1023,41 @@ export async function insertOrderStatusNotification(input: {
   body: string;
   data: Json;
 }): Promise<boolean> {
+  return insertNotification({ ...input, type: "order_status" });
+}
+
+/**
+ * General notification insert. `type` defaults to the order_status value the
+ * only previous caller hardcoded, so existing behaviour is unchanged.
+ *
+ * NOTE: the `notifications` table predates migrations/ and is not described in
+ * this repo, so a CHECK constraint on `type` cannot be ruled out here. A
+ * rejected value fails soft — logged, returns false — in keeping with the
+ * non-fatal contract below.
+ *
+ * Non-fatal by contract — a missed notification must never fail the action
+ * that triggered it.
+ */
+export async function insertNotification(input: {
+  user_id: string;
+  title: string;
+  body: string;
+  data: Json;
+  type?: string;
+}): Promise<boolean> {
   const client = getSupabaseClient();
   if (!client) return false;
 
   const { error } = await client.from("notifications").insert({
     user_id: input.user_id,
-    type: "order_status",
+    type: input.type ?? "order_status",
     title: input.title,
     body: input.body,
     data: input.data,
   });
 
   if (error) {
-    logSupabaseError("insertOrderStatusNotification", error);
+    logSupabaseError("insertNotification", error);
     return false;
   }
   return true;

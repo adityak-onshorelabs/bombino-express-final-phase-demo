@@ -1,6 +1,6 @@
 import { supabase } from "./supabaseClient.js";
 
-export type OtpPurpose = "signup_personal" | "signup_company" | "login";
+export type OtpPurpose = "signup_personal" | "signup_company" | "login" | "auth";
 
 function logSupabaseError(operation: string, error: { message?: string; code?: string } | null): void {
   console.error("[otpDb] supabase operation failed (non-fatal):", {
