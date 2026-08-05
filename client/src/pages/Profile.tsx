@@ -524,7 +524,7 @@ export default function Profile() {
             <Button
               onClick={() => void handleSaveUsername()}
               disabled={isSavingUsername}
-              className="doc-btn-cta"
+              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-[var(--shadow-hover)]"
               data-testid="button-username-save"
             >
               {isSavingUsername ? 'Saving…' : 'Save'}
@@ -633,7 +633,7 @@ export default function Profile() {
                 changeStep === 'phone' ? void handleSendChangeOtp() : void handleConfirmChange()
               }
               disabled={isChanging}
-              className="doc-btn-cta"
+              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-[var(--shadow-hover)]"
               data-testid="button-change-submit"
             >
               {isChanging
