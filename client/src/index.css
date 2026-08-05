@@ -28,6 +28,27 @@
   --radius: 0.75rem;
   /* BottomNav: h-16 row + safe-area inset (see .pb-nav, ShipmentDetails strip offset). */
   --nav-stack: calc(4rem + env(safe-area-inset-bottom, 0px));
+
+  /* Placeholder ink.
+   *
+   * Placeholders were inheriting --muted-foreground, which is body-copy weight
+   * (4.76:1 on white). An empty field looked like a filled one, and on a form
+   * this long that means the customer cannot tell at a glance what they still
+   * owe. This sits at ~3:1: clearly legible as a format hint, clearly lighter
+   * than the near-black entered text.
+   *
+   * Not held to 4.5:1 deliberately. Every field on these screens carries a
+   * visible .doc-label, so the placeholder is a hint, never the only label,
+   * and pushing it darker is what caused the problem.
+   */
+  --placeholder: 139 151 168;
+
+  /* Freight Document corner radius. Lives on :root, not on a wrapper class,
+     because the doc-* primitives are app-wide now — they started on the auth
+     screens but the whole product uses one language. Deliberately distinct
+     from --radius (12px), which the older soft-card components still use
+     while they are migrated. */
+  --doc-radius: 6px;
 }
 
 @theme inline {
@@ -90,6 +111,16 @@ body {
   @apply bg-background text-foreground antialiased;
   font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.5;
+}
+
+/* Applied at the element rather than per-component: shadcn's Input, Textarea
+   and the plain inputs scattered through the booking flow each set their own
+   `placeholder:` utility, so a component-level fix would have missed most of
+   them. */
+input::placeholder,
+textarea::placeholder {
+  color: rgb(var(--placeholder)) !important;
+  opacity: 1; /* Firefox dims placeholders by default; we set the value here. */
 }
 
 .safe-top {
@@ -589,6 +620,284 @@ input[type="date"] {
 
 .body-text {
   @apply text-sm text-muted-foreground leading-relaxed;
+}
+
+/* ── Auth surfaces — "Freight Document" ───────────────────────────────────────
+   Scoped to /login, /signup and account linking. Deliberately NOT the app-wide
+   language: the rest of the product keeps its 20-32px radii and soft cards.
+
+   The previous auth screens were a centred white card with 2xl corners and a
+   blurred shadow floating on grey — the default template look. This replaces
+   that with the visual grammar of the documents this business actually runs
+   on: waybills and customs forms. Near-square corners (2px, not 0 — 0 reads
+   as unfinished on a screen asking for a password), depth from hairline rules
+   instead of blur, and Geist Mono — already loaded, previously unused — on
+   every number, code and field label.
+
+   All colour still comes from the tokens above. Nothing here is a literal.  */
+
+/* Page wrapper for the Freight Document language. --doc-radius itself now
+   lives on :root (app-wide); this class only carries the page chrome. */
+.doc-surface {
+  @apply min-h-[100dvh] bg-card;
+}
+
+/* Uppercase tracked field label, set in mono. The single strongest signal
+   that this is a form on a shipping document rather than a generic app. */
+.doc-label {
+  font-family: var(--font-mono);
+  @apply block text-[11px] font-medium uppercase text-muted-foreground;
+  letter-spacing: 0.14em;
+}
+
+/* Ruled field group.
+ *
+ * A form is one document, not a stack of boxes. Grouping fields inside
+ * bordered cards puts a frame around every few inputs and makes a short form
+ * read as several unrelated ones; the container earns nothing the whitespace
+ * and a rule do not already say. Sections are separated by a hairline and
+ * headed by a label, the way a printed form separates them.
+ */
+.doc-group {
+  @apply pt-5 mt-5 border-t border-border;
+}
+
+.doc-group:first-of-type {
+  @apply pt-0 mt-6 border-t-0;
+}
+
+/* Section header — the title of a card or block.
+ *
+ * One step above .doc-label, which is a *field* label. Both were rendering at
+ * the same weight and colour, so "Weight & pieces" (the card's title) and
+ * "Weight (kg)" (a label inside it) sat at the same level and the card had no
+ * apparent head. Same mono uppercase family, but foreground rather than muted
+ * and a step larger — enough to rank without introducing a new typeface.
+ */
+.doc-heading {
+  font-family: var(--font-mono);
+  @apply block text-xs font-semibold uppercase text-foreground;
+  letter-spacing: 0.12em;
+}
+
+/* Link variant of the label. Separate from .doc-label because that one
+   sets `display: block`, which beat an `inline-flex` utility on the element
+   and pushed trailing arrow icons onto their own line. */
+.doc-link {
+  font-family: var(--font-mono);
+  @apply inline-flex items-center gap-2 text-[11px] font-medium uppercase text-muted-foreground whitespace-nowrap transition-colors;
+  letter-spacing: 0.12em;
+}
+
+.doc-link:hover {
+  @apply text-accent;
+}
+
+/* Numeric/short-code display: phone, OTP, docket-style values. */
+.doc-mono {
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+/* Hairline rule used to separate sections in place of card edges. */
+.doc-rule {
+  @apply border-t border-border;
+}
+
+/* The heavy rule under the wordmark — the one piece of deliberate weight. */
+.doc-rule-heavy {
+  border-top: 2px solid var(--foreground);
+}
+
+.doc-card {
+  @apply border border-border bg-card p-6;
+  border-radius: var(--doc-radius, 2px);
+}
+
+/* Inputs: square-ish, hairline border, white not tinted — a field on a form,
+   not a soft pill. Focus is a solid 2px accent edge, not a diffuse glow. */
+.doc-field {
+  @apply h-12 border border-border bg-card text-base;
+  border-radius: var(--doc-radius, 2px);
+}
+
+.doc-field:focus-visible,
+.doc-field:focus {
+  @apply border-accent ring-0 outline-none;
+  box-shadow: inset 0 0 0 1px rgb(var(--accent));
+}
+
+/* Focus is the one thing a keyboard user has. Every interactive element in the
+   auth flow gets this — the custom buttons previously had no focus style at
+   all, only the shadcn <Button> did. */
+.focus-ring {
+  @apply outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+}
+
+/* WCAG 2.5.5 / iOS HIG minimum. Applied to the small text actions ("Resend",
+   "Change", "Unlink", "Edit") which were ~20px tall and hard to hit. */
+.tap-target {
+  @apply inline-flex items-center justify-center min-h-11 min-w-11;
+}
+
+/* Selectable option rows on the "existing or new customer" fork.
+   Selection is shown by a solid amber bar on the leading edge — a tab on a
+   file, not a tinted rounded rectangle. */
+/* The "existing or new customer" fork.
+ *
+ * One ruled frame containing two rows, not two floating cards. Two separate
+ * bordered rectangles were the last thing on these screens that still read as
+ * generic UI — everything around them is hairlines and ruled groups, so a pair
+ * of soft outlined boxes sat outside the language.
+ *
+ * Frame and divider are background + 1px gaps for the same reason as
+ * .doc-segment: a 1px border drops out at fractional device-pixel ratios.
+ */
+.doc-choice-group {
+  @apply flex flex-col gap-px p-px;
+  background-color: rgb(var(--border));
+  border-radius: var(--doc-radius, 6px);
+}
+
+.doc-choice-group > button:first-child {
+  border-top-left-radius: calc(var(--doc-radius, 6px) - 1px);
+  border-top-right-radius: calc(var(--doc-radius, 6px) - 1px);
+}
+
+.doc-choice-group > button:last-child {
+  border-bottom-left-radius: calc(var(--doc-radius, 6px) - 1px);
+  border-bottom-right-radius: calc(var(--doc-radius, 6px) - 1px);
+}
+
+.doc-choice {
+  @apply w-full flex items-start gap-3 text-left px-4 py-3.5 bg-card transition-colors;
+}
+
+/* Row groups previously marked hover with a 3px amber leading bar. A coloured
+   side stripe is decoration wearing the costume of meaning: it says nothing
+   the background tint does not, and it shifts the row's optical left edge.
+   Hover is a surface change, full stop. */
+
+.doc-choice:hover,
+.doc-choice:focus-visible {
+  @apply bg-muted/60;
+}
+
+/* Segmented control (Personal / Company).
+ *
+ * The frame is a background plus 1px gaps, not a border. On a display with a
+ * fractional device-pixel ratio — 1.25 on the machine this was built on — a
+ * 1px CSS border computes to ~0.8px, and the bottom edge rounds away to
+ * nothing while the top survives, so the control renders visibly open at the
+ * bottom. Backgrounds snap to whole device pixels and stay crisp at any ratio.
+ *
+ * The gap between the two cells doubles as the divider, so there is no
+ * separate border-right to lose either.
+ */
+.doc-segment {
+  @apply flex gap-px p-px;
+  background-color: rgb(var(--border));
+  border-radius: var(--doc-radius, 6px);
+}
+
+/* Concentric nesting: the frame is 6px with a 1px wall, so the cells are 5px.
+ *
+ * Squaring the cells and clipping them with `overflow: hidden` (the previous
+ * attempt) does not produce a square corner — the clip follows the frame's own
+ * 6px arc one pixel out, so the cell reads as *more* rounded than the frame it
+ * sits in, and the two curves visibly disagree. Matching radii minus the wall
+ * thickness is the only combination where the arcs stay parallel.
+ */
+.doc-segment > button {
+  @apply flex-1 min-h-11 text-[11px] font-semibold uppercase transition-colors;
+  font-family: var(--font-mono);
+  letter-spacing: 0.14em;
+  border-radius: calc(var(--doc-radius, 6px) - 1px);
+}
+
+/* Inner corners meet the divider square; only the outer edge is curved. */
+.doc-segment > button:not(:first-child) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.doc-segment > button:not(:last-child) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* `overflow: hidden` above clips an outward focus ring, so the cells cannot
+   use .focus-ring — the indicator has to be drawn inside the element. */
+.doc-segment > button:focus-visible {
+  @apply outline-none;
+  box-shadow: inset 0 0 0 2px rgb(var(--ring));
+}
+
+/* Emphasis panel — the one block on a screen that should pull the eye.
+ *
+ * The Freight Document language is deliberately flat, which is right for most
+ * content but left every section weighing the same: nothing on the page was
+ * emphasised. This is the counterweight. It keeps the shape customers already
+ * know from the previous Home hero (a tinted, bordered panel around the
+ * primary task) so the screen does not read as an unfamiliar deployment,
+ * while dropping the gradient and the 32px blur shadow that belonged to the
+ * old language. Weight comes from an amber wash and an amber leading edge.
+ *
+ * Use sparingly — one per screen, or it stops meaning anything.
+ */
+.doc-panel {
+  @apply border p-4;
+  background-color: rgb(var(--accent) / 0.06);
+  border-color: rgb(var(--accent) / 0.30);
+  border-radius: var(--doc-radius, 6px);
+}
+
+/* A tappable tile — two or three across, for parallel actions of equal
+   weight. The ruled-row treatment implies a list with an order; side-by-side
+   tiles say "these two are alternatives". */
+.doc-tile {
+  @apply flex-1 flex items-center gap-3 p-3.5 border border-border bg-card transition-colors;
+  border-radius: var(--doc-radius, 6px);
+}
+
+.doc-tile:hover,
+.doc-tile:focus-visible {
+  @apply border-accent bg-accent/5;
+}
+
+/* Square icon well inside a tile. Square, not a circle — circles belong to
+   the soft-card language this replaced. */
+.doc-tile-icon {
+  @apply w-9 h-9 flex items-center justify-center shrink-0 bg-accent/10 text-accent;
+  border-radius: calc(var(--doc-radius, 6px) - 2px);
+}
+
+/* The app-wide primary action.
+ *
+ * One accent, one meaning: amber marks the single thing a screen exists to do,
+ * and nothing else on that screen is amber. Replaces four spellings of the
+ * same button (`bg-primary`, `bg-[lab(34.08…)]`, `bg-[#F2A123]`, `bg-accent`)
+ * that made "Login" navy on /home and amber on /create.
+ *
+ * No drop shadow — depth in this language comes from rules, not blur.
+ */
+.doc-btn-cta {
+  @apply bg-accent text-accent-foreground font-semibold transition-colors;
+  @apply hover:bg-accent/90 disabled:opacity-50;
+  border-radius: var(--doc-radius, 6px);
+}
+
+/* Secondary action beside a .doc-btn-cta: hairline, never amber. */
+.doc-btn-quiet {
+  @apply bg-card text-foreground border border-border font-medium transition-colors hover:bg-muted;
+  border-radius: var(--doc-radius, 6px);
+}
+
+/* Primary action: square, amber, uppercase and tracked like a stamp. */
+.doc-btn {
+  @apply w-full h-12 bg-accent text-accent-foreground text-sm font-bold uppercase transition-colors hover:bg-accent/90 disabled:opacity-50;
+  border-radius: var(--doc-radius, 2px);
+  letter-spacing: 0.1em;
 }
 
 /* Desktop content — let pages control their own max-width and centering */

@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, User, Mail, Phone, Building2, Loader2, ShieldCheck } from 'lucide-react';
+import { User, Mail, Phone, Building2, Loader2, ShieldCheck, ArrowRight } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { KycUpload, type KycUploadResult } from '@/components/KycUpload';
+import { AuthShell } from '@/components/auth/AuthShell';
 import { useAppStore, type AuthUser } from '@/lib/store';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
@@ -18,6 +19,8 @@ const RESEND_COOLDOWN_SECONDS = 30;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type AccountType = 'personal' | 'company';
+/** Order here is the visual order, which the arrow-key handler relies on. */
+const ACCOUNT_TYPES = ['personal', 'company'] as const satisfies readonly AccountType[];
 type Step = 'details' | 'otp' | 'kyc' | 'preview';
 
 export default function Signup() {
@@ -41,17 +44,47 @@ export default function Signup() {
   const [gstin, setGstin] = useState('');
 
   // Shared
-  const [phone, setPhone] = useState('');
+  const searchParams = new URLSearchParams(window.location.search);
+  // /login verifies the number before sending anyone here, so the OTP round
+  // trip is already spent. Re-sending a second code to the same phone would
+  // burn the hourly ceiling and read as a bug to the customer.
+  const preVerified = searchParams.get('verified') === '1';
+  const [phone, setPhone] = useState(searchParams.get('phone') ?? '');
   const [otp, setOtp] = useState('');
 
-  const redirect = new URLSearchParams(window.location.search).get('redirect');
-  const purpose = accountType === 'personal' ? 'signup_personal' : 'signup_company';
+  const redirect = searchParams.get('redirect');
+  // One purpose for the whole entry flow — /login issues the code without yet
+  // knowing whether it ends in a sign-in, a link, or this screen.
+  const purpose = 'auth';
 
   useEffect(() => {
     if (cooldown <= 0) return;
     const timer = setTimeout(() => setCooldown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
   }, [cooldown]);
+
+  /** Left/Right (and Home/End) move between tabs, per the WAI-ARIA tabs
+   *  pattern. Selection follows focus, which is correct here — switching is
+   *  cheap and reversible, and it saves a second keypress. */
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>): void => {
+    const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+    if (!keys.includes(e.key)) return;
+    e.preventDefault();
+
+    const current = ACCOUNT_TYPES.indexOf(accountType);
+    const next =
+      e.key === 'Home'
+        ? 0
+        : e.key === 'End'
+          ? ACCOUNT_TYPES.length - 1
+          : e.key === 'ArrowLeft'
+            ? (current - 1 + ACCOUNT_TYPES.length) % ACCOUNT_TYPES.length
+            : (current + 1) % ACCOUNT_TYPES.length;
+
+    switchAccountType(ACCOUNT_TYPES[next]);
+    const tabs = e.currentTarget.parentElement?.querySelectorAll('[role="tab"]');
+    (tabs?.[next] as HTMLButtonElement | undefined)?.focus();
+  };
 
   const switchAccountType = (next: AccountType): void => {
     setAccountType(next);
@@ -68,12 +101,23 @@ export default function Signup() {
       setStep('otp');
       setOtp('');
       setCooldown(RESEND_COOLDOWN_SECONDS);
-      toast({ title: 'OTP sent', description: `Sent to ${phone}` });
+      // Redundant with the OTP step subtitle; see Login.tsx.
     } catch (err) {
       setErrors({ form: parseApiErrorMessage(err, 'Could not send OTP') });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const createPersonal = async (): Promise<void> => {
+    const res = await apiRequest('POST', '/api/auth/signup/personal', {
+      full_name: fullName.trim(),
+      email: email.trim(),
+      phone,
+    });
+    const user = (await res.json()) as AuthUser;
+    login(user);
+    setStep('kyc');
   };
 
   const handleSendOtpPersonal = (): void => {
@@ -86,6 +130,13 @@ export default function Signup() {
       return;
     }
     setErrors({});
+    if (preVerified) {
+      setIsLoading(true);
+      void createPersonal()
+        .catch((err) => setErrors({ form: parseApiErrorMessage(err, 'Could not create account') }))
+        .finally(() => setIsLoading(false));
+      return;
+    }
     void requestOtp();
   };
 
@@ -100,6 +151,10 @@ export default function Signup() {
       return;
     }
     setErrors({});
+    if (preVerified) {
+      setStep('preview');
+      return;
+    }
     void requestOtp();
   };
 
@@ -119,14 +174,7 @@ export default function Signup() {
       await apiRequest('POST', '/api/auth/otp/verify', { phone, purpose, code: otp });
 
       if (accountType === 'personal') {
-        const res = await apiRequest('POST', '/api/auth/signup/personal', {
-          full_name: fullName.trim(),
-          email: email.trim(),
-          phone,
-        });
-        const user = (await res.json()) as AuthUser;
-        login(user);
-        setStep('kyc');
+        await createPersonal();
       } else {
         setStep('preview');
       }
@@ -178,71 +226,103 @@ export default function Signup() {
         : () => void handleConfirmCompany();
 
   const primaryLabel =
-    step === 'details' ? 'Send OTP' : step === 'otp' ? 'Verify & Continue' : 'Confirm & Create Account';
+    step === 'details'
+      ? preVerified
+        ? 'Continue'
+        : 'Send code'
+      : step === 'otp'
+        ? 'Verify & continue'
+        : 'Confirm & create account';
+
+  const stepIndex = step === 'details' ? 1 : step === 'otp' ? 2 : 3;
+  const stepSubtitle =
+    step === 'details' ? (
+      'Tell us who the account is for.'
+    ) : step === 'otp' ? (
+      <>
+        We sent a 6-digit code to{' '}
+        <span className="doc-mono font-semibold text-foreground whitespace-nowrap">
+          +91 {phone}
+        </span>
+        .
+      </>
+    ) : step === 'preview' ? (
+      'Check these details before we create the account.'
+    ) : (
+      'Verify your identity to start booking.'
+    );
 
   return (
-    <div className="min-h-[100dvh] bg-background safe-top safe-bottom" data-testid="screen-signup">
-      <header className="sticky top-0 z-50 bg-white border-b border-border">
-        <div className="flex items-center h-14 px-4">
-          <button
-            onClick={handleBack}
-            className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
-            data-testid="button-back-signup"
-          >
-            <ArrowLeft className="w-6 h-6" />
-          </button>
-          <h1 className="ml-2 font-semibold">Create Account</h1>
-        </div>
-      </header>
-
-      <main className="px-4 py-8 flex flex-col items-center">
-        <div className="max-w-md mx-auto w-full">
-          <div className="flex flex-col items-center mb-8">
-            <img src={bombinoLogo} alt="Bombino Express" className="h-auto w-[180px] mb-6 object-contain" />
-            <h2 className="text-xl font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">Create Account</h2>
-            <p className="text-sm text-muted-foreground mt-1">Bringing the world closer</p>
+    <AuthShell
+      title="Create account"
+      subtitle={stepSubtitle}
+      onBack={handleBack}
+      step={stepIndex}
+      totalSteps={3}
+      testId="screen-signup"
+      footer={
+        step === 'details' ? (
+          <div className="doc-rule mt-8 pt-4">
+            <Link
+              href={redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : '/login'}
+              className="doc-link focus-ring"
+            >
+              Already registered? Sign in
+              <ArrowRight className="w-3 h-3 shrink-0" />
+            </Link>
           </div>
+        ) : null
+      }
+    >
+      {/* Segmented selector, not a pill: two cells of one ruled box, the
+          active one filled amber. Matches the ledger language of the rest
+          of the flow. */}
+      {step === 'details' && (
+        <div className="doc-segment" role="tablist" aria-label="Account type">
+          {ACCOUNT_TYPES.map((type) => (
+            <button
+              key={type}
+              type="button"
+              role="tab"
+              aria-selected={accountType === type}
+              // Roving tabindex: a tablist is one stop in the tab order, and
+              // the arrow keys move between its tabs (WAI-ARIA tabs pattern).
+              tabIndex={accountType === type ? 0 : -1}
+              onKeyDown={handleTabKeyDown}
+              onClick={() => switchAccountType(type)}
+              className={cn(
+                accountType === type
+                  ? 'bg-accent text-accent-foreground'
+                  : 'bg-card text-muted-foreground hover:bg-muted'
+              )}
+              data-testid={`button-account-type-${type}`}
+            >
+              {type}
+            </button>
+          ))}
+        </div>
+      )}
 
-          {step === 'details' && (
-            <div className="flex bg-muted rounded-xl p-1 mb-5">
-              {(['personal', 'company'] as const).map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => switchAccountType(type)}
-                  className={cn(
-                    'flex-1 py-2 text-sm font-medium rounded-lg transition-colors capitalize',
-                    accountType === type ? 'bg-white text-primary shadow-sm' : 'text-muted-foreground'
-                  )}
-                  data-testid={`button-account-type-${type}`}
-                >
-                  {type}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] p-6 space-y-5 animate-fade-in">
             {step === 'details' && accountType === 'personal' && (
               <>
                 <div>
-                  <Label className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Full name</Label>
+                  <Label className="doc-label">Full name</Label>
                   <div className="relative mt-2">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                     <Input
                       value={fullName}
                       onChange={(e) => { setFullName(e.target.value); setErrors((prev) => ({ ...prev, fullName: '' })); }}
                       placeholder="Full name"
-                      className="pl-10 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
+                      className="doc-field pl-10"
                       autoComplete="name"
                       data-testid="input-full-name"
                     />
                   </div>
-                  {errors.fullName && <p className="text-sm text-red-500 mt-1">{errors.fullName}</p>}
+                  {errors.fullName && <p role="alert" className="text-sm text-destructive mt-1.5">{errors.fullName}</p>}
                 </div>
 
                 <div>
-                  <Label className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Email</Label>
+                  <Label className="doc-label">Email</Label>
                   <div className="relative mt-2">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                     <Input
@@ -250,16 +330,16 @@ export default function Signup() {
                       value={email}
                       onChange={(e) => { setEmail(e.target.value); setErrors((prev) => ({ ...prev, email: '' })); }}
                       placeholder="Enter your email"
-                      className="pl-10 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
+                      className="doc-field pl-10"
                       autoComplete="email"
                       data-testid="input-email"
                     />
                   </div>
-                  {errors.email && <p className="text-sm text-red-500 mt-1">{errors.email}</p>}
+                  {errors.email && <p role="alert" className="text-sm text-destructive mt-1.5">{errors.email}</p>}
                 </div>
 
                 <div>
-                  <Label className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Phone number</Label>
+                  <Label className="doc-label">Phone number</Label>
                   <div className="relative mt-2">
                     <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                     <Input
@@ -267,14 +347,17 @@ export default function Signup() {
                       inputMode="numeric"
                       value={phone}
                       onChange={(e) => { setPhone(e.target.value.replace(/\D/g, '').slice(0, 10)); setErrors((prev) => ({ ...prev, phone: '' })); }}
+                      // Already verified upstream — editing it here would
+                      // silently detach the code from the number being saved.
+                      disabled={preVerified}
                       onKeyDown={(e) => e.key === 'Enter' && handleSendOtpPersonal()}
                       placeholder="10-digit mobile number"
-                      className="pl-10 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
+                      className="doc-field pl-10"
                       autoComplete="tel"
                       data-testid="input-phone"
                     />
                   </div>
-                  {errors.phone && <p className="text-sm text-red-500 mt-1">{errors.phone}</p>}
+                  {errors.phone && <p role="alert" className="text-sm text-destructive mt-1.5">{errors.phone}</p>}
                 </div>
               </>
             )}
@@ -282,7 +365,7 @@ export default function Signup() {
             {step === 'details' && accountType === 'company' && (
               <>
                 <div>
-                  <Label className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Phone number</Label>
+                  <Label className="doc-label">Phone number</Label>
                   <div className="relative mt-2">
                     <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                     <Input
@@ -290,33 +373,36 @@ export default function Signup() {
                       inputMode="numeric"
                       value={phone}
                       onChange={(e) => { setPhone(e.target.value.replace(/\D/g, '').slice(0, 10)); setErrors((prev) => ({ ...prev, phone: '' })); }}
+                      // Already verified upstream — editing it here would
+                      // silently detach the code from the number being saved.
+                      disabled={preVerified}
                       placeholder="10-digit mobile number"
-                      className="pl-10 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
+                      className="doc-field pl-10"
                       autoComplete="tel"
                       data-testid="input-phone"
                     />
                   </div>
-                  {errors.phone && <p className="text-sm text-red-500 mt-1">{errors.phone}</p>}
+                  {errors.phone && <p role="alert" className="text-sm text-destructive mt-1.5">{errors.phone}</p>}
                 </div>
 
                 <div>
-                  <Label className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Company name</Label>
+                  <Label className="doc-label">Company name</Label>
                   <div className="relative mt-2">
                     <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                     <Input
                       value={companyName}
                       onChange={(e) => { setCompanyName(e.target.value); setErrors((prev) => ({ ...prev, companyName: '' })); }}
                       placeholder="Company name"
-                      className="pl-10 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
+                      className="doc-field pl-10"
                       autoComplete="organization"
                       data-testid="input-company-name"
                     />
                   </div>
-                  {errors.companyName && <p className="text-sm text-red-500 mt-1">{errors.companyName}</p>}
+                  {errors.companyName && <p role="alert" className="text-sm text-destructive mt-1.5">{errors.companyName}</p>}
                 </div>
 
                 <div>
-                  <Label className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">GST number</Label>
+                  <Label className="doc-label">GST number</Label>
                   <div className="relative mt-2">
                     <Input
                       value={gstin}
@@ -326,12 +412,12 @@ export default function Signup() {
                       }}
                       placeholder="22AAAAA0000A1Z5"
                       maxLength={15}
-                      className="h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl font-mono tracking-wide"
+                      className="doc-field font-mono tracking-wide"
                       data-testid="input-gstin"
                     />
                   </div>
                   {errors.gstin ? (
-                    <p className="text-sm text-red-500 mt-1">{errors.gstin}</p>
+                    <p role="alert" className="text-sm text-destructive mt-1.5">{errors.gstin}</p>
                   ) : (
                     <p className="text-xs text-muted-foreground mt-1">Format-validated only — not looked up live.</p>
                   )}
@@ -341,7 +427,7 @@ export default function Signup() {
 
             {step === 'otp' && (
               <div>
-                <Label className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Enter OTP</Label>
+                <Label className="doc-label">Enter OTP</Label>
                 <p className="text-xs text-muted-foreground mt-1">Sent to {phone}</p>
                 <div className="mt-3 flex justify-center">
                   <InputOTP maxLength={6} value={otp} onChange={setOtp}>
@@ -352,12 +438,12 @@ export default function Signup() {
                     </InputOTPGroup>
                   </InputOTP>
                 </div>
-                {errors.otp && <p className="text-sm text-red-500 mt-2 text-center">{errors.otp}</p>}
+                {errors.otp && <p role="alert" className="text-sm text-destructive mt-2">{errors.otp}</p>}
                 <button
                   type="button"
                   onClick={handleResendOtp}
                   disabled={cooldown > 0}
-                  className="text-xs text-[#F2A123] mt-3 mx-auto block disabled:text-muted-foreground disabled:cursor-not-allowed"
+                  className="text-xs text-accent mt-3 mx-auto block disabled:text-muted-foreground disabled:cursor-not-allowed"
                   data-testid="button-resend-otp"
                 >
                   {cooldown > 0 ? `Resend OTP in ${cooldown}s` : 'Resend OTP'}
@@ -368,8 +454,8 @@ export default function Signup() {
             {step === 'preview' && (
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <ShieldCheck className="w-5 h-5 text-[#F2A123]" />
-                  <Label className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">
+                  <ShieldCheck className="w-5 h-5 text-accent" />
+                  <Label className="doc-label">
                     Review your details
                   </Label>
                 </div>
@@ -406,7 +492,7 @@ export default function Signup() {
             )}
 
             {errors.form && (
-              <p className="text-sm text-red-500">{errors.form}</p>
+              <p role="alert" className="text-sm text-destructive">{errors.form}</p>
             )}
 
             {step === 'kyc' ? (
@@ -418,7 +504,7 @@ export default function Signup() {
                   }
                   setLocation(redirect || '/home');
                 }}
-                className="w-full h-12 text-base font-semibold bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] mt-1"
+                className="doc-btn mt-1"
                 data-testid="button-continue-kyc"
               >
                 Continue
@@ -427,34 +513,12 @@ export default function Signup() {
               <Button
                 onClick={primaryAction}
                 disabled={isLoading}
-                className="w-full h-12 text-base font-semibold bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 mt-1"
+                className="doc-btn mt-1"
                 data-testid="button-create-account"
               >
                 {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : primaryLabel}
               </Button>
             )}
-          </div>
-
-          {step === 'details' && (
-            <p className="text-center text-sm text-muted-foreground mt-5">
-              Already have an account?{' '}
-              <Link
-                href={redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : '/login'}
-                className="text-[#F2A123] font-semibold hover:underline"
-              >
-                Sign in
-              </Link>
-            </p>
-          )}
-
-          <p className="text-center text-xs text-muted-foreground mt-3">
-            By continuing you agree to our{' '}
-            <a href="/privacy" className="text-[#F2A123] underline hover:text-[#F2A123]/80">
-              Privacy Policy
-            </a>
-          </p>
-        </div>
-      </main>
-    </div>
+    </AuthShell>
   );
 }

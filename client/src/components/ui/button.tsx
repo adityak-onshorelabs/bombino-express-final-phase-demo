@@ -10,6 +10,18 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        /**
+         * THE primary action. Dispatch Amber, and the only thing on a screen
+         * allowed to be amber — that is what makes it readable as "the action".
+         *
+         * Before this existed the same button was written four different ways
+         * (`bg-primary`, `bg-[lab(34.08…)]`, `bg-[#F2A123]`, `bg-accent`), so
+         * "Login" was navy on /home and /orders but amber on /create. Use this
+         * for the one action a screen exists to perform; use `secondary` or
+         * `outline` for everything beside it.
+         */
+        action:
+          "bg-accent text-accent-foreground border border-accent hover:bg-accent/90 rounded-[var(--doc-radius)] font-semibold",
         default:
            // @replit: no hover, and add primary border
            "bg-primary text-primary-foreground border border-primary-border",
