@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from '@/components/AppLayout';
 import { SurfaceGuard } from '@/components/SurfaceGuard';
 import { AgentRoutes } from './routes.agent';
+import { OpsRoutes } from './routes.ops';
 import { surfaceForPath } from '@/lib/surface';
 
 import Splash from "@/pages/Splash";
@@ -61,14 +62,19 @@ function CustomerRouter() {
  * desktop sidebar, no top bar and no support FAB, so it renders outside
  * `AppLayout` entirely rather than trying to opt out of its parts.
  *
- * `SurfaceGuard` sits above both and bounces anyone onto their own surface.
- * It is cosmetic — the real enforcement is `requireRole` on the server.
+ * `SurfaceGuard` sits above agent and ops (and the customer app) and bounces
+ * anyone onto their own surface. It is cosmetic — the real enforcement is
+ * `requireRole` on the server.
  */
 function Surfaces() {
   const [location] = useLocation();
 
   if (surfaceForPath(location) === 'agent') {
     return <AgentRoutes />;
+  }
+
+  if (surfaceForPath(location) === 'ops') {
+    return <OpsRoutes />;
   }
 
   return (

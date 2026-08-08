@@ -54,6 +54,7 @@ import {
 } from "./agentDb.js";
 import { ensureDbUser, requireRole, requireUser } from "./routeGuards.js";
 import { registerAgentRoutes } from "./routes/agent.js";
+import { registerOpsRoutes } from "./routes/ops.js";
 import { deriveCustomerStatus, isInternalOnlyStatus, isRole } from "../shared/orderContract.js";
 import type { Order, OrderStatus, Role } from "../shared/orderContract.js";
 import { PICKUP_SLOT_VALUES } from "../shared/pickupSlots.js";
@@ -142,6 +143,7 @@ export async function registerRoutes(
   // below, so this file keeps the state machine and `routes/agent.ts` stays
   // read-only.
   registerAgentRoutes(app);
+  registerOpsRoutes(app);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
