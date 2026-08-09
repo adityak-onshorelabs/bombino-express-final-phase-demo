@@ -6,6 +6,8 @@
  */
 
 import { supabase } from "./supabaseClient.js";
+import { toOrder, type OrderRow } from "./ordersDb.js";
+import type { Order } from "../shared/orderContract.js";
 
 const BOARD_COLUMNS =
   "id, order_no, status, created_at, pickup_request, pickup_date, pickup_slot, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no";
@@ -219,4 +221,64 @@ export async function listOrderEventsForOps(
     metadata: row.metadata ?? null,
     created_at: String(row.created_at),
   }));
+}
+
+/** Origin city/pincode for reprice — optional join off origin_address_id. */
+export async function getAddressCityPincode(
+  addressId: string
+): Promise<{ city: string | null; pincode: string | null } | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("addresses")
+    .select("city, pincode")
+    .eq("id", addressId)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getAddressCityPincode", error);
+    return null;
+  }
+  if (!data) return null;
+
+  return {
+    city: typeof data.city === "string" ? data.city : null,
+    pincode: typeof data.pincode === "string" ? data.pincode : null,
+  };
+}
+
+/**
+ * Capture hub weight + final amount and advance received_at_hub → weighed.
+ * Status precondition in WHERE so a concurrent move returns null (409).
+ */
+export async function applyWeighResult(input: {
+  orderId: string;
+  expectedFrom: string;
+  actualWeight: number;
+  finalAmount: number;
+}): Promise<Order | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .update({
+      actual_weight: input.actualWeight,
+      final_amount: input.finalAmount,
+      status: "weighed",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.orderId)
+    .eq("status", input.expectedFrom)
+    .select(DETAIL_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("applyWeighResult", error);
+    return null;
+  }
+  if (!data) return null;
+
+  return toOrder(data as unknown as OrderRow & { metadata?: unknown });
 }

@@ -1,21 +1,56 @@
 /**
- * Phase 3A — Ops read endpoints (board + order detail).
+ * Phase 3A/3B — Ops read endpoints (board + order detail + availableActions).
  *
  * Self-registering: `registerOpsRoutes(app)` is called from `routes.ts`.
  * Every route is gated requireUser + requireRole("admin","super_admin") so
  * super_admin is never rejected by an exact single-arg "admin" match.
- *
- * No lifecycle writes here — 3B owns actions.
  */
 
 import type { Express, Request, Response } from "express";
-import { ORDER_STATUSES, isOrderStatus } from "../../shared/orderContract.js";
+import {
+  ORDER_STATUSES,
+  isOrderStatus,
+  isRole,
+  type Order,
+  type PaymentMethod,
+  type PaymentStatus,
+} from "../../shared/orderContract.js";
+import { availableActions } from "../orderLifecycle.js";
 import {
   getOrderByIdForOps,
   listAllOrdersForOps,
   listOrderEventsForOps,
+  type OpsOrderDetail,
 } from "../opsDb.js";
 import { requireRole, requireUser } from "../routeGuards.js";
+
+/** Narrow ops detail row to the shared Order contract for availableActions. */
+function asOrder(row: OpsOrderDetail): Order {
+  return {
+    id: row.id,
+    order_no: row.order_no,
+    user_id: row.user_id,
+    status: row.status as Order["status"],
+    pickup_request: row.pickup_request === 2 ? 2 : 1,
+    pickup_date: row.pickup_date,
+    pickup_slot: row.pickup_slot,
+    origin_address_id: row.origin_address_id,
+    consignee: row.consignee,
+    items: row.items,
+    booked_weight: row.booked_weight,
+    quoted_amount: row.quoted_amount,
+    payment_method: row.payment_method as PaymentMethod,
+    payment_status: row.payment_status as PaymentStatus,
+    is_cod: row.is_cod,
+    agent_id: row.agent_id,
+    actual_weight: row.actual_weight,
+    final_amount: row.final_amount,
+    awb_no: row.awb_no,
+    metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
 
 export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/orders — all orders, newest first (cap 200)
@@ -47,7 +82,7 @@ export function registerOpsRoutes(app: Express): void {
     }
   );
 
-  // GET /api/ops/orders/:id — any order by id + events (no ownership filter)
+  // GET /api/ops/orders/:id — any order by id + events + availableActions
   app.get(
     "/api/ops/orders/:id",
     requireUser,
@@ -65,7 +100,14 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
-      res.json({ order, events });
+      const role = isRole(req.session.user?.role) ? req.session.user!.role : null;
+      const callerId = req.session.dbUserId;
+      const actions =
+        role && callerId
+          ? availableActions(asOrder(order), role, { userId: callerId })
+          : [];
+
+      res.json({ order, events, availableActions: actions });
     }
   );
 }

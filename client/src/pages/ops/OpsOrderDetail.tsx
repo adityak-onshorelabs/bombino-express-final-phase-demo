@@ -1,8 +1,17 @@
+import { useState } from 'react';
 import { ArrowLeft, Loader2, LogOut } from 'lucide-react';
 import { Link, useLocation, useParams } from 'wouter';
+import { ActionButtons } from '@/components/agent/ActionButtons';
 import { OpsShell } from '@/components/ops/OpsShell';
+import { OpsWeighSheet } from '@/components/ops/OpsWeighSheet';
+import { OpsCollectPaymentSheet } from '@/components/ops/OpsCollectPaymentSheet';
 import { Button } from '@/components/ui/button';
-import { useOpsOrderDetail } from '@/hooks/useOpsOrders';
+import { useToast } from '@/hooks/use-toast';
+import {
+  useOpsOrderAction,
+  useOpsOrderDetail,
+  type OpsActionError,
+} from '@/hooks/useOpsOrders';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
 import { useAppStore } from '@/lib/store';
 
@@ -52,14 +61,24 @@ function consigneeLines(consignee: unknown): { name: string; city: string; phone
 }
 
 /**
- * Read-only ops order detail + event timeline. No lifecycle actions (3B).
+ * Ops order detail + event timeline + lifecycle actions (3B).
+ * generate_docket filtered until 3C.
  */
 export default function OpsOrderDetail() {
   const params = useParams<{ id: string }>();
   const orderId = params.id;
   const [, setLocation] = useLocation();
   const { logout } = useAppStore();
+  const { toast } = useToast();
   const { data, isLoading, error, isError } = useOpsOrderDetail(orderId);
+  const action = useOpsOrderAction(orderId);
+
+  const [weighOpen, setWeighOpen] = useState(false);
+  const [collectOpen, setCollectOpen] = useState(false);
+  const [receipt, setReceipt] = useState<{ txnId: string | null; amount: number } | null>(
+    null,
+  );
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   const forbidden =
     isError &&
@@ -74,6 +93,62 @@ export default function OpsOrderDetail() {
     }
     logout();
     setLocation('/login');
+  };
+
+  const runAction = (actionName: string, payload?: Record<string, unknown>): void => {
+    setPendingAction(actionName);
+    action.mutate(
+      { action: actionName, payload },
+      {
+        onSuccess: (result) => {
+          setPendingAction(null);
+          if (result.receipt) {
+            setReceipt(result.receipt);
+            return;
+          }
+          setWeighOpen(false);
+          setCollectOpen(false);
+          toast({
+            title: 'Updated',
+            description: `${result.order.order_no} — ${getOrderStatusLabel(result.order.status)}`,
+          });
+        },
+        onError: (err: OpsActionError) => {
+          setPendingAction(null);
+          const isRetryReprice = err.code === 'RETRY_REPRICE';
+          toast({
+            title: isRetryReprice
+              ? 'Could not reprice'
+              : err.status === 409
+                ? 'Order moved on'
+                : 'Could not update',
+            description: isRetryReprice
+              ? err.message ||
+                'Reprice failed. The order was not changed — fix rates inputs or try again.'
+              : err.message,
+            variant: 'destructive',
+          });
+        },
+      },
+    );
+  };
+
+  const handleAction = (actionName: string): void => {
+    if (actionName === 'weigh') {
+      setWeighOpen(true);
+      return;
+    }
+    if (actionName === 'collect_payment') {
+      setReceipt(null);
+      setCollectOpen(true);
+      return;
+    }
+    if (actionName === 'mark_received_dropoff' || actionName === 'settle') {
+      const label =
+        actionName === 'settle' ? 'Settle this order?' : 'Mark this parcel received at hub?';
+      if (!window.confirm(label)) return;
+    }
+    runAction(actionName);
   };
 
   if (forbidden) {
@@ -123,8 +198,10 @@ export default function OpsOrderDetail() {
     );
   }
 
-  const { order, events } = data;
+  const { order, events, availableActions } = data;
   const consignee = consigneeLines(order.consignee);
+  const visibleActions = availableActions.filter((a) => a.action !== 'generate_docket');
+  const dueAmount = order.final_amount ?? order.quoted_amount ?? 0;
 
   return (
     <OpsShell title={order.order_no} subtitle={getOrderStatusLabel(order.status)}>
@@ -174,6 +251,18 @@ export default function OpsOrderDetail() {
         <Fact label="Created" value={formatWhen(order.created_at)} />
       </section>
 
+      <section className="mb-6" data-testid="ops-order-actions">
+        <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-3">
+          Actions
+        </h2>
+        <ActionButtons
+          actions={visibleActions}
+          onAction={handleAction}
+          pendingAction={pendingAction}
+          disabled={action.isPending}
+        />
+      </section>
+
       <section data-testid="ops-order-timeline">
         <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-3">
           Timeline
@@ -198,6 +287,27 @@ export default function OpsOrderDetail() {
           </ol>
         )}
       </section>
+
+      <OpsWeighSheet
+        open={weighOpen}
+        onOpenChange={setWeighOpen}
+        bookedWeight={order.booked_weight}
+        isPending={action.isPending && pendingAction === 'weigh'}
+        onConfirm={(payload) => runAction('weigh', payload)}
+      />
+
+      <OpsCollectPaymentSheet
+        open={collectOpen}
+        onOpenChange={(open) => {
+          setCollectOpen(open);
+          if (!open) setReceipt(null);
+        }}
+        orderNo={order.order_no}
+        dueAmount={dueAmount}
+        isPending={action.isPending && pendingAction === 'collect_payment'}
+        receipt={receipt}
+        onConfirm={(payload) => runAction('collect_payment', payload)}
+      />
     </OpsShell>
   );
 }

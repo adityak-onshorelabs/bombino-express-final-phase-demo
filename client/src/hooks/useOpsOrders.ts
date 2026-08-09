@@ -1,4 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { AvailableAction } from '@shared/orderContract';
+import { apiRequest } from '@/lib/queryClient';
+import { parseApiErrorMessage } from '@/lib/apiError';
 
 export type OpsBoardOrder = {
   id: string;
@@ -40,6 +43,24 @@ export type OpsOrderDetail = OpsBoardOrder & {
   updated_at: string;
 };
 
+export type OpsOrderDetailResponse = {
+  order: OpsOrderDetail;
+  events: OpsOrderEvent[];
+  availableActions: AvailableAction[];
+};
+
+export type OpsActionResult = {
+  order: OpsOrderDetail;
+  availableActions: AvailableAction[];
+  receipt?: { txnId: string | null; amount: number };
+  warning?: string;
+};
+
+export type OpsActionError = Error & {
+  status?: number;
+  code?: string;
+};
+
 export const OPS_ORDERS_KEY = ['/api/ops/orders'] as const;
 
 export function opsOrderDetailKey(id: string) {
@@ -63,6 +84,7 @@ export function useOpsOrders() {
       return data.orders;
     },
     retry: false,
+    refetchOnMount: 'always',
   });
 }
 
@@ -74,8 +96,52 @@ export function useOpsOrderDetail(orderId: string | undefined) {
       const res = await fetch(`/api/ops/orders/${encodeURIComponent(orderId!)}`, {
         credentials: 'include',
       });
-      return readJson<{ order: OpsOrderDetail; events: OpsOrderEvent[] }>(res);
+      return readJson<OpsOrderDetailResponse>(res);
     },
     retry: false,
+  });
+}
+
+export function useOpsOrderAction(orderId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    OpsActionResult,
+    OpsActionError,
+    { action: string; payload?: Record<string, unknown> }
+  >({
+    mutationFn: async ({ action, payload }) => {
+      if (!orderId) throw new Error('Missing order id') as OpsActionError;
+      try {
+        const res = await apiRequest('POST', `/api/orders/${orderId}/actions`, {
+          action,
+          ...(payload ? { payload } : {}),
+        });
+        return (await res.json()) as OpsActionResult;
+      } catch (err) {
+        const error = new Error(
+          parseApiErrorMessage(err, 'Could not complete that action'),
+        ) as OpsActionError;
+        const raw = String((err as Error)?.message ?? '');
+        const status = Number(raw.split(':')[0]);
+        error.status = Number.isFinite(status) ? status : 0;
+        try {
+          const body = JSON.parse(raw.replace(/^\d+:\s*/, '')) as {
+            code?: string;
+            message?: string;
+          };
+          error.code = body.code;
+          if (body.message) error.message = body.message;
+        } catch {
+          error.code = undefined;
+        }
+        throw error;
+      }
+    },
+    onSettled: (_data, _err, _vars) => {
+      if (!orderId) return;
+      void queryClient.invalidateQueries({ queryKey: opsOrderDetailKey(orderId) });
+      void queryClient.invalidateQueries({ queryKey: OPS_ORDERS_KEY });
+    },
   });
 }
