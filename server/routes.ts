@@ -54,6 +54,7 @@ import {
 } from "./agentDb.js";
 import { ensureDbUser, requireRole, requireUser } from "./routeGuards.js";
 import { registerAgentRoutes } from "./routes/agent.js";
+import { registerPaymentRoutes } from "./routes/payments.js";
 import { deriveCustomerStatus, isInternalOnlyStatus, isRole } from "../shared/orderContract.js";
 import type { Order, OrderStatus, Role } from "../shared/orderContract.js";
 import { PICKUP_SLOT_VALUES } from "../shared/pickupSlots.js";
@@ -142,6 +143,10 @@ export async function registerRoutes(
   // below, so this file keeps the state machine and `routes/agent.ts` stays
   // read-only.
   registerAgentRoutes(app);
+
+  // Razorpay (A4). Self-contained: gateway order, verify, webhook. The webhook
+  // is unauthenticated by design — its signature is its authentication.
+  registerPaymentRoutes(app);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 

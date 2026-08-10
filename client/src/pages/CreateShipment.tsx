@@ -53,6 +53,7 @@ function toIsoDate(d: Date): string {
 }
 import { lbToKg, inToCm } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
+import { payForOrder } from '@/lib/razorpay';
 import { cn } from '@/lib/utils';
 import { getHsnCode } from '@/lib/hsnData';
 import { useToast } from '@/hooks/use-toast';
@@ -357,7 +358,16 @@ export default function CreateShipment() {
   const { isLoggedIn, user, logout } = useAppStore();
   const [currentStep, setCurrentStep] = useState(1);
   const [newOrderNo, setNewOrderNo] = useState('');
+  const [newOrderId, setNewOrderId] = useState('');
   const [submitError, setSubmitError] = useState('');
+
+  // Pay-now only. The order exists either way by the time this matters — the
+  // booking is never held hostage to the gateway — so `unpaid` is a normal
+  // resting state the customer can leave and come back to, not an error.
+  const [payStatus, setPayStatus] = useState<
+    'none' | 'paying' | 'paid' | 'pending' | 'unpaid'
+  >('none');
+  const [payMessage, setPayMessage] = useState('');
 
   const [pickupRequest, setPickupRequest] = useState<'1' | '2'>('1');
   const [pickupDate, setPickupDate] = useState('');
@@ -565,12 +575,51 @@ export default function CreateShipment() {
     setDimH(vals.h);
   }, [dimUnit, selectedPreset]);
 
+  /**
+   * Open Razorpay for an order that already exists.
+   *
+   * Called straight after booking, and again from the success screen if the
+   * customer dismissed the modal. Never blocks the order: whatever happens
+   * here, the parcel is booked and the money can be settled later.
+   */
+  const runCheckout = async (orderId: string): Promise<void> => {
+    setPayStatus('paying');
+    setPayMessage('');
+
+    const outcome = await payForOrder(orderId);
+
+    if (outcome.status === 'paid') {
+      setPayStatus('paid');
+      toast({ title: 'Payment successful', description: 'Your order is paid.' });
+      return;
+    }
+
+    if (outcome.status === 'pending') {
+      // The charge is probably real and the webhook will confirm it. Saying
+      // "unpaid" here would invite a second payment for the same order.
+      setPayStatus('pending');
+      setPayMessage(outcome.message);
+      return;
+    }
+
+    setPayStatus('unpaid');
+    setPayMessage(outcome.status === 'failed' ? outcome.message : '');
+  };
+
   const createMutation = useMutation({
     mutationFn: (payload: OrderCreatePayload) =>
       apiRequest('POST', '/api/orders', payload).then((r) => r.json() as Promise<OrderCreateResponse>),
     onSuccess: (data) => {
       setShowConfirmModal(false);
       setNewOrderNo(data.order.order_no);
+      setNewOrderId(data.order.id);
+
+      // Order first, money second — deliberately. Opening checkout before the
+      // order exists would leave a paid customer with nothing to attach the
+      // payment to if the booking then failed.
+      if (paymentMethod === 'pay_now') {
+        void runCheckout(data.order.id);
+      }
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Order creation failed';
@@ -762,6 +811,58 @@ export default function CreateShipment() {
               </div>
             </div>
           </div>
+
+          {/* Pay-now only. Four states, because "we don't know yet" is a real
+              one and rendering it as unpaid invites a duplicate payment. */}
+          {payStatus !== 'none' && (
+            <div
+              className={cn(
+                'rounded-xl border p-4 mb-4 text-left w-full',
+                payStatus === 'paid' && 'border-emerald-200 bg-emerald-50',
+                payStatus === 'pending' && 'border-amber-200 bg-amber-50',
+                payStatus === 'unpaid' && 'border-amber-200 bg-amber-50',
+                payStatus === 'paying' && 'border-border bg-muted/40'
+              )}
+              data-testid="panel-payment-status"
+            >
+              {payStatus === 'paying' && (
+                <p className="text-sm text-muted-foreground flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                  Waiting for the payment window…
+                </p>
+              )}
+
+              {payStatus === 'paid' && (
+                <p className="text-sm font-medium text-emerald-800">
+                  Payment received. Nothing further to pay right now.
+                </p>
+              )}
+
+              {payStatus === 'pending' && (
+                <p className="text-sm text-amber-900">
+                  {payMessage || 'Payment received — confirming it now.'} Your order will update on
+                  its own; please do not pay again.
+                </p>
+              )}
+
+              {payStatus === 'unpaid' && (
+                <>
+                  <p className="text-sm font-medium text-amber-900">Payment not completed</p>
+                  <p className="text-xs text-amber-900/80 mt-1 leading-relaxed">
+                    {payMessage ||
+                      'Your order is booked. You can pay now, or from the order any time before pickup.'}
+                  </p>
+                  <Button
+                    onClick={() => void runCheckout(newOrderId)}
+                    className="mt-3 w-full h-11 bg-primary hover:bg-primary/90 text-sm rounded-lg"
+                    data-testid="button-retry-payment"
+                  >
+                    Pay now
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="space-y-2">
             <Button

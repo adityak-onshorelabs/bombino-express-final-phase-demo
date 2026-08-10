@@ -37,6 +37,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { getOrderStatusTone } from '@/lib/orderStatus';
 import { apiRequest } from '@/lib/queryClient';
+import { payForOrder } from '@/lib/razorpay';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -277,6 +278,36 @@ export default function OrderDetails() {
       });
     },
   });
+
+  /**
+   * The second door into Razorpay. The first is booking; this one is for the
+   * customer who dismissed that modal, or whose card failed, and came back.
+   * Same server endpoints — a fresh gateway order against the same order id.
+   */
+  const [paying, setPaying] = useState(false);
+
+  const handlePayNow = async (orderId: string): Promise<void> => {
+    setPaying(true);
+    const outcome = await payForOrder(orderId);
+    setPaying(false);
+
+    if (outcome.status === 'dismissed') return;
+
+    if (outcome.status === 'paid') {
+      toast({ title: 'Payment successful', description: 'This order is now paid.' });
+    } else if (outcome.status === 'pending') {
+      toast({
+        title: 'Confirming payment',
+        description: `${outcome.message} Please do not pay again.`,
+      });
+    } else {
+      toast({ title: 'Payment failed', description: outcome.message, variant: 'destructive' });
+    }
+
+    // Even a failure refetches: the webhook may have settled the order while
+    // the browser was deciding it had not.
+    void queryClient.invalidateQueries({ queryKey: ['/api/orders', orderNo] });
+  };
 
   const handleBack = () => {
     if (window.history.length > 1) window.history.back();
@@ -616,6 +647,26 @@ export default function OrderDetails() {
               ))}
             </ul>
           )}
+
+          {/* Pay-now orders that are still owed money. Cancelled orders are
+              excluded — nothing to pay for — and so is `partially_paid`,
+              which is a reprice at the hub and settles there, not here. */}
+          {order.payment_method === 'pay_now' &&
+            order.payment_status === 'pending' &&
+            order.status !== 'cancelled' && (
+              <Button
+                className="mt-4 w-full h-11 rounded-lg"
+                disabled={paying}
+                onClick={() => void handlePayNow(order.id)}
+                data-testid="button-pay-now"
+              >
+                {paying ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  `Pay ${formatInr(order.final_amount ?? order.quoted_amount) ?? 'now'}`
+                )}
+              </Button>
+            )}
 
           {/* COD never produces a payments row — an empty list here would
               otherwise read as "nothing was ever paid". */}
