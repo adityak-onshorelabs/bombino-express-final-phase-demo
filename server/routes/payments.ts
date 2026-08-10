@@ -516,8 +516,20 @@ export function registerPaymentRoutes(app: Express): void {
     }
 
     if (!entity || typeof entity.id !== "string") {
-      // Subscription, refund, settlement — events we do not subscribe to but
-      // may receive if the dashboard is over-configured. Acknowledge and drop.
+      // Subscription, settlement — events we do not subscribe to but may
+      // receive if the dashboard is over-configured. Acknowledge and drop.
+      res.json({ received: true, ignored: eventName });
+      return;
+    }
+
+    // The allowlist of payment events we act on. It matters because several
+    // events we do not handle carry a full `payment.entity` with
+    // `status: captured` — `payment.dispute.created` most notably — and the
+    // dashboard's event list is easy to over-tick. Without this, a dispute on
+    // a payment we never recorded would insert a `collected` row, inventing
+    // money from a webhook that was telling us the opposite.
+    const HANDLED = ["payment.captured", "order.paid", "payment.failed"];
+    if (!HANDLED.includes(eventName)) {
       res.json({ received: true, ignored: eventName });
       return;
     }
