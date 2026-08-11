@@ -11,9 +11,14 @@
  * and payable later — and `'pending'` means the money very likely moved but we
  * could not confirm it in time. The webhook settles both cases server-side, so
  * the UI's job is to stop claiming certainty it does not have.
+ *
+ * TEMPORARY: when the test switch is on (`lib/paymentsTestMode.ts`) this skips
+ * the gateway entirely and asks the server to settle the order. Same signature,
+ * same outcomes, so no caller changes. Both go when Razorpay works.
  */
 
 import { apiRequest } from './queryClient';
+import { isTestModeSkipOn } from './paymentsTestMode';
 
 const CHECKOUT_SRC = 'https://checkout.razorpay.com/v1/checkout.js';
 
@@ -114,7 +119,41 @@ function cleanMessage(err: unknown, fallback: string): string {
   }
 }
 
+/**
+ * TEMPORARY — settle without the gateway, when test mode is switched on.
+ *
+ * Lives behind the same `payForOrder` call as the real thing so no screen has
+ * to know about it: both call sites (booking, and Pay now on the order) keep
+ * one code path and one set of outcomes.
+ *
+ * The switch is only a request. The server refuses with 404 unless
+ * `PAYMENTS_TEST_MODE=1` is set there, and that refusal is reported plainly
+ * rather than falling through to checkout — silently charging a card because a
+ * test flag was ignored is the one outcome worth being loud about.
+ */
+async function settleInTestMode(orderId: string): Promise<PaymentOutcome> {
+  try {
+    const res = await apiRequest('POST', '/api/payments/test/settle', { order_id: orderId });
+    const body = (await res.json()) as VerifyResponse;
+    if (!body.paid) {
+      return { status: 'failed', message: 'The test settle did not report the order paid.' };
+    }
+    return { status: 'paid', amount: body.amount, reference: body.reference };
+  } catch (err) {
+    const message = cleanMessage(err, 'Could not settle this order in test mode.');
+    if (err instanceof Error && /^404:/.test(err.message)) {
+      return {
+        status: 'failed',
+        message: 'Test mode is off on the server. Set PAYMENTS_TEST_MODE=1 there, or turn the switch off to pay through Razorpay.',
+      };
+    }
+    return { status: 'failed', message };
+  }
+}
+
 export async function payForOrder(orderId: string): Promise<PaymentOutcome> {
+  if (isTestModeSkipOn()) return settleInTestMode(orderId);
+
   let gateway: GatewayOrderResponse;
   try {
     const res = await apiRequest('POST', '/api/payments/razorpay/order', { order_id: orderId });

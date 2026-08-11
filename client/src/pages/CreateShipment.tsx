@@ -54,6 +54,7 @@ function toIsoDate(d: Date): string {
 import { lbToKg, inToCm } from '@/lib/mockData';
 import { apiRequest } from '@/lib/queryClient';
 import { payForOrder } from '@/lib/razorpay';
+import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { cn } from '@/lib/utils';
 import { getHsnCode } from '@/lib/hsnData';
 import { useToast } from '@/hooks/use-toast';
@@ -3236,6 +3237,11 @@ export default function CreateShipment() {
                 </label>
               ))}
             </div>
+
+            {/* TEMPORARY — only renders when the server has PAYMENTS_TEST_MODE
+                set. Sits under the method it affects, because it changes what
+                "Pay Now" does. */}
+            {paymentMethod === 'pay_now' && <PaymentTestModeSwitch className="mb-4" />}
 
             {paymentError && (
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-4">

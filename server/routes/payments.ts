@@ -10,6 +10,12 @@
  *   POST /verify  the browser returns from the checkout modal with a signature
  *   POST /webhook Razorpay tells us directly, and keeps telling us until 2xx
  *
+ * Plus two that are not part of that chain: `GET /config`, which tells the
+ * client what it may offer, and `POST /test/settle`, a temporary bypass that
+ * settles a pay-now order without the gateway while the Razorpay account is
+ * unusable. It is off unless `PAYMENTS_TEST_MODE=1` — see
+ * server/paymentsTestMode.ts, and delete both when the gateway works.
+ *
  * `verify` exists for the customer's benefit — it turns the modal closing into
  * a paid order they can see immediately. The **webhook is the authority**: a
  * customer whose browser dies between paying and returning must still end up
@@ -52,6 +58,7 @@ import {
   verifyCheckoutSignature,
   verifyWebhookSignature,
 } from "../razorpay.js";
+import { isPaymentsTestModeEnabled } from "../paymentsTestMode.js";
 import type { Order } from "../../shared/orderContract.js";
 
 /** The amount we are currently asking for. Reprice at the hub can move it. */
@@ -102,6 +109,126 @@ async function loadPayableOrder(
 }
 
 export function registerPaymentRoutes(app: Express): void {
+  // ── GET /api/payments/config ────────────────────────────────────────────
+  //
+  // What the client may offer, decided here rather than guessed there. Two
+  // booleans and no secrets: the key id is only handed out by `/order`, which
+  // has already checked the order is payable.
+  app.get("/api/payments/config", requireUser, (_req: Request, res: Response) => {
+    res.json({
+      gateway_configured: isRazorpayConfigured(),
+      test_mode: isPaymentsTestModeEnabled(),
+    });
+  });
+
+  // ── POST /api/payments/test/settle ──────────────────────────────────────
+  //
+  // TEMPORARY (see server/paymentsTestMode.ts). Marks a pay-now order paid
+  // without the gateway, so the flows behind a paid order can be tested while
+  // the Razorpay account is unusable.
+  //
+  // Same guards as the real thing — session, ownership, pay-now, not cancelled,
+  // not already paid — because a bypass with weaker checks is a bypass someone
+  // finds. What it skips is only the money.
+  app.post(
+    "/api/payments/test/settle",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      // 404, not 403: an endpoint that is off should not confirm it exists.
+      if (!isPaymentsTestModeEnabled()) {
+        res.status(404).json({ message: "Not found", code: "TEST_MODE_DISABLED" });
+        return;
+      }
+
+      const callerId = req.session.dbUserId;
+      if (!callerId) {
+        res.status(401).json({ message: "Login required" });
+        return;
+      }
+
+      const parsed = z
+        .object({ order_id: z.string().uuid("order_id must be a valid id") })
+        .safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid request",
+          code: "INVALID_REQUEST",
+        });
+        return;
+      }
+
+      const loaded = await loadPayableOrder(parsed.data.order_id, callerId);
+      if (!loaded.ok) {
+        res.status(loaded.status).json({ message: loaded.message, code: loaded.code });
+        return;
+      }
+      const { order } = loaded;
+
+      if (order.payment_status === "paid") {
+        res.status(409).json({ message: "This order is already paid.", code: "ALREADY_PAID" });
+        return;
+      }
+
+      const due = amountDue(order);
+      if (due == null) {
+        res.status(409).json({
+          message: "This order has no amount to pay yet.",
+          code: "NO_AMOUNT_DUE",
+        });
+        return;
+      }
+
+      // Deterministic reference, so a double tap records one payment: it is the
+      // idempotency key `recordGatewayPayment` dedupes on. The `test_` prefix is
+      // how these are told apart from `pay_...` gateway ids in the ledger.
+      const reference = `test_${order.id}`;
+
+      console.warn("[payments] TEST MODE settle — no money moved:", {
+        order_id: order.id,
+        order_no: order.order_no,
+        amount: due,
+      });
+
+      const recorded = await recordGatewayPayment({
+        order_id: order.id,
+        user_id: order.user_id,
+        amount: due,
+        currency: "INR",
+        reference,
+        metadata: { source: "test_mode", gateway: null, note: "PAYMENTS_TEST_MODE — no gateway" },
+      });
+
+      if (!recorded) {
+        res.status(502).json({
+          message: "Could not record the test payment.",
+          code: "PAYMENT_WRITE_FAILED",
+        });
+        return;
+      }
+
+      if (recorded.created) {
+        void insertOrderEvent({
+          order_id: order.id,
+          // Not a status move — paying does not advance the parcel.
+          status: order.status,
+          note: `Paid ₹${due} in test mode (no gateway)`,
+          actor_user_id: order.user_id,
+          metadata: { payment_id: recorded.payment.id, reference, source: "test_mode" },
+        });
+      }
+
+      res.json({
+        paid: true,
+        payment_status: recorded.order?.payment_status ?? "paid",
+        amount: due,
+        reference,
+        txn_id: recorded.payment.txn_id,
+        test_mode: true,
+      });
+    }
+  );
+
   // ── POST /api/payments/razorpay/order ───────────────────────────────────
   //
   // Opens a gateway order for the checkout modal. Idempotency is not needed

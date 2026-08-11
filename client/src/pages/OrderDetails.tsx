@@ -38,6 +38,7 @@ import { Button } from '@/components/ui/button';
 import { getOrderStatusTone } from '@/lib/orderStatus';
 import { apiRequest } from '@/lib/queryClient';
 import { payForOrder } from '@/lib/razorpay';
+import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -654,18 +655,23 @@ export default function OrderDetails() {
           {order.payment_method === 'pay_now' &&
             order.payment_status === 'pending' &&
             order.status !== 'cancelled' && (
-              <Button
-                className="mt-4 w-full h-11 rounded-lg"
-                disabled={paying}
-                onClick={() => void handlePayNow(order.id)}
-                data-testid="button-pay-now"
-              >
-                {paying ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  `Pay ${formatInr(order.final_amount ?? order.quoted_amount) ?? 'now'}`
-                )}
-              </Button>
+              <>
+                {/* TEMPORARY — only renders when the server has
+                    PAYMENTS_TEST_MODE set. */}
+                <PaymentTestModeSwitch className="mt-4" />
+                <Button
+                  className="mt-3 w-full h-11 rounded-lg"
+                  disabled={paying}
+                  onClick={() => void handlePayNow(order.id)}
+                  data-testid="button-pay-now"
+                >
+                  {paying ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    `Pay ${formatInr(order.final_amount ?? order.quoted_amount) ?? 'now'}`
+                  )}
+                </Button>
+              </>
             )}
 
           {/* COD never produces a payments row — an empty list here would
