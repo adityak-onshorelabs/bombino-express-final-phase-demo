@@ -34,76 +34,72 @@ export const BAND_LABEL: Record<DateBand, string> = {
 };
 
 /**
- * Bands that should read louder than the rest. Emphasis is carried by weight
- * and by position, never by a colour — amber means money on this surface and
- * nothing else (PRODUCT.md).
- */
-export function isUrgentBand(band: DateBand): boolean {
-  return band === 'overdue';
-}
-
-/**
- * Colour by urgency — the one deliberate exception to PRODUCT.md §2.
+ * Colour by urgency, under the agent surface's colour law.
  *
- * That rule reserves colour for money because a palette of coloured status
- * chips competes with the amber that means cash. This keeps the rule intact by
- * not adding a palette: amber still means money and only money, and the single
- * hue introduced here is red, which already means "wrong" everywhere else in
- * the app (failed actions, error states, destructive toasts). An overdue
- * pickup is a promise already broken, so it reads as the same class of thing.
+ * Three meanings and no more: amber is money, navy is a state change the agent
+ * commits, red on `#FEF2F2` is late. Everything else is grey. So the only band
+ * that carries a hue is overdue — a promise already broken, and red already
+ * means "wrong" everywhere else in the app.
  *
- * Today and Scheduled are separated by weight and by border strength, not by
- * new hues — a job due today gets the primary border it would have had anyway,
- * a future one recedes to the default. So the surface carries two meanings,
- * both pre-existing, rather than four.
+ * Today and Scheduled are separated by the weight of their band head and by
+ * position, never by a border colour or a fill. A coloured border on a job due
+ * today would spend a signal the agent needs for cash.
  *
- * Contrast: red-700 on red-50 clears 7:1, and the primary on white clears AA
- * comfortably — both hold up in the direct sunlight PRODUCT.md assumes.
+ * Contrast: `#B91C1C` on `#FEF2F2` clears 7:1 and `#1B2A41` on white clears
+ * 13:1 — both hold up in the direct sunlight PRODUCT.md assumes.
  */
 export interface BandTone {
-  /** Card border + fill. */
-  shell: string;
-  /** The status eyebrow at the top of the card. */
+  /** Panel fill + hairline for a band that owns its own panel. */
+  panel: string;
+  /** Compact row fill inside a shared panel. */
+  row: string;
+  /** The status eyebrow above a job's name. */
   eyebrow: string;
-  /** The pickup window chip. */
-  slot: string;
-  /** Icon inside the window chip. */
-  slotIcon: string;
+  /** The mono meta line under a job's name. */
+  meta: string;
+  /** The band head label. */
+  head: string;
+  /** The hairline that fills the rest of the band head row. */
+  rule: string;
 }
 
 const BAND_TONE: Record<DateBand, BandTone> = {
   overdue: {
-    shell: 'border-red-300 bg-red-50',
-    eyebrow: 'text-red-700',
-    slot: 'border-red-200 bg-red-100 text-red-800',
-    slotIcon: 'text-red-700',
+    panel: 'bg-[#FEF2F2] border-[#FECACA]!',
+    row: 'bg-[#FEF2F2]',
+    eyebrow: 'text-[#B91C1C]',
+    meta: 'text-[#B91C1C]',
+    head: 'text-[#B91C1C]',
+    rule: 'bg-[#FECACA]',
   },
   today: {
-    shell: 'border-primary/40 bg-white',
-    eyebrow: 'text-primary',
-    slot: 'border-primary/25 bg-primary/10 text-primary',
-    slotIcon: 'text-primary',
+    panel: 'bg-white border-[#E2E8F0]!',
+    row: 'bg-white',
+    eyebrow: 'text-[#1B2A41]',
+    meta: 'text-[#64748B]',
+    head: 'text-[#1B2A41]',
+    rule: 'bg-[#CBD5E1]',
   },
   scheduled: {
-    shell: 'border-border bg-white',
-    eyebrow: 'text-muted-foreground',
-    slot: 'border-border bg-muted text-foreground/75',
-    slotIcon: 'text-foreground/50',
+    panel: 'bg-white border-[#E2E8F0]!',
+    row: 'bg-white',
+    eyebrow: 'text-[#64748B]',
+    meta: 'text-[#64748B]',
+    head: 'text-[#64748B]',
+    rule: 'bg-[#E2E8F0]',
   },
   undated: {
-    shell: 'border-border bg-white',
-    eyebrow: 'text-muted-foreground',
-    slot: 'border-border bg-muted text-foreground/75',
-    slotIcon: 'text-foreground/50',
+    panel: 'bg-white border-[#E2E8F0]!',
+    row: 'bg-white',
+    eyebrow: 'text-[#64748B]',
+    meta: 'text-[#64748B]',
+    head: 'text-[#64748B]',
+    rule: 'bg-[#E2E8F0]',
   },
 };
 
 export function toneForBand(band: DateBand): BandTone {
   return BAND_TONE[band];
-}
-
-export function toneForDate(pickupDate: string | null, today = todayInIst()): BandTone {
-  return BAND_TONE[bandForDate(pickupDate, today)];
 }
 
 export function bandForDate(pickupDate: string | null, today = todayInIst()): DateBand {

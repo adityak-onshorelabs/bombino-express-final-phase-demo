@@ -1,5 +1,8 @@
-import { Loader2, AlertTriangle, Wallet } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { AgentShell } from '@/components/agent/AgentShell';
+import { BandHeader } from '@/components/agent/BandHeader';
+import { money } from '@/components/agent/PickupCard';
 import { useCollections } from '@/hooks/useAgentPickups';
 
 /**
@@ -10,38 +13,42 @@ import { useCollections } from '@/hooks/useAgentPickups';
  * end of a shift, and where they look when a customer rings the hub asking for
  * proof.
  *
- * Cash is separated from UPI at the top because only one of them is physically
- * in the agent's bag and has to be handed over.
+ * The amber field at the top holds the one figure that is physically in the
+ * agent's bag and has to be handed over. UPI sits under the rule inside it,
+ * because it is the same day's money but not their problem.
+ *
+ * The ledger is rows in one panel, not a card each: this is a document being
+ * reconciled line by line, and a stack of bordered cards makes four
+ * transactions look like four decisions.
  */
 function formatTime(iso: string | null): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString('en-IN', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
+  return new Date(iso)
+    .toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true })
+    .toUpperCase();
 }
 
 export default function Collections() {
   const { data, isLoading, isError, refetch } = useCollections();
 
   return (
-    <AgentShell title="Collected today" subtitle="Reconcile before you hand over">
+    <AgentShell title="Money today" subtitle="Reconcile before you hand over">
       {isLoading && (
-        <div className="flex items-center justify-center gap-2 py-20 text-muted-foreground">
+        <div className="flex items-center justify-center gap-2 py-20 text-[#64748B]">
           <Loader2 className="w-4 h-4 animate-spin" />
           <span className="text-sm font-semibold">Loading…</span>
         </div>
       )}
 
       {isError && (
-        <div className="flex flex-col items-center text-center py-20 px-4">
-          <AlertTriangle className="w-8 h-8 text-red-600 mb-3" />
-          <p className="text-base font-extrabold text-foreground">Could not load collections</p>
+        <div className="bg-white border border-[#E2E8F0]! rounded-[4px] px-4 py-5">
+          <p className="text-sm font-medium text-[#334155]">
+            Could not load today's collections. Check your connection and try again.
+          </p>
           <button
             type="button"
             onClick={() => void refetch()}
-            className="mt-4 text-sm font-bold text-primary"
+            className="mt-3 h-11 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-[#1B2A41]"
             data-testid="button-retry-collections"
           >
             Retry
@@ -50,74 +57,70 @@ export default function Collections() {
       )}
 
       {data && (
-        <div className="space-y-5">
-          <div className="rounded-xl bg-[#F2A123] p-4">
-            <p className="text-[10px] uppercase tracking-[0.12em] font-bold text-[#1B2A41]">
-              Cash on hand
+        <div className="flex flex-col gap-4">
+          <div className="bg-[#F2A123] p-4" data-testid="field-cash-on-hand">
+            <p className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-[#1B2A41]">
+              Cash in your bag
             </p>
-            <p className="text-5xl font-extrabold text-[#1B2A41] tabular-nums leading-none mt-1">
-              ₹{data.totals.cash}
+            <p className="font-mono text-[44px] font-bold leading-none tracking-[-0.02em] text-[#1B2A41] tabular-nums mt-2">
+              ₹{money(data.totals.cash)}
             </p>
-            <div className="flex items-center gap-4 mt-3 pt-3 border-t border-[#1B2A41]/25">
-              <span className="text-xs font-bold text-[#1B2A41] tabular-nums">
-                ₹{data.totals.upi} by UPI
+            <div className="flex gap-5 mt-3.5 pt-3 border-t border-[#1B2A41]/[0.28]!">
+              <span className="font-mono text-[11px] font-semibold text-[#1B2A41] tabular-nums">
+                ₹{money(data.totals.upi)} BY UPI
               </span>
-              <span className="text-xs font-bold text-[#1B2A41] tabular-nums">
-                ₹{data.totals.all} total
+              <span className="font-mono text-[11px] font-semibold text-[#1B2A41] tabular-nums">
+                {data.totals.count} COLLECTION{data.totals.count === 1 ? '' : 'S'}
               </span>
             </div>
           </div>
 
-          {data.collections.length === 0 ? (
-            <div
-              className="flex flex-col items-center text-center py-16 px-4"
-              data-testid="empty-collections"
-            >
-              <Wallet className="w-8 h-8 text-muted-foreground mb-3" />
-              <p className="text-base font-extrabold text-foreground">Nothing collected yet</p>
-              <p className="text-sm font-medium text-muted-foreground mt-1">
-                Payments you take at the door appear here.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {data.collections.map((c) => (
-                <div
-                  key={c.id}
-                  className="rounded-xl border-2 border-border bg-white p-4"
-                  data-testid={`collection-${c.txn_id ?? c.id}`}
-                >
-                  <div className="flex items-baseline justify-between gap-3">
-                    <p className="text-2xl font-extrabold text-foreground tabular-nums leading-none">
-                      ₹{c.amount}
-                    </p>
-                    <p className="text-[11px] uppercase tracking-[0.12em] font-bold text-muted-foreground shrink-0">
-                      {c.collection_mode === 'cash' ? 'Cash' : 'UPI'}
-                    </p>
-                  </div>
-
-                  <p className="font-mono text-sm font-bold text-foreground mt-2">
-                    {c.txn_id ?? 'No txn id'}
-                  </p>
-
-                  <div className="flex items-center gap-3 mt-1.5">
-                    <span className="font-mono text-xs font-semibold text-muted-foreground">
-                      {c.order_no ?? '—'}
+          <section>
+            <BandHeader label="Ledger" testId="band-ledger" />
+            <div className="bg-white border border-[#E2E8F0]! rounded-[4px] overflow-hidden">
+              {data.collections.length === 0 ? (
+                <p className="px-4 py-5 text-sm font-medium text-[#334155]">
+                  Payments you take at the door appear here.
+                </p>
+              ) : (
+                data.collections.map((c, i) => (
+                  <div
+                    key={c.id}
+                    className={cn(
+                      'flex items-baseline gap-3 px-4 py-3',
+                      i < data.collections.length - 1 && 'border-b border-[#E2E8F0]!',
+                    )}
+                    data-testid={`collection-${c.txn_id ?? c.id}`}
+                  >
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-mono text-[13px] font-semibold text-[#1B2A41] truncate">
+                        {c.txn_id ?? 'NO TXN ID'}
+                      </span>
+                      <span className="block font-mono text-[10.5px] font-medium tracking-[0.06em] text-[#64748B] mt-[3px]">
+                        {[
+                          c.order_no ?? '—',
+                          formatTime(c.collected_at),
+                          c.collection_mode === 'cash' ? 'CASH' : 'UPI',
+                        ].join(' · ')}
+                      </span>
+                      {c.reference && (
+                        <span className="block font-mono text-[10.5px] font-medium text-[#94A3B8] mt-[3px] truncate">
+                          REF {c.reference}
+                        </span>
+                      )}
                     </span>
-                    <span className="text-xs font-semibold text-muted-foreground">
-                      {formatTime(c.collected_at)}
+                    <span className="font-mono text-[17px] font-bold text-[#1B2A41] tabular-nums shrink-0">
+                      ₹{money(c.amount)}
                     </span>
                   </div>
-
-                  {c.reference && (
-                    <p className="text-xs font-medium text-muted-foreground mt-1.5 truncate">
-                      Ref: {c.reference}
-                    </p>
-                  )}
-                </div>
-              ))}
+                ))
+              )}
             </div>
-          )}
+          </section>
+
+          <p className="border-t border-[#E2E8F0]! pt-3.5 text-sm font-medium leading-[1.5] text-[#334155]">
+            Hand the cash to the hub at the end of your shift. UPI is already settled.
+          </p>
         </div>
       )}
     </AgentShell>

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Smartphone, Banknote, Loader2, Check, Copy } from 'lucide-react';
+import { Smartphone, Banknote, Loader2, Copy } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { money } from '@/components/agent/PickupCard';
 import { type AgentPickup } from '@/hooks/useAgentPickups';
 
 /**
@@ -11,6 +12,11 @@ import { type AgentPickup } from '@/hooks/useAgentPickups';
  * Two states, never both: choose-and-confirm, then receipt. The receipt is not
  * a toast — a transaction id the customer may ask to see cannot vanish after
  * four seconds, so it holds the sheet until the agent dismisses it.
+ *
+ * Square top corners and no drag handle: this is a form that has to be filled
+ * and confirmed, not a panel to be flicked away with a thumb. It is a document
+ * being written, which is also why the receipt has no celebration — the emerald
+ * circle-check is gone.
  *
  * Mode is a required, explicit choice with no default. An agent who taps
  * through without reading would otherwise record cash they are not carrying,
@@ -81,49 +87,58 @@ export function CollectPaymentSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[20px] border-t-0 px-5 pb-8 pt-3 max-h-[92dvh] overflow-y-auto"
+        className={cn(
+          'rounded-none border-t-0 bg-white px-4 pt-4 pb-[22px] max-h-[92dvh] overflow-y-auto',
+          'shadow-[0_-12px_40px_rgba(15,22,32,0.28)]',
+          // The shared Sheet primitive stamps a close X at top-right, where the
+          // amount due sits on this design. Hidden here rather than changed
+          // there — the customer app's sheets still want it — and the sheet
+          // still closes on the overlay, on Esc, and on Done.
+          '[&>button:first-child]:hidden',
+        )}
         data-testid="sheet-collect-payment"
       >
-        <div className="mx-auto w-10 h-1 rounded-full bg-border mb-5" aria-hidden />
+        <div className="flex items-baseline justify-between gap-3 border-b-2 border-[#1B2A41]! pb-2.5">
+          <span className="font-mono text-[11px] font-bold uppercase tracking-[0.16em] text-[#1B2A41]">
+            {receipt ? 'Collected' : 'Collect'} · {pickup.order_no}
+          </span>
+          <span className="font-mono text-[11px] font-medium uppercase text-[#64748B] tabular-nums shrink-0">
+            {receipt ? 'Receipt' : `DUE ₹${money(due)}`}
+          </span>
+        </div>
 
         {receipt ? (
           // ── Receipt ──────────────────────────────────────────────────────
-          <div className="text-center" data-testid="payment-receipt">
-            <div className="w-14 h-14 rounded-full bg-emerald-100 grid place-items-center mx-auto mb-4">
-              <Check className="w-7 h-7 text-emerald-700 stroke-[3]" />
-            </div>
-            <p className="text-[11px] uppercase tracking-[0.12em] font-bold text-muted-foreground">
-              Collected
-            </p>
-            <p className="text-5xl font-extrabold tracking-tight text-foreground tabular-nums mt-1">
-              ₹{receipt.amount}
+          <div data-testid="payment-receipt">
+            <p className="font-mono text-[44px] font-bold leading-none tracking-[-0.02em] text-[#1B2A41] tabular-nums mt-4">
+              ₹{money(receipt.amount)}
             </p>
 
             <button
               type="button"
               onClick={copyTxn}
-              className="mt-5 w-full rounded-xl bg-muted/60 border border-border px-4 py-3 flex items-center justify-between gap-3 active:scale-[0.99] transition-transform"
+              className="mt-4 w-full border border-[#E2E8F0]! px-4 py-3 flex items-center justify-between gap-3 text-left active:scale-[0.99] transition-transform"
               data-testid="button-copy-txn"
             >
-              <span className="text-left">
-                <span className="block text-[10px] uppercase tracking-[0.12em] font-bold text-muted-foreground">
+              <span>
+                <span className="block font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[#64748B]">
                   Transaction ID
                 </span>
-                <span className="block font-mono text-base font-bold text-foreground mt-0.5">
+                <span className="block font-mono text-[15px] font-bold text-[#1B2A41] mt-1">
                   {receipt.txnId ?? 'Not issued'}
                 </span>
               </span>
-              <Copy className="w-4 h-4 text-muted-foreground shrink-0" />
+              <Copy className="w-4 h-4 shrink-0 text-[#64748B]" />
             </button>
 
-            <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
+            <p className="text-[12.5px] font-medium leading-[1.5] text-[#64748B] mt-2.5">
               Read this to the customer if they ask for proof.
             </p>
 
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="mt-5 w-full h-14 rounded-xl bg-primary text-white text-base font-bold active:scale-[0.98] transition-transform"
+              className="mt-4 w-full h-14 bg-[#1B2A41] text-base font-bold text-white active:scale-[0.98] transition-transform"
               data-testid="button-receipt-done"
             >
               Done
@@ -132,23 +147,16 @@ export function CollectPaymentSheet({
         ) : (
           // ── Collect ──────────────────────────────────────────────────────
           <>
-            <p className="text-[11px] uppercase tracking-[0.12em] font-bold text-muted-foreground">
-              Collect for {pickup.order_no}
-            </p>
-            <p className="text-4xl font-extrabold tracking-tight text-foreground tabular-nums mt-1 mb-5">
-              ₹{due || '—'}
-            </p>
-
-            <p className="text-[11px] uppercase tracking-[0.12em] font-bold text-muted-foreground mb-2">
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[#64748B] mt-4 mb-2">
               How did you take it?
             </p>
-            <div className="grid grid-cols-2 gap-2.5 mb-5">
+            <div className="flex gap-2">
               {(
                 [
-                  { key: 'upi' as const, icon: Smartphone, label: 'UPI / Online', hint: 'Transfer' },
-                  { key: 'cash' as const, icon: Banknote, label: 'Cash', hint: 'In hand' },
+                  { key: 'upi' as const, icon: Smartphone, label: 'UPI' },
+                  { key: 'cash' as const, icon: Banknote, label: 'Cash' },
                 ]
-              ).map(({ key, icon: Icon, label, hint }) => {
+              ).map(({ key, icon: Icon, label }) => {
                 const selected = mode === key;
                 return (
                   <button
@@ -160,22 +168,25 @@ export function CollectPaymentSheet({
                     }}
                     aria-pressed={selected}
                     className={cn(
-                      'h-[92px] rounded-xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all active:scale-[0.98]',
-                      selected
-                        ? 'border-primary bg-primary text-white'
-                        : 'border-border bg-white text-foreground',
+                      'flex-1 h-16 flex items-center justify-center gap-[9px] transition-colors duration-150 active:scale-[0.98]',
+                      selected ? 'bg-[#1B2A41]' : 'bg-white border border-[#CBD5E1]!',
                     )}
                     data-testid={`button-mode-${key}`}
                   >
-                    <Icon className={cn('w-6 h-6', selected && 'stroke-[2.5]')} />
-                    <span className="text-sm font-bold leading-none">{label}</span>
+                    <Icon
+                      className={cn(
+                        'w-[19px] h-[19px]',
+                        selected ? 'text-[#F2A123]' : 'text-[#1B2A41]',
+                      )}
+                      strokeWidth={2}
+                    />
                     <span
                       className={cn(
-                        'text-[10px] leading-none',
-                        selected ? 'text-white/70' : 'text-muted-foreground',
+                        'text-base font-bold',
+                        selected ? 'text-white' : 'text-[#1B2A41]',
                       )}
                     >
-                      {hint}
+                      {label}
                     </span>
                   </button>
                 );
@@ -184,12 +195,12 @@ export function CollectPaymentSheet({
 
             <label
               htmlFor="collect-amount"
-              className="block text-[11px] uppercase tracking-[0.12em] font-bold text-muted-foreground mb-2"
+              className="block font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[#64748B] mt-4 mb-2"
             >
               Amount taken
             </label>
-            <div className="flex items-center gap-2 rounded-xl border-2 border-border bg-white px-4 h-14 mb-3 focus-within:border-primary transition-colors">
-              <span className="text-xl font-bold text-muted-foreground">₹</span>
+            <div className="h-16 border border-[#1B2A41]! flex items-center gap-2 px-4">
+              <span className="font-mono text-[22px] font-semibold text-[#64748B]">₹</span>
               <input
                 id="collect-amount"
                 inputMode="decimal"
@@ -199,36 +210,37 @@ export function CollectPaymentSheet({
                   if (error) setError('');
                 }}
                 placeholder="0"
-                className="flex-1 min-w-0 bg-transparent outline-none text-2xl font-extrabold tabular-nums text-foreground"
+                className="flex-1 min-w-0 bg-transparent outline-none font-mono text-[28px] font-bold tracking-[-0.01em] text-[#1B2A41] tabular-nums"
                 data-testid="input-collect-amount"
               />
               {Number(amount) !== due && due > 0 && (
                 <button
                   type="button"
                   onClick={() => setAmount(String(due))}
-                  className="text-[11px] font-bold text-primary shrink-0"
+                  className="shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[#64748B]"
                   data-testid="button-reset-amount"
                 >
-                  ₹{due}
+                  Full amount
                 </button>
               )}
             </div>
 
-            {/* No QR, by product decision: the agent never puts a payee
-                address in front of the customer. The transfer is arranged
-                between them and only its reference is recorded here. */}
+            {/* No QR, by product decision: the agent never puts a payee address
+                in front of the customer. The transfer is arranged between them
+                and only its reference is recorded here. Shares the amount
+                field's bottom edge — one field, two lines. */}
             {mode === 'upi' && (
               <input
                 value={reference}
                 onChange={(e) => setReference(e.target.value)}
                 placeholder="UPI reference (optional)"
-                className="w-full rounded-xl border-2 border-border bg-white px-4 h-12 outline-none text-sm font-medium focus:border-primary transition-colors mb-3"
+                className="w-full h-[52px] border border-[#E2E8F0]! border-t-0 px-4 outline-none font-mono text-xs font-medium text-[#1B2A41] focus:border-[#1B2A41]! transition-colors"
                 data-testid="input-upi-reference"
               />
             )}
 
             {error && (
-              <p className="text-sm font-semibold text-red-600 mb-3" data-testid="error-collect">
+              <p className="text-[13px] font-semibold text-[#B91C1C] mt-2.5" data-testid="error-collect">
                 {error}
               </p>
             )}
@@ -237,11 +249,15 @@ export function CollectPaymentSheet({
               type="button"
               onClick={submit}
               disabled={isPending}
-              className="w-full h-14 rounded-xl bg-primary text-white text-base font-bold active:scale-[0.98] transition-transform disabled:opacity-60 grid place-items-center"
+              className="mt-3.5 w-full h-14 bg-[#F2A123] text-base font-bold text-[#1B2A41] grid place-items-center active:scale-[0.98] transition-transform disabled:opacity-60"
               data-testid="button-confirm-collect"
             >
               {isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm collection'}
             </button>
+
+            <p className="text-[12.5px] font-medium leading-[1.5] text-[#64748B] text-center mt-2.5">
+              The transaction ID appears here and stays until you close it.
+            </p>
           </>
         )}
       </SheetContent>

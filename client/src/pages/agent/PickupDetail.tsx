@@ -1,30 +1,102 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useRoute } from 'wouter';
-import { ArrowLeft, Loader2, Phone, Navigation, AlertTriangle } from 'lucide-react';
+import { Loader2, Phone, Navigation } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { AgentShell } from '@/components/agent/AgentShell';
-import { PickupCard, notDueYetReason } from '@/components/agent/PickupCard';
-import { ActionButtons } from '@/components/agent/ActionButtons';
+import { AgentJobSheet } from '@/components/agent/AgentShell';
+import { ActionBar } from '@/components/agent/ActionButtons';
 import { CollectPaymentSheet } from '@/components/agent/CollectPaymentSheet';
+import {
+  agentStatusLabel,
+  amountOwedAtDoor,
+  eyebrowText,
+  money,
+  notDueYetReason,
+  weightLabel,
+  windowLabel,
+} from '@/components/agent/PickupCard';
+import { todayInIst } from '@shared/pickupSlots';
+import { bandForDate } from '@/lib/agentGrouping';
+import { docketItem, type OrderConsignee } from '@/lib/orderDetail';
 import { useAvailablePickups, useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';
+import type { AgentPickup } from '@/hooks/useAgentPickups';
+import type { PaymentMethod, PaymentStatus } from '@shared/orderContract';
 
 /**
- * A5 screen 3 — one job, and the buttons to work through it.
+ * One job, as a single sheet.
+ *
+ * Four stacked bordered cards became one document: the sender appears once, at
+ * the top, at the size an agent reads from a doorstep; then the two things they
+ * do with a phone; then the docket, which is every field ops would print. The
+ * duplication the old screen carried — the card's name and address, then a
+ * "Collect from" card repeating both — is gone.
  *
  * Reads from the two cached lists rather than a per-order endpoint: both are
  * already scoped by the server, and this avoids a second round trip on a phone
  * that may be on bad network.
  *
- * Both lists, not just `mine`: the dashboard links unclaimed jobs straight
- * here, so a job the agent has not taken yet must resolve too — otherwise the
- * screen decides the job has vanished and bounces them to My pickups. The
+ * Both lists, not just `mine`: the dashboard and Calls link unclaimed jobs
+ * straight here, so a job the agent has not taken yet must resolve too. The
  * buttons come from the server either way, so an unclaimed job simply offers
- * Accept and then carries on down the same screen once claimed.
+ * Accept and then carries on down the same sheet once claimed.
  *
  * A consequence worth knowing: when the agent marks `received_at_hub` the
  * server drops the job from `mine`, and it is in neither list. That is the
  * handoff working, not an error — we redirect back.
  */
+
+const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
+  pay_now: 'PAY NOW',
+  pay_at_pickup: 'PAY AT PICKUP',
+  pay_at_dropoff: 'PAY AT HUB',
+  cod: 'COD',
+};
+
+const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
+  pending: 'UNPAID',
+  paid: 'PAID',
+  partially_paid: 'PART PAID',
+  refund_due: 'REFUND DUE',
+  failed: 'FAILED',
+};
+
+/** `12 Aug` — for prose, not for the mono docket. */
+function dayMonth(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+
+/** `ON THE WAY · TODAY` — state, then when it is owed. */
+function sheetEyebrow(pickup: AgentPickup, today: string): string {
+  const band = bandForDate(pickup.pickup_date, today);
+  if (band === 'overdue') return eyebrowText(pickup, today);
+  if (band === 'today') return `${agentStatusLabel(pickup.status)} · today`;
+  if (!pickup.pickup_date) return agentStatusLabel(pickup.status);
+  return `${agentStatusLabel(pickup.status)} · ${dayMonth(`${pickup.pickup_date}T00:00:00Z`)}`;
+}
+
+/** Where the parcel is going, from the booking's consignee blob. */
+function destination(pickup: AgentPickup): string {
+  const c = (pickup.consignee ?? null) as OrderConsignee | null;
+  if (!c) return '—';
+  const place = [c.city, c.state].filter(Boolean).join(', ');
+  const country = c.country_name ?? c.country_code;
+  return [place, country].filter(Boolean).join(' · ').toUpperCase() || '—';
+}
+
+/** One label/value line of the docket. */
+function DocketRow({ label, value, last = false }: { label: string; value: string; last?: boolean }) {
+  return (
+    <div
+      className={`flex justify-between gap-4 py-[9px] ${last ? '' : 'border-b border-[#EEF2F6]!'}`}
+      data-testid={`docket-${label.toLowerCase().replace(/\s+/g, '-')}`}
+    >
+      <span className="font-mono text-[11px] font-medium uppercase tracking-[0.08em] text-[#64748B]">
+        {label}
+      </span>
+      <span className="font-mono text-[13px] font-semibold text-right text-[#1B2A41]">{value}</span>
+    </div>
+  );
+}
+
 export default function PickupDetail() {
   const [, params] = useRoute('/agent/pickup/:id');
   const [, setLocation] = useLocation();
@@ -60,9 +132,7 @@ export default function PickupDetail() {
   // agent happened to tap in from.
   const isUnclaimed = !!entry && !mine.data?.some((p) => p.order.id === entry.order.id);
   const backHref = isUnclaimed ? '/agent/available' : '/agent/mine';
-  const backLabel = isUnclaimed ? 'Available' : 'My pickups';
-
-  const notDueYet = order ? notDueYetReason(order) : null;
+  const backLabel = isUnclaimed ? 'Calls' : 'My jobs';
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [receipt, setReceipt] = useState<{ txnId: string | null; amount: number } | null>(null);
@@ -86,7 +156,7 @@ export default function PickupDetail() {
           }
           toast({
             title: 'Updated',
-            description: `${result.order.order_no} — ${result.order.status.replace(/_/g, ' ')}`,
+            description: `${result.order.order_no} — ${agentStatusLabel(result.order.status)}`,
           });
         },
         onError: (err) => {
@@ -111,114 +181,151 @@ export default function PickupDetail() {
     runAction(actionName);
   };
 
-  return (
-    <AgentShell title="Pickup detail" subtitle={order?.order_no ?? ''}>
-      <button
-        type="button"
-        onClick={() => setLocation(backHref)}
-        className="flex items-center gap-1 text-sm text-muted-foreground mb-3 -ml-1 h-11"
-        data-testid="button-back-mine"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        {backLabel}
-      </button>
+  const owed = order ? amountOwedAtDoor(order) : null;
+  const address = order?.origin_address;
+  const fullAddress = [
+    address?.address_line_1,
+    address?.address_line_2,
+    address?.city,
+    address?.state,
+    address?.pincode,
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const mapsQuery = [address?.address_line_1, address?.city, address?.pincode]
+    .filter(Boolean)
+    .join(', ');
+  const pieces = order ? docketItem(order.items as Record<string, unknown> | null) : null;
+  const notDueYet = order ? notDueYetReason(order) : null;
 
+  return (
+    <AgentJobSheet
+      backHref={backHref}
+      backLabel={backLabel}
+      orderNo={order?.order_no}
+      actionBar={
+        order && entry ? (
+          <ActionBar
+            actions={entry.availableActions}
+            owed={owed}
+            pendingAction={action.isPending ? action.variables?.action ?? null : null}
+            disabled={action.isPending}
+            onAction={handleAction}
+          />
+        ) : undefined
+      }
+    >
       {isLoading && (
-        <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+        <div className="flex items-center justify-center gap-2 py-16 text-[#64748B]">
           <Loader2 className="w-4 h-4 animate-spin" />
-          <span className="text-sm">Loading…</span>
+          <span className="text-sm font-semibold">Loading…</span>
         </div>
       )}
 
       {isError && (
-        <div className="flex flex-col items-center text-center py-16 px-4">
-          <AlertTriangle className="w-8 h-8 text-red-500 mb-3" />
-          <p className="text-sm font-semibold text-foreground">Could not load this pickup</p>
-        </div>
+        <p className="px-4 py-8 text-sm font-medium text-[#334155]">
+          Could not load this job. Check your connection and try again.
+        </p>
       )}
 
       {order && entry && (
-        <div className="space-y-4">
-          <PickupCard pickup={order} />
+        <>
+          <div className="px-4 pt-[18px] pb-4 border-b border-[#E2E8F0]!">
+            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#1B2A41]">
+              {sheetEyebrow(order, todayInIst())}
+            </span>
+            <p className="text-[26px] font-extrabold tracking-[-0.02em] leading-[1.1] text-[#1B2A41] mt-1.5">
+              {address?.full_name ?? 'Unknown sender'}
+            </p>
+            <p className="text-[15px] font-medium leading-[1.45] text-[#334155] mt-1.5">
+              {fullAddress || 'Address unavailable'}
+            </p>
+          </div>
 
-          {order.origin_address && (
-            <div className="rounded-xl border border-border bg-white p-4 space-y-3">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-                Collect from
-              </p>
-              <div>
-                <p className="text-sm font-semibold text-foreground">
-                  {order.origin_address.full_name}
-                </p>
-                <p className="text-xs text-muted-foreground leading-snug mt-1">
-                  {[
-                    order.origin_address.address_line_1,
-                    order.origin_address.address_line_2,
-                    order.origin_address.city,
-                    order.origin_address.state,
-                    order.origin_address.pincode,
-                  ]
-                    .filter(Boolean)
-                    .join(', ')}
-                </p>
-              </div>
+          {/* The two things done with a phone, one hairline apart. */}
+          <div className="flex border-b border-[#E2E8F0]!">
+            {address?.phone ? (
+              <a
+                href={`tel:${address.phone}`}
+                className="flex-1 h-[60px] flex items-center justify-center gap-2 border-r border-[#E2E8F0]!"
+                data-testid="button-call-sender"
+              >
+                <Phone className="w-[18px] h-[18px] text-[#1B2A41]" strokeWidth={2} />
+                <span className="text-[15px] font-semibold text-[#1B2A41]">Call sender</span>
+              </a>
+            ) : (
+              <span
+                className="flex-1 h-[60px] flex items-center justify-center border-r border-[#E2E8F0]! font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-[#94A3B8]"
+                data-testid="no-phone"
+              >
+                No phone on file
+              </span>
+            )}
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex-1 h-[60px] flex items-center justify-center gap-2"
+              data-testid="button-navigate"
+            >
+              <Navigation className="w-[18px] h-[18px] text-[#1B2A41]" strokeWidth={2} />
+              <span className="text-[15px] font-semibold text-[#1B2A41]">Directions</span>
+            </a>
+          </div>
 
-              <div className="flex gap-2">
-                {order.origin_address.phone && (
-                  <a
-                    href={`tel:${order.origin_address.phone}`}
-                    className="flex-1 flex items-center justify-center gap-2 h-12 rounded-xl border border-border text-sm font-semibold text-foreground active:scale-95 transition-transform"
-                    data-testid="button-call-sender"
-                  >
-                    <Phone className="w-4 h-4" />
-                    Call
-                  </a>
-                )}
-                <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                    [
-                      order.origin_address.address_line_1,
-                      order.origin_address.city,
-                      order.origin_address.pincode,
-                    ]
-                      .filter(Boolean)
-                      .join(', '),
-                  )}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex-1 flex items-center justify-center gap-2 h-12 rounded-xl border border-border text-sm font-semibold text-foreground active:scale-95 transition-transform"
-                  data-testid="button-navigate"
-                >
-                  <Navigation className="w-4 h-4" />
-                  Directions
-                </a>
-              </div>
+          {/* Every field ops would print, once, in the order they read it. */}
+          <div className="px-4 pt-4 pb-1">
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[#64748B] mb-2.5">
+              The docket
+            </p>
+            <DocketRow label="Window" value={windowLabel(order, true)} />
+            <DocketRow label="Booked weight" value={weightLabel(order)} />
+            <DocketRow label="Pieces" value={pieces?.number_of_boxes ?? '—'} />
+            <DocketRow label="Destination" value={destination(order)} />
+            <DocketRow
+              label="Payment"
+              value={`${PAYMENT_METHOD_LABEL[order.payment_method]} · ${
+                PAYMENT_STATUS_LABEL[order.payment_status]
+              }`}
+              last
+            />
+          </div>
+
+          {owed !== null && (
+            <div
+              className="mx-4 mt-3 mb-4 bg-[#F2A123] px-4 py-3.5 flex items-center justify-between gap-3"
+              data-testid="block-collect-cash"
+            >
+              <span>
+                <span className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#1B2A41]">
+                  Collect at door
+                </span>
+                <span className="block font-mono text-[11px] font-medium text-[#1B2A41]/75 mt-[3px]">
+                  Booked {dayMonth(order.created_at)} · not yet paid
+                </span>
+              </span>
+              <span className="font-mono text-[26px] font-bold leading-none text-[#1B2A41] tabular-nums">
+                ₹{money(owed)}
+              </span>
             </div>
           )}
 
-          <div className="rounded-xl border border-border bg-white p-4">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-3">
-              Next step
-            </p>
-            {notDueYet ? (
-              // The server withholds start_pickup until the pickup date, so
-              // the action list is empty. Say why — "Nothing to do here" on a
-              // job the agent is holding reads as a fault.
-              <div className="text-center py-2" data-testid="not-due-yet">
-                <p className="text-base font-extrabold text-foreground">{notDueYet}</p>
-                <p className="text-sm font-medium text-muted-foreground mt-1">
-                  You can start this pickup on the day.
-                </p>
-              </div>
-            ) : (
-              <ActionButtons
-                actions={entry.availableActions}
-                pendingAction={action.isPending ? action.variables?.action ?? null : null}
-                disabled={action.isPending}
-                onAction={handleAction}
-              />
-            )}
-          </div>
+          {/* The server withholds start_pickup until the pickup date and sends
+              no actions, so the bar is empty. Say why — an agent holding a job
+              with no button and no reason reads it as a fault. */}
+          {notDueYet && (
+            <div
+              className="mx-4 mt-3 mb-4 border-t border-[#E2E8F0]! pt-3.5"
+              data-testid="not-due-yet"
+            >
+              <p className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-[#1B2A41]">
+                {notDueYet}
+              </p>
+              <p className="text-sm font-medium text-[#334155] mt-1">
+                You can start this pickup on the day.
+              </p>
+            </div>
+          )}
 
           <CollectPaymentSheet
             open={sheetOpen}
@@ -231,8 +338,8 @@ export default function PickupDetail() {
             receipt={receipt}
             onConfirm={(payload) => runAction('collect_payment', payload)}
           />
-        </div>
+        </>
       )}
-    </AgentShell>
+    </AgentJobSheet>
   );
 }

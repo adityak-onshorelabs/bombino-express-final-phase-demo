@@ -3,15 +3,15 @@ import { Link, useLocation } from 'wouter';
 import { cn } from '@/lib/utils';
 
 /**
- * The app's bottom navigation, shared by every surface.
+ * The customer surface's bottom navigation.
  *
- * Extracted from the customer `BottomNav` so the agent app is visibly the same
- * product rather than a bolt-on: identical bar height, primary fill, active
- * underline and press behaviour. Only the destinations differ.
+ * Presentation only: the surface owns its own item list and its responsive
+ * behaviour (the customer bar hides on desktop).
  *
- * Presentation only. Each surface owns its own item list and decides its own
- * responsive behaviour (the customer bar hides on desktop; the agent bar does
- * not, because the agent surface is phone-only).
+ * The agent surface used to render this too. It no longer does — the docket
+ * grammar changed the bar's height, its labels' family, and how the active item
+ * is marked, so `AgentNav` draws its own. Anything changed here stays on the
+ * customer app, which is the point.
  */
 
 export interface TabItem {

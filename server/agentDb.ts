@@ -113,6 +113,13 @@ export async function getAvailablePickups(): Promise<AgentPickup[] | null> {
  * `received_at_hub` is excluded because that is the handoff: the parcel is with
  * ops and the agent can no longer act on it (§5). Terminal states are excluded
  * for the same reason — a cancelled or dispatched order is not work.
+ *
+ * So are the three ops states that follow the handoff — `weighed`, `settled`,
+ * `ready_for_docket`. They were missed, and the effect was worse than an extra
+ * row: an order that had reached the hub weeks ago stayed in the agent's list
+ * for ever, showing as OVERDUE against its old pickup date, with no action on
+ * it because the lifecycle has none left for an agent at that point. The list
+ * is what the agent still has to do, and a settled parcel is not that.
  */
 export async function getMyPickups(agentId: string): Promise<AgentPickup[] | null> {
   const client = getSupabaseClient();
@@ -122,7 +129,11 @@ export async function getMyPickups(agentId: string): Promise<AgentPickup[] | nul
     .from("orders")
     .select(PICKUP_COLUMNS)
     .eq("agent_id", agentId)
-    .not("status", "in", "(received_at_hub,dispatched,cancelled)")
+    .not(
+      "status",
+      "in",
+      "(received_at_hub,weighed,settled,ready_for_docket,dispatched,cancelled)"
+    )
     .order("pickup_date", { ascending: true })
     .order("created_at", { ascending: true });
 
