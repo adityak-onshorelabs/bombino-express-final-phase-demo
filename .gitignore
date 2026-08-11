@@ -7,3 +7,5 @@ client/.env.development
 client/.env.production
 dist
 docs/whatsapp.env
+# Vendor API notes pasted with live bearer tokens / session cookies in them
+CUSTOMER CREATION API DETAILS.txt
