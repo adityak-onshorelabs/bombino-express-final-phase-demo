@@ -1573,29 +1573,10 @@ export async function registerRoutes(
     .trim()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD");
 
-  // GET /api/payment/upi — Bombino's collection VPA, for the doorstep QR.
-  //
-  // Env-driven and never hardcoded: a wrong VPA sends a customer's money to a
-  // stranger's account, and a value baked into the bundle cannot be rotated
-  // without a redeploy. Unset is a legitimate state, not an error — it returns
-  // `{ upi: null }` and the agent app falls back to reading the amount aloud
-  // and taking a manual transfer, exactly as it does today.
-  //
-  // Deliberately NOT under /api/config/* — that prefix is M1's (see §4.7 of
-  // open-items) and colliding on it would break the other lane.
-  app.get("/api/payment/upi", requireUser, (_req: Request, res: Response) => {
-    const vpa = process.env.BOMBINO_UPI_VPA?.trim();
-    if (!vpa) {
-      res.json({ upi: null });
-      return;
-    }
-    res.json({
-      upi: {
-        vpa,
-        payeeName: process.env.BOMBINO_UPI_NAME?.trim() || "Bombino Express",
-      },
-    });
-  });
+  // GET /api/payment/upi is gone, along with the doorstep QR it fed. The
+  // agent no longer shows the customer a payee address of any kind; the UPI
+  // transfer is arranged between them and only its reference is recorded.
+  // BOMBINO_UPI_VPA / BOMBINO_UPI_NAME are consequently unread.
 
   // GET /api/pickup/slots?date=YYYY-MM-DD
   // Every window for that date, each flagged available with a reason. Returns

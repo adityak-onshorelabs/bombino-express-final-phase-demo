@@ -3,8 +3,7 @@ import { Smartphone, Banknote, Loader2, Check, Copy } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { UpiQr } from '@/components/agent/UpiQr';
-import { useUpiPayee, type AgentPickup } from '@/hooks/useAgentPickups';
+import { type AgentPickup } from '@/hooks/useAgentPickups';
 
 /**
  * Money handling, in a bottom sheet over the job it belongs to.
@@ -42,10 +41,6 @@ export function CollectPaymentSheet({
   const [reference, setReference] = useState('');
   const [error, setError] = useState('');
   const { toast } = useToast();
-
-  // Only fetched once the sheet is open — an agent who never collects should
-  // not be spending a request on it.
-  const { data: upiPayee } = useUpiPayee(open);
 
   // Reset whenever the sheet reopens, so a previous job's amount cannot carry
   // over into the next doorstep.
@@ -219,17 +214,9 @@ export function CollectPaymentSheet({
               )}
             </div>
 
-            {/* The QR sits below the amount, not above it: it encodes whatever
-                is in that field, so the agent settles the figure first and only
-                then turns the screen around. */}
-            {mode === 'upi' && upiPayee && (
-              <UpiQr
-                payee={upiPayee}
-                amount={Number(amount)}
-                orderNo={pickup.order_no}
-              />
-            )}
-
+            {/* No QR, by product decision: the agent never puts a payee
+                address in front of the customer. The transfer is arranged
+                between them and only its reference is recorded here. */}
             {mode === 'upi' && (
               <input
                 value={reference}
