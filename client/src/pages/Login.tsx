@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader2, Mail, Lock, Eye, EyeOff, UserPlus, BadgeCheck, ArrowRight } from 'lucide-react';
+import { Loader2, Mail, Lock, Eye, EyeOff, UserPlus, BadgeCheck, ArrowRight, Phone } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -206,7 +206,7 @@ export default function Login() {
    *  screens is set. It is the subject of both sentences below, so it should
    *  not read as ordinary body text. */
   const phoneMark = (
-    <span className="doc-mono font-semibold text-foreground whitespace-nowrap">
+    <span className="font-mono font-semibold text-foreground whitespace-nowrap">
       +91 {phone}
     </span>
   );
@@ -230,15 +230,15 @@ export default function Login() {
       testId="screen-login"
       footer={
         step === 'phone' ? (
-          <div className="doc-rule mt-8 pt-4">
+          <p className="text-center text-sm text-muted-foreground mt-5">
+            New here?{' '}
             <Link
               href={redirect ? `/signup?redirect=${encodeURIComponent(redirect)}` : '/signup'}
-              className="doc-link focus-ring"
+              className="text-[#F2A123] font-semibold hover:underline"
             >
-              New here? Create account
-              <ArrowRight className="w-3 h-3 shrink-0" />
+              Create account
             </Link>
-          </div>
+          </p>
         ) : null
       }
     >
@@ -257,17 +257,11 @@ export default function Login() {
 
       {step === 'phone' && (
         <div>
-          <Label htmlFor="login-phone" className="doc-label">
+          <Label htmlFor="login-phone" className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">
             Mobile number
           </Label>
-          {/* Country code is a fixed segment, not a placeholder inside the
-              field — India-only today, and showing it removes any doubt about
-              whether to type it. */}
-          <div className="mt-2 flex items-stretch border border-border focus-within:border-accent transition-colors"
-               style={{ borderRadius: 'var(--doc-radius)' }}>
-            <span className="doc-mono flex items-center px-3 text-sm text-muted-foreground border-r border-border bg-muted/60 select-none">
-              +91
-            </span>
+          <div className="relative mt-2">
+            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
               id="login-phone"
               ref={phoneRef}
@@ -279,8 +273,8 @@ export default function Login() {
                 setError('');
               }}
               onKeyDown={(e) => e.key === 'Enter' && handleSendOtp()}
-              placeholder="00000 00000"
-              className="doc-mono h-12 flex-1 border-0 bg-transparent text-base shadow-none focus-visible:ring-0 rounded-none"
+              placeholder="10-digit mobile number"
+              className="pl-10 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
               autoComplete="tel"
               aria-invalid={Boolean(error)}
               aria-describedby={error ? 'login-error' : undefined}
@@ -292,8 +286,8 @@ export default function Login() {
 
       {step === 'otp' && (
         <div>
-          <Label className="doc-label">Verification code</Label>
-          <div className="mt-2">
+          <Label className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Verification code</Label>
+          <div className="mt-3 flex justify-center">
             <InputOTP
               maxLength={6}
               value={otp}
@@ -306,61 +300,53 @@ export default function Login() {
                 if (v.length === 6 && !isLoading) void submitOtp(v);
               }}
             >
-              <InputOTPGroup className="gap-2">
+              <InputOTPGroup>
                 {[0, 1, 2, 3, 4, 5].map((i) => (
                   <InputOTPSlot
                     key={i}
                     index={i}
-                    className="doc-mono h-14 w-12 text-lg border border-border data-[active=true]:border-accent data-[active=true]:ring-0"
-                    style={{ borderRadius: 'var(--doc-radius)' }}
+                    className="h-12 w-11 text-base"
                     data-testid={`input-otp-slot-${i}`}
                   />
                 ))}
               </InputOTPGroup>
             </InputOTP>
           </div>
-          <div className="flex items-center gap-3 mt-3">
-            {justSent && (
-              <span
-                className="doc-label text-accent"
-                role="status"
-                data-testid="text-code-sent"
-              >
-                Code sent
-              </span>
-            )}
-          </div>
+          {justSent && (
+            <p
+              className="text-xs text-muted-foreground text-center mt-3"
+              role="status"
+              data-testid="text-code-sent"
+            >
+              Code sent
+            </p>
+          )}
           <button
             type="button"
             onClick={handleResendOtp}
             disabled={cooldown > 0}
-            className="doc-label tap-target focus-ring -ml-1 px-1 hover:text-accent disabled:cursor-not-allowed"
+            className="text-xs text-[#F2A123] mt-3 mx-auto block disabled:text-muted-foreground disabled:cursor-not-allowed"
             data-testid="button-resend-otp"
           >
-            {/* Rendered as a clock rather than "28s" — `uppercase` on the
-                label class turned the unit into "28S", and a mono countdown
-                suits the document language better anyway. */}
-            {cooldown > 0
-              ? `Resend in 0:${String(cooldown).padStart(2, '0')}`
-              : 'Resend code'}
+            {cooldown > 0 ? `Resend OTP in ${cooldown}s` : 'Resend OTP'}
           </button>
         </div>
       )}
 
       {step === 'choice' && (
         <div>
-          <p className="doc-label mb-2">Have you shipped with Bombino before?</p>
-          <div className="doc-choice-group">
+          <p className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)] mb-3">Have you shipped with Bombino before?</p>
+          <div className="space-y-3">
             <button
               type="button"
               onClick={() => {
                 setStep('link');
                 setError('');
               }}
-              className="doc-choice focus-ring"
+              className="w-full flex items-start gap-3 text-left rounded-xl border border-[#E2E8F0] bg-[#F3F4F6] p-4 hover:border-[#F2A123] transition-colors"
               data-testid="button-existing-customer"
             >
-              <BadgeCheck className="w-[18px] h-[18px] text-accent shrink-0 mt-0.5" />
+              <BadgeCheck className="w-[18px] h-[18px] text-[#F2A123] shrink-0 mt-0.5" />
               <span className="flex-1 min-w-0">
                 <span className="block text-sm font-semibold text-foreground">
                   Yes, I have an account
@@ -374,10 +360,10 @@ export default function Login() {
             <button
               type="button"
               onClick={goToSignup}
-              className="doc-choice focus-ring"
+              className="w-full flex items-start gap-3 text-left rounded-xl border border-[#E2E8F0] bg-[#F3F4F6] p-4 hover:border-[#F2A123] transition-colors"
               data-testid="button-new-customer"
             >
-              <UserPlus className="w-[18px] h-[18px] text-accent shrink-0 mt-0.5" />
+              <UserPlus className="w-[18px] h-[18px] text-[#F2A123] shrink-0 mt-0.5" />
               <span className="flex-1 min-w-0">
                 <span className="block text-sm font-semibold text-foreground">
                   No, I'm new here
@@ -394,13 +380,13 @@ export default function Login() {
 
       {step === 'link' && (
         <>
-          <div className="border border-border bg-muted/50 px-4 py-3" style={{ borderRadius: 'var(--doc-radius)' }}>
-            <p className="doc-label">Linking</p>
-            <p className="doc-mono mt-1 text-sm font-medium text-foreground">+91 {phone}</p>
+          <div className="rounded-xl border border-[#E2E8F0] bg-[#F3F4F6] px-4 py-3">
+            <p className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">Linking</p>
+            <p className="font-mono mt-1 text-sm font-medium text-foreground">+91 {phone}</p>
           </div>
 
           <div>
-            <Label htmlFor="login-email" className="doc-label">
+            <Label htmlFor="login-email" className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">
               Email
             </Label>
             <div className="relative mt-2">
@@ -416,7 +402,7 @@ export default function Login() {
                 }}
                 onKeyDown={(e) => e.key === 'Enter' && void handleLink()}
                 placeholder="Enter your email"
-                className="doc-field pl-10"
+                className="pl-10 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
                 autoComplete="email"
                 aria-invalid={Boolean(error)}
                 aria-describedby={error ? 'login-error' : undefined}
@@ -426,7 +412,7 @@ export default function Login() {
           </div>
 
           <div>
-            <Label htmlFor="login-password" className="doc-label">
+            <Label htmlFor="login-password" className="text-sm font-medium text-[lab(34.0831_-9.57756_-27.7093)]">
               Password
             </Label>
             <div className="relative mt-2">
@@ -441,7 +427,7 @@ export default function Login() {
                 }}
                 onKeyDown={(e) => e.key === 'Enter' && void handleLink()}
                 placeholder="Enter your password"
-                className="doc-field pl-10 pr-12"
+                className="pl-10 pr-12 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
                 autoComplete="current-password"
                 aria-invalid={Boolean(error)}
                 aria-describedby={error ? 'login-error' : undefined}
@@ -450,7 +436,7 @@ export default function Login() {
               <button
                 type="button"
                 onClick={() => setShowPassword((prev) => !prev)}
-                className="tap-target focus-ring absolute right-1 top-1/2 -translate-y-1/2 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
                 aria-pressed={showPassword}
               >
@@ -466,7 +452,7 @@ export default function Login() {
         <p
           id="login-error"
           role="alert"
-          className="text-sm text-destructive text-center"
+          className="text-sm text-red-500 text-center"
           data-testid="text-login-error"
         >
           {error}
@@ -479,21 +465,17 @@ export default function Login() {
             step === 'phone' ? handleSendOtp : step === 'otp' ? handleVerify : () => void handleLink()
           }
           disabled={isLoading || (step === 'phone' && phone.length !== 10)}
-          className="doc-btn justify-between px-5"
+          className="w-full h-12 text-base font-semibold bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 mt-1"
           data-testid="button-sign-in"
         >
           {isLoading ? (
-            <>
-              <span>Please wait</span>
-              <Loader2 className="w-4 h-4 animate-spin" />
-            </>
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : step === 'phone' ? (
+            'Send OTP'
+          ) : step === 'otp' ? (
+            'Verify & Sign In'
           ) : (
-            <>
-              <span>
-                {step === 'phone' ? 'Send code' : step === 'otp' ? 'Verify' : 'Link & sign in'}
-              </span>
-              <ArrowRight className="w-4 h-4" />
-            </>
+            'Link & Sign In'
           )}
         </Button>
       )}
