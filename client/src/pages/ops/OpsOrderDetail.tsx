@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ArrowLeft, Loader2, LogOut } from 'lucide-react';
 import { Link, useLocation, useParams } from 'wouter';
-import { ActionButtons } from '@/components/agent/ActionButtons';
+import { ActionBar } from '@/components/agent/ActionButtons';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { OpsWeighSheet } from '@/components/ops/OpsWeighSheet';
 import { OpsCollectPaymentSheet } from '@/components/ops/OpsCollectPaymentSheet';
@@ -255,7 +255,7 @@ export default function OpsOrderDetail() {
         <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-3">
           Actions
         </h2>
-        <ActionButtons
+        <ActionBar
           actions={visibleActions}
           onAction={handleAction}
           pendingAction={pendingAction}
