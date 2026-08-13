@@ -115,6 +115,7 @@ import {
   toKycSummary,
 } from "../shared/kyc.js";
 import { validateGstin } from "../shared/gstin.js";
+import { isIndiaHubId } from "../shared/hubs.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
   SUPPORT_CHAT_MAX_CONTENT_LENGTH,
@@ -383,8 +384,15 @@ export async function registerRoutes(
 
   const signupCompanySchema = z.object({
     phone: phoneSchema,
-    company_name: z.string().trim().min(1, "Company name is required"),
+    company_name: z.string().trim().min(1, "Company name is required").max(120),
     gstin: z.string().trim().length(15, "GST number must be 15 characters"),
+    email: z.string().trim().email("Enter a valid email").max(120),
+    address: z.string().trim().min(1, "Address is required").max(200),
+    pincode: z.string().trim().regex(/^\d{6}$/, "Enter a 6-digit pincode"),
+    city: z.string().trim().min(1, "City is required").max(80),
+    state: z.string().trim().min(1, "State is required").max(80),
+    contact_person: z.string().trim().max(80).optional().default(""),
+    hub_id: z.coerce.number().int().refine(isIndiaHubId, "Select a valid hub"),
   });
 
   // POST /api/auth/signup/company
@@ -394,7 +402,18 @@ export async function registerRoutes(
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
       return;
     }
-    const { phone, company_name, gstin: rawGstin } = parsed.data;
+    const {
+      phone,
+      company_name,
+      gstin: rawGstin,
+      email,
+      address,
+      pincode,
+      city,
+      state,
+      contact_person,
+      hub_id,
+    } = parsed.data;
     const gstin = rawGstin.toUpperCase();
 
     const gstinCheck = validateGstin(gstin);
@@ -419,7 +438,7 @@ export async function registerRoutes(
     const row = await upsertItdUserAndReturnId({
       itd_customer_id: itdCustomerId,
       itd_customer_code: itdCustomerId,
-      email: "",
+      email,
       full_name: company_name,
       username: phone,
       role: "customer",
@@ -437,11 +456,22 @@ export async function registerRoutes(
     let addCustomerResponse: unknown = null;
     let addCustomerError: string | null = null;
     try {
-      const addCustomerResult = await itdClient.addCustomer({
-        name: company_name,
-        contact_no: phone,
-        gst_number: gstin,
-      });
+      const addCustomerResult = await withTimeout(
+        itdClient.addCustomer({
+          name: company_name,
+          contact_no: phone,
+          gst_number: gstin,
+          email,
+          address,
+          pincode,
+          city,
+          state,
+          contact_person: contact_person || undefined,
+          hub_id,
+        }),
+        ITD_LINK_TIMEOUT_MS,
+        "ITD addCustomer"
+      );
       itdRegistered = !!addCustomerResult.success;
       addCustomerResponse = addCustomerResult;
     } catch (err) {
@@ -461,6 +491,13 @@ export async function registerRoutes(
       itd_customer_id: itdCustomerId,
       itd_registration_attempted_at: new Date().toISOString(),
       itd_add_customer_response: addCustomerResponse,
+      email,
+      address,
+      pincode,
+      city,
+      state,
+      contact_person,
+      hub_id,
       ...(addCustomerError ? { itd_add_customer_error: addCustomerError } : {}),
     });
 
@@ -468,7 +505,7 @@ export async function registerRoutes(
       id: itdCustomerId,
       customerId: itdCustomerId,
       code: itdCustomerId,
-      email: "",
+      email,
       fullName: company_name,
       username: phone,
       role: "customer",

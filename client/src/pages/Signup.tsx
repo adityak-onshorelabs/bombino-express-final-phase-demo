@@ -1,17 +1,26 @@
 import { useState, useEffect } from 'react';
-import { User, Mail, Phone, Building2, Loader2, ShieldCheck, ArrowRight } from 'lucide-react';
+import { User, Mail, Phone, Building2, Loader2, ShieldCheck, ArrowRight, MapPin } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { KycUpload, type KycUploadResult } from '@/components/KycUpload';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { useAppStore, type AuthUser } from '@/lib/store';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorMessage } from '@/lib/apiError';
+import { usePincodeLookup } from '@/hooks/usePincodeLookup';
 import { validateGstin } from '@shared/gstin';
+import { INDIA_HUBS } from '@shared/hubs';
 import { cn } from '@/lib/utils';
 import bombinoLogo from '@/assets/bombino-logo.png';
 
@@ -42,6 +51,14 @@ export default function Signup() {
   // Company
   const [companyName, setCompanyName] = useState('');
   const [gstin, setGstin] = useState('');
+  const [companyEmail, setCompanyEmail] = useState('');
+  const [address, setAddress] = useState('');
+  const [pincode, setPincode] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [contactPerson, setContactPerson] = useState('');
+  const [hubId, setHubId] = useState('');
+  const { hint: pincodeHint, lookup: lookupPincode } = usePincodeLookup();
 
   // Shared
   const searchParams = new URLSearchParams(window.location.search);
@@ -146,6 +163,16 @@ export default function Signup() {
     if (!companyName.trim()) nextErrors.companyName = 'Company name is required';
     const gstinCheck = validateGstin(gstin);
     if (!gstinCheck.valid) nextErrors.gstin = gstinCheck.message ?? 'Invalid GST number';
+    if (!EMAIL_PATTERN.test(companyEmail.trim())) nextErrors.companyEmail = 'Enter a valid email';
+    if (!address.trim()) nextErrors.address = 'Address is required';
+    else if (address.trim().length > 200) nextErrors.address = 'Address must be 200 characters or less';
+    if (!/^\d{6}$/.test(pincode.trim())) nextErrors.pincode = 'Enter a 6-digit pincode';
+    if (!city.trim()) nextErrors.city = 'City is required';
+    else if (city.trim().length > 80) nextErrors.city = 'City must be 80 characters or less';
+    if (!state.trim()) nextErrors.state = 'State is required';
+    else if (state.trim().length > 80) nextErrors.state = 'State must be 80 characters or less';
+    if (contactPerson.trim().length > 80) nextErrors.contactPerson = 'Contact person must be 80 characters or less';
+    if (!hubId) nextErrors.hubId = 'Select a hub';
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
       return;
@@ -193,6 +220,13 @@ export default function Signup() {
         phone,
         company_name: companyName.trim(),
         gstin,
+        email: companyEmail.trim(),
+        address: address.trim(),
+        pincode: pincode.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        contact_person: contactPerson.trim(),
+        hub_id: Number(hubId),
       });
       const user = (await res.json()) as AuthUser;
       login(user);
@@ -422,6 +456,136 @@ export default function Signup() {
                     <p className="text-xs text-muted-foreground mt-1">Format-validated only — not looked up live.</p>
                   )}
                 </div>
+
+                <div>
+                  <Label className="doc-label">Email</Label>
+                  <div className="relative mt-2">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Input
+                      type="email"
+                      value={companyEmail}
+                      onChange={(e) => { setCompanyEmail(e.target.value); setErrors((prev) => ({ ...prev, companyEmail: '' })); }}
+                      placeholder="Company email"
+                      className="doc-field pl-10"
+                      autoComplete="email"
+                      data-testid="input-company-email"
+                    />
+                  </div>
+                  {errors.companyEmail && <p role="alert" className="text-sm text-destructive mt-1.5">{errors.companyEmail}</p>}
+                </div>
+
+                <div>
+                  <Label className="doc-label">Contact person <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                  <div className="relative mt-2">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Input
+                      value={contactPerson}
+                      onChange={(e) => { setContactPerson(e.target.value); setErrors((prev) => ({ ...prev, contactPerson: '' })); }}
+                      placeholder="Contact person"
+                      maxLength={80}
+                      className="doc-field pl-10"
+                      autoComplete="name"
+                      data-testid="input-contact-person"
+                    />
+                  </div>
+                  {errors.contactPerson && <p role="alert" className="text-sm text-destructive mt-1.5">{errors.contactPerson}</p>}
+                </div>
+
+                <div>
+                  <Label className="doc-label">Address</Label>
+                  <div className="relative mt-2">
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Input
+                      value={address}
+                      onChange={(e) => { setAddress(e.target.value); setErrors((prev) => ({ ...prev, address: '' })); }}
+                      placeholder="Street address"
+                      maxLength={200}
+                      className="doc-field pl-10"
+                      autoComplete="street-address"
+                      data-testid="input-company-address"
+                    />
+                  </div>
+                  {errors.address && <p role="alert" className="text-sm text-destructive mt-1.5">{errors.address}</p>}
+                </div>
+
+                <div>
+                  <Label className="doc-label">Pincode</Label>
+                  <Input
+                    value={pincode}
+                    onChange={(e) => {
+                      setPincode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                      setErrors((prev) => ({ ...prev, pincode: '' }));
+                    }}
+                    onBlur={() => {
+                      void lookupPincode(pincode, 'IN', ({ city: nextCity, state: nextState }) => {
+                        setCity(nextCity);
+                        setState(nextState);
+                        setErrors((prev) => ({ ...prev, city: '', state: '' }));
+                      });
+                    }}
+                    placeholder="6-digit pincode"
+                    inputMode="numeric"
+                    maxLength={6}
+                    className="doc-field mt-2"
+                    autoComplete="postal-code"
+                    data-testid="input-company-pincode"
+                  />
+                  {pincodeHint && (
+                    <p className="text-xs text-muted-foreground mt-1">{pincodeHint}</p>
+                  )}
+                  {errors.pincode && <p role="alert" className="text-sm text-destructive mt-1.5">{errors.pincode}</p>}
+                </div>
+
+                <div>
+                  <Label className="doc-label">City</Label>
+                  <Input
+                    value={city}
+                    onChange={(e) => { setCity(e.target.value); setErrors((prev) => ({ ...prev, city: '' })); }}
+                    placeholder="City"
+                    maxLength={80}
+                    className="doc-field mt-2"
+                    autoComplete="address-level2"
+                    data-testid="input-company-city"
+                  />
+                  {errors.city && <p role="alert" className="text-sm text-destructive mt-1.5">{errors.city}</p>}
+                </div>
+
+                <div>
+                  <Label className="doc-label">State</Label>
+                  <Input
+                    value={state}
+                    onChange={(e) => { setState(e.target.value); setErrors((prev) => ({ ...prev, state: '' })); }}
+                    placeholder="State"
+                    maxLength={80}
+                    className="doc-field mt-2"
+                    autoComplete="address-level1"
+                    data-testid="input-company-state"
+                  />
+                  {errors.state && <p role="alert" className="text-sm text-destructive mt-1.5">{errors.state}</p>}
+                </div>
+
+                <div>
+                  <Label className="doc-label">Hub</Label>
+                  <Select
+                    value={hubId || undefined}
+                    onValueChange={(value) => {
+                      setHubId(value);
+                      setErrors((prev) => ({ ...prev, hubId: '' }));
+                    }}
+                  >
+                    <SelectTrigger className="doc-field mt-2" data-testid="select-company-hub">
+                      <SelectValue placeholder="Select a hub" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INDIA_HUBS.map((hub) => (
+                        <SelectItem key={hub.id} value={String(hub.id)}>
+                          {hub.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.hubId && <p role="alert" className="text-sm text-destructive mt-1.5">{errors.hubId}</p>}
+                </div>
               </>
             )}
 
@@ -468,9 +632,39 @@ export default function Signup() {
                     <span className="text-muted-foreground">Company name</span>
                     <span className="font-medium text-foreground text-right">{companyName}</span>
                   </div>
-                  <div className="flex justify-between gap-3">
+                  <div className="flex justify-between gap-3 pb-3 border-b border-border">
                     <span className="text-muted-foreground">GST number</span>
                     <span className="font-mono font-medium text-foreground">{gstin}</span>
+                  </div>
+                  <div className="flex justify-between gap-3 pb-3 border-b border-border">
+                    <span className="text-muted-foreground">Email</span>
+                    <span className="font-medium text-foreground text-right">{companyEmail}</span>
+                  </div>
+                  <div className="flex justify-between gap-3 pb-3 border-b border-border">
+                    <span className="text-muted-foreground">Contact person</span>
+                    <span className="font-medium text-foreground text-right">{contactPerson.trim() || '—'}</span>
+                  </div>
+                  <div className="flex justify-between gap-3 pb-3 border-b border-border">
+                    <span className="text-muted-foreground">Address</span>
+                    <span className="font-medium text-foreground text-right">{address}</span>
+                  </div>
+                  <div className="flex justify-between gap-3 pb-3 border-b border-border">
+                    <span className="text-muted-foreground">Pincode</span>
+                    <span className="font-medium text-foreground">{pincode}</span>
+                  </div>
+                  <div className="flex justify-between gap-3 pb-3 border-b border-border">
+                    <span className="text-muted-foreground">City</span>
+                    <span className="font-medium text-foreground text-right">{city}</span>
+                  </div>
+                  <div className="flex justify-between gap-3 pb-3 border-b border-border">
+                    <span className="text-muted-foreground">State</span>
+                    <span className="font-medium text-foreground text-right">{state}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Hub</span>
+                    <span className="font-medium text-foreground text-right">
+                      {INDIA_HUBS.find((h) => String(h.id) === hubId)?.name ?? hubId}
+                    </span>
                   </div>
                 </div>
               </div>
