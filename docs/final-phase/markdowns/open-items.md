@@ -76,8 +76,8 @@ Carried from §8 of the module spec. A-lane items only.
 | Item | Needed by | Chase | Status |
 |---|---|---|---|
 | OTP / SMS provider + credentials | D3 | Aditya → Bombino | **Outstanding.** See [4.1] |
-| Razorpay confirmation + keys | D9 | Aditya → Bombino | Outstanding — A4 cannot start |
-| Refund mechanics — manual flag vs gateway refund | D7 | Aditya → Bombino | Outstanding |
+| Razorpay confirmation + keys | D9 | Aditya → Bombino | **A4 built** — gateway order, verify, idempotent webhook. Needs `RAZORPAY_KEY_ID` / `_KEY_SECRET` / `_WEBHOOK_SECRET` in the environment and a webhook registered in the dashboard before it can be tested end to end. Unset keys → pay-now returns 503, other three methods unaffected |
+| Refund mechanics — manual flag vs gateway refund | D7 | Aditya → Bombino | **Settled: manual, with a flag** (day-zero-checklist §Refunds). The app never issues a refund. As of 10 Aug the webhook records one issued in the Razorpay dashboard — `refund.processed` marks the `payments` row and flags the order `refund_due` — so a manual refund no longer leaves the order reading `paid`. Execution stays with accounts |
 | Docket attribution (§7) | D4 | Arbaaz → Anas | **Outstanding.** Blocks company-signup attribution — see [4.5] |
 
 ---
@@ -91,6 +91,7 @@ Carried from §8 of the module spec. A-lane items only.
 | `agent_pickup_indexes.sql` | **Not applied.** Nothing functional depends on it — performance and referential integrity only. Touches Arbaaz's column, see [1.2] |
 | `create_agent_availability.sql` | Applied, then **superseded**. Table deprecated and unread — see [4.6] |
 | `create_agent_weekly_availability.sql` | **Applied 3 Aug** |
+| `payments_gateway_reference.sql` | **Applied 10 Aug.** A4 idempotency — partial unique index on `reference WHERE method = 'pay_now'`, so the verify call and a simultaneous webhook cannot both insert and double-credit an order |
 | `pickup_slots_two_hour_windows.sql` | **Applied 4 Aug.** Verified: roster holds only 2-hour values; `orders` accepts both, so pre-change bookings keep their 3-hour windows |
 
 ---

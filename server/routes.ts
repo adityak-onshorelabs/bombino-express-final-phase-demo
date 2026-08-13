@@ -54,12 +54,7 @@ import {
 } from "./agentDb.js";
 import { ensureDbUser, requireRole, requireUser } from "./routeGuards.js";
 import { registerAgentRoutes } from "./routes/agent.js";
-import { registerOpsRoutes } from "./routes/ops.js";
-import {
-  handleMarkReceivedDropoff,
-  handleSettle,
-  handleWeigh,
-} from "./opsActions.js";
+import { registerPaymentRoutes } from "./routes/payments.js";
 import { deriveCustomerStatus, isInternalOnlyStatus, isRole } from "../shared/orderContract.js";
 import type { Order, OrderStatus, Role } from "../shared/orderContract.js";
 import { PICKUP_SLOT_VALUES } from "../shared/pickupSlots.js";
@@ -115,7 +110,6 @@ import {
   toKycSummary,
 } from "../shared/kyc.js";
 import { validateGstin } from "../shared/gstin.js";
-import { isIndiaHubId } from "../shared/hubs.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
   SUPPORT_CHAT_MAX_CONTENT_LENGTH,
@@ -149,7 +143,10 @@ export async function registerRoutes(
   // below, so this file keeps the state machine and `routes/agent.ts` stays
   // read-only.
   registerAgentRoutes(app);
-  registerOpsRoutes(app);
+
+  // Razorpay (A4). Self-contained: gateway order, verify, webhook. The webhook
+  // is unauthenticated by design — its signature is its authentication.
+  registerPaymentRoutes(app);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -384,15 +381,8 @@ export async function registerRoutes(
 
   const signupCompanySchema = z.object({
     phone: phoneSchema,
-    company_name: z.string().trim().min(1, "Company name is required").max(120),
+    company_name: z.string().trim().min(1, "Company name is required"),
     gstin: z.string().trim().length(15, "GST number must be 15 characters"),
-    email: z.string().trim().email("Enter a valid email").max(120),
-    address: z.string().trim().min(1, "Address is required").max(200),
-    pincode: z.string().trim().regex(/^\d{6}$/, "Enter a 6-digit pincode"),
-    city: z.string().trim().min(1, "City is required").max(80),
-    state: z.string().trim().min(1, "State is required").max(80),
-    contact_person: z.string().trim().max(80).optional().default(""),
-    hub_id: z.coerce.number().int().refine(isIndiaHubId, "Select a valid hub"),
   });
 
   // POST /api/auth/signup/company
@@ -402,18 +392,7 @@ export async function registerRoutes(
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
       return;
     }
-    const {
-      phone,
-      company_name,
-      gstin: rawGstin,
-      email,
-      address,
-      pincode,
-      city,
-      state,
-      contact_person,
-      hub_id,
-    } = parsed.data;
+    const { phone, company_name, gstin: rawGstin } = parsed.data;
     const gstin = rawGstin.toUpperCase();
 
     const gstinCheck = validateGstin(gstin);
@@ -438,7 +417,7 @@ export async function registerRoutes(
     const row = await upsertItdUserAndReturnId({
       itd_customer_id: itdCustomerId,
       itd_customer_code: itdCustomerId,
-      email,
+      email: "",
       full_name: company_name,
       username: phone,
       role: "customer",
@@ -456,22 +435,11 @@ export async function registerRoutes(
     let addCustomerResponse: unknown = null;
     let addCustomerError: string | null = null;
     try {
-      const addCustomerResult = await withTimeout(
-        itdClient.addCustomer({
-          name: company_name,
-          contact_no: phone,
-          gst_number: gstin,
-          email,
-          address,
-          pincode,
-          city,
-          state,
-          contact_person: contact_person || undefined,
-          hub_id,
-        }),
-        ITD_LINK_TIMEOUT_MS,
-        "ITD addCustomer"
-      );
+      const addCustomerResult = await itdClient.addCustomer({
+        name: company_name,
+        contact_no: phone,
+        gst_number: gstin,
+      });
       itdRegistered = !!addCustomerResult.success;
       addCustomerResponse = addCustomerResult;
     } catch (err) {
@@ -491,13 +459,6 @@ export async function registerRoutes(
       itd_customer_id: itdCustomerId,
       itd_registration_attempted_at: new Date().toISOString(),
       itd_add_customer_response: addCustomerResponse,
-      email,
-      address,
-      pincode,
-      city,
-      state,
-      contact_person,
-      hub_id,
       ...(addCustomerError ? { itd_add_customer_error: addCustomerError } : {}),
     });
 
@@ -505,7 +466,7 @@ export async function registerRoutes(
       id: itdCustomerId,
       customerId: itdCustomerId,
       code: itdCustomerId,
-      email,
+      email: "",
       fullName: company_name,
       username: phone,
       role: "customer",
@@ -1612,29 +1573,10 @@ export async function registerRoutes(
     .trim()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD");
 
-  // GET /api/payment/upi — Bombino's collection VPA, for the doorstep QR.
-  //
-  // Env-driven and never hardcoded: a wrong VPA sends a customer's money to a
-  // stranger's account, and a value baked into the bundle cannot be rotated
-  // without a redeploy. Unset is a legitimate state, not an error — it returns
-  // `{ upi: null }` and the agent app falls back to reading the amount aloud
-  // and taking a manual transfer, exactly as it does today.
-  //
-  // Deliberately NOT under /api/config/* — that prefix is M1's (see §4.7 of
-  // open-items) and colliding on it would break the other lane.
-  app.get("/api/payment/upi", requireUser, (_req: Request, res: Response) => {
-    const vpa = process.env.BOMBINO_UPI_VPA?.trim();
-    if (!vpa) {
-      res.json({ upi: null });
-      return;
-    }
-    res.json({
-      upi: {
-        vpa,
-        payeeName: process.env.BOMBINO_UPI_NAME?.trim() || "Bombino Express",
-      },
-    });
-  });
+  // GET /api/payment/upi is gone, along with the doorstep QR it fed. The
+  // agent no longer shows the customer a payee address of any kind; the UPI
+  // transfer is arranged between them and only its reference is recorded.
+  // BOMBINO_UPI_VPA / BOMBINO_UPI_NAME are consequently unread.
 
   // GET /api/pickup/slots?date=YYYY-MM-DD
   // Every window for that date, each flagged available with a reason. Returns
@@ -1975,132 +1917,68 @@ export async function registerRoutes(
         }
 
         case "collect_payment": {
-          if (role === "agent") {
-            // Ops collection at the hub is M3's; this branch is the doorstep.
-            if (order.payment_method !== "pay_at_pickup") {
-              res.status(400).json({
-                message: "This order is not marked pay-at-pickup.",
-                code: "PAYMENT_METHOD_MISMATCH",
-              });
-              return;
-            }
-
-            const paymentBody = z
-              .object({
-                amount: z.number().positive("amount must be greater than zero"),
-                // How the money actually moved. Required: an agent handing over
-                // a parcel must have said whether they hold cash or watched a
-                // UPI transfer land, because only one of those ends up in their
-                // pouch at the end of the shift.
-                collection_mode: z.enum(["upi", "cash"], {
-                  errorMap: () => ({ message: "Choose UPI or cash" }),
-                }),
-                // UPI reference from the customer's app, if they read it out.
-                reference: z.string().trim().max(120).optional().nullable(),
-              })
-              .safeParse(parsed.data.payload ?? {});
-            if (!paymentBody.success) {
-              res.status(400).json({
-                message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
-                code: "INVALID_PAYLOAD",
-              });
-              return;
-            }
-
-            const result = await recordCollectedPayment({
-              order_id: order.id,
-              user_id: order.user_id,
-              amount: paymentBody.data.amount,
-              method: "pay_at_pickup",
-              status: "collected",
-              collection_mode: paymentBody.data.collection_mode,
-              collected_by: callerId,
-              reference: paymentBody.data.reference ?? null,
+          // Ops collection at the hub is M3's; this branch is the doorstep.
+          if (order.payment_method !== "pay_at_pickup") {
+            res.status(400).json({
+              message: "This order is not marked pay-at-pickup.",
+              code: "PAYMENT_METHOD_MISMATCH",
             });
-            if (!result) {
-              res.status(502).json({
-                message: "Could not record the payment. Do not hand over the parcel.",
-                code: "PAYMENT_WRITE_FAILED",
-              });
-              return;
-            }
-
-            // Deliberately no status change — the parcel is still out_for_pickup.
-            updated = result.order ?? order;
-            eventNote = `Collected ₹${paymentBody.data.amount} at pickup (${paymentBody.data.collection_mode})`;
-            extra = {
-              payment_id: result.paymentId,
-              txn_id: result.txnId,
-              amount: paymentBody.data.amount,
-              collection_mode: paymentBody.data.collection_mode,
-            };
-            // Surfaced at the top level so the sheet can show the receipt without
-            // digging through the event metadata.
-            collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
-            break;
+            return;
           }
 
-          if (role === "admin" || role === "super_admin") {
-            if (order.payment_method !== "pay_at_dropoff") {
-              res.status(400).json({
-                message: "This order is not marked pay-at-drop-off.",
-                code: "PAYMENT_METHOD_MISMATCH",
-              });
-              return;
-            }
-
-            const paymentBody = z
-              .object({
-                amount: z.number().positive("amount must be greater than zero"),
-                collection_mode: z.enum(["upi", "cash"], {
-                  errorMap: () => ({ message: "Choose UPI or cash" }),
-                }),
-                reference: z.string().trim().max(120).optional().nullable(),
-              })
-              .safeParse(parsed.data.payload ?? {});
-            if (!paymentBody.success) {
-              res.status(400).json({
-                message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
-                code: "INVALID_PAYLOAD",
-              });
-              return;
-            }
-
-            const result = await recordCollectedPayment({
-              order_id: order.id,
-              user_id: order.user_id,
-              amount: paymentBody.data.amount,
-              method: "pay_at_dropoff",
-              status: "collected",
-              collection_mode: paymentBody.data.collection_mode,
-              collected_by: callerId,
-              reference: paymentBody.data.reference ?? null,
+          const paymentBody = z
+            .object({
+              amount: z.number().positive("amount must be greater than zero"),
+              // How the money actually moved. Required: an agent handing over
+              // a parcel must have said whether they hold cash or watched a
+              // UPI transfer land, because only one of those ends up in their
+              // pouch at the end of the shift.
+              collection_mode: z.enum(["upi", "cash"], {
+                errorMap: () => ({ message: "Choose UPI or cash" }),
+              }),
+              // UPI reference from the customer's app, if they read it out.
+              reference: z.string().trim().max(120).optional().nullable(),
+            })
+            .safeParse(parsed.data.payload ?? {});
+          if (!paymentBody.success) {
+            res.status(400).json({
+              message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
+              code: "INVALID_PAYLOAD",
             });
-            if (!result) {
-              res.status(502).json({
-                message: "Could not record the payment. Do not settle yet.",
-                code: "PAYMENT_WRITE_FAILED",
-              });
-              return;
-            }
-
-            updated = result.order ?? order;
-            eventNote = `Collected ₹${paymentBody.data.amount} at drop-off (${paymentBody.data.collection_mode})`;
-            extra = {
-              payment_id: result.paymentId,
-              txn_id: result.txnId,
-              amount: paymentBody.data.amount,
-              collection_mode: paymentBody.data.collection_mode,
-            };
-            collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
-            break;
+            return;
           }
 
-          res.status(403).json({
-            message: "You do not have permission to collect payment on this order.",
-            code: "FORBIDDEN",
+          const result = await recordCollectedPayment({
+            order_id: order.id,
+            user_id: order.user_id,
+            amount: paymentBody.data.amount,
+            method: "pay_at_pickup",
+            status: "collected",
+            collection_mode: paymentBody.data.collection_mode,
+            collected_by: callerId,
+            reference: paymentBody.data.reference ?? null,
           });
-          return;
+          if (!result) {
+            res.status(502).json({
+              message: "Could not record the payment. Do not hand over the parcel.",
+              code: "PAYMENT_WRITE_FAILED",
+            });
+            return;
+          }
+
+          // Deliberately no status change — the parcel is still out_for_pickup.
+          updated = result.order ?? order;
+          eventNote = `Collected ₹${paymentBody.data.amount} at pickup (${paymentBody.data.collection_mode})`;
+          extra = {
+            payment_id: result.paymentId,
+            txn_id: result.txnId,
+            amount: paymentBody.data.amount,
+            collection_mode: paymentBody.data.collection_mode,
+          };
+          // Surfaced at the top level so the sheet can show the receipt without
+          // digging through the event metadata.
+          collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
+          break;
         }
 
         case "cancel": {
@@ -2125,78 +2003,9 @@ export async function registerRoutes(
         }
 
         default: {
-          // Ops actions — weigh, settle, mark_received_dropoff (3B).
-          // generate_docket stays 501 until 3C.
-          const mapOpsResult = (
-            r: Awaited<ReturnType<typeof handleWeigh>>
-          ): boolean => {
-            if ("error" in r) {
-              res.status(r.error.status).json({
-                message: r.error.message,
-                code: r.error.code,
-                ...(r.error.extra ?? {}),
-                availableActions: availableActions(order, role, { userId: callerId }),
-              });
-              return false;
-            }
-            updated = r.order;
-            eventNote = r.eventNote;
-            extra = r.eventMeta;
-            return true;
-          };
-
-          if (action === "mark_received_dropoff") {
-            if (!transition.to) {
-              res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
-              return;
-            }
-            const ok = mapOpsResult(
-              await handleMarkReceivedDropoff({
-                order,
-                callerId,
-                expectedFrom: transition.from,
-                to: transition.to,
-              })
-            );
-            if (!ok) return;
-            break;
-          }
-
-          if (action === "weigh") {
-            if (!transition.to) {
-              res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
-              return;
-            }
-            const ok = mapOpsResult(
-              await handleWeigh({
-                order,
-                callerId,
-                expectedFrom: transition.from,
-                to: transition.to,
-                payload: parsed.data.payload,
-              })
-            );
-            if (!ok) return;
-            break;
-          }
-
-          if (action === "settle") {
-            if (!transition.to) {
-              res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
-              return;
-            }
-            const ok = mapOpsResult(
-              await handleSettle({
-                order,
-                callerId,
-                expectedFrom: transition.from,
-                to: transition.to,
-              })
-            );
-            if (!ok) return;
-            break;
-          }
-
+          // Ops actions — weigh, settle, generate_docket, mark_received_dropoff.
+          // Authorised and legal, but the handlers are Arbaaz's (M3/M5). The
+          // 501 stays until those land.
           res.status(501).json({
             message: `"${action}" is legal for this order but not implemented yet.`,
             code: "NOT_IMPLEMENTED",
@@ -2208,14 +2017,6 @@ export async function registerRoutes(
           });
           return;
         }
-      }
-
-      if (!updated) {
-        res.status(500).json({
-          message: "Action completed without an order row.",
-          code: "NO_ORDER",
-        });
-        return;
       }
 
       // The write landed. Log it before responding — awaited, not fire-and-

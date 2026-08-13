@@ -7,36 +7,35 @@ interface AuthShellProps {
    *  saying the same word ("Sign In" twice, stacked) before this. */
   title: string;
   /** One line of orientation for the current step. Replaces the fixed
-   *  "Bringing the world closer" tagline, which said nothing on the OTP,
-   *  account-fork and linking steps where it still appeared.
+   *  "Bringing the world closer" tagline on steps where it said nothing.
    *
-   *  ReactNode rather than string so callers can set the customer's number in
-   *  mono — every other number on these screens is set that way, and a phone
-   *  buried in running body text was the one place it wasn't. */
+   *  ReactNode rather than string so callers can mark up the customer's
+   *  number — it is the subject of most of these sentences. */
   subtitle?: ReactNode;
   onBack: () => void;
   /** 1-based position in the flow. Omit for single-step screens. */
   step?: number;
   totalSteps?: number;
+  /** Sits above the card, where the account-type toggle belongs. */
+  beforeCard?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   testId?: string;
 }
 
-/** "3" → "03". Docket numbers are zero-padded; a bare 3 is not. */
-const pad = (n: number): string => String(n).padStart(2, '0');
-
 /**
- * Common frame for every authentication screen — "Freight Document" language.
+ * Common frame for every authentication screen.
  *
- * Deliberately not the app's usual soft-card treatment. Content sits directly
- * on the page and is divided by hairline rules, the way a printed form is:
- * no floating panel, no blurred shadow, near-square corners. Progress is a
- * mono counter ("01 / 03") rather than dots, because a number is what a
- * waybill would show and it is also more precise.
+ * The app's ordinary treatment: soft white card on a tinted page, centred
+ * masthead, amber for the one action that matters. It briefly wore a
+ * "Freight Document" language — hairline rules, mono docket counters, content
+ * sitting directly on the page — which was reverted everywhere else in
+ * 71ca907; these two
+ * screens kept it only because that commit was preserving the auth flow that
+ * shipped alongside. This puts them back in step with the rest of the app.
  *
- * Everything is left-aligned. The previous centred column read as a generic
- * template and pushed the first field further from the thumb.
+ * The multi-step flow itself is untouched: the shell renders whatever step the
+ * page is on and knows nothing about which steps exist.
  */
 export function AuthShell({
   title,
@@ -44,6 +43,7 @@ export function AuthShell({
   onBack,
   step,
   totalSteps,
+  beforeCard,
   children,
   footer,
   testId,
@@ -52,67 +52,63 @@ export function AuthShell({
     typeof step === 'number' && typeof totalSteps === 'number' && totalSteps > 1;
 
   return (
-    <div className="doc-surface min-h-[100dvh] bg-card safe-top safe-bottom" data-testid={testId}>
-      <header className="sticky top-0 z-20 bg-card border-b border-border">
-        <div className="flex items-center h-14 px-5 max-w-md mx-auto">
+    <div className="min-h-[100dvh] bg-background safe-top safe-bottom" data-testid={testId}>
+      <header className="sticky top-0 z-50 bg-white border-b border-border">
+        <div className="flex items-center h-14 px-4 max-w-md mx-auto w-full">
           <button
             onClick={onBack}
-            className="tap-target focus-ring -ml-2 hover:bg-muted transition-colors"
-            style={{ borderRadius: 'var(--doc-radius)' }}
+            className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
             aria-label="Go back"
             data-testid="button-back-auth"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-6 h-6" />
           </button>
-          <h1
-            className="doc-mono ml-1 text-xs font-semibold uppercase text-foreground"
-            style={{ letterSpacing: '0.14em' }}
-          >
-            {title}
-          </h1>
+          <h1 className="ml-2 font-semibold">{title}</h1>
+          {/* The original screens were single-step and had no counter. This
+              flow has three, and losing the sense of how far along you are was
+              the one thing worth keeping — so it stays, in plain muted text
+              rather than the docket-style "01 / 03". */}
           {showProgress && (
             <span
-              className="doc-mono ml-auto text-xs text-muted-foreground"
+              className="ml-auto text-xs text-muted-foreground tabular-nums"
               aria-label={`Step ${step} of ${totalSteps}`}
             >
-              {pad(step)} <span className="text-border">/</span> {pad(totalSteps)}
+              Step {step} of {totalSteps}
             </span>
           )}
         </div>
       </header>
 
-      <main className="px-5 py-8">
+      <main className="px-4 py-8 flex flex-col items-center">
         <div className="max-w-md mx-auto w-full">
-          {/* Wordmark over a heavy rule — the masthead of the document. */}
-          <img
-            src={bombinoLogo}
-            alt="Bombino Express"
-            className="h-auto w-[132px] object-contain"
-          />
-          <div className="doc-rule-heavy mt-4" />
-
-          {subtitle && (
-            <p className="mt-6 text-[15px] leading-relaxed text-foreground text-balance">
-              {subtitle}
+          <div className="flex flex-col items-center mb-8">
+            <img
+              src={bombinoLogo}
+              alt="Bombino Express"
+              className="h-auto w-[180px] mb-6 object-contain"
+            />
+            <h2 className="text-xl font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">
+              {title}
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1 text-center text-balance">
+              {subtitle || 'Bringing the world closer'}
             </p>
-          )}
+          </div>
 
-          <div className="mt-7 space-y-6 animate-fade-in">{children}</div>
+          {beforeCard}
+
+          <div className="bg-white rounded-2xl border border-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] p-6 space-y-5 animate-fade-in">
+            {children}
+          </div>
 
           {footer}
 
-          <div className="doc-rule mt-8 pt-4">
-            <p className="doc-label text-[10px]">
-              <a
-                href="/privacy"
-                className="hover:text-accent underline underline-offset-4 rounded focus-ring"
-              >
-                Privacy Policy
-              </a>
-              <span className="mx-2 text-border">·</span>
-              Bombino Express
-            </p>
-          </div>
+          <p className="text-center text-xs text-muted-foreground mt-3">
+            By continuing you agree to our{' '}
+            <a href="/privacy" className="text-[#F2A123] underline hover:text-[#F2A123]/80">
+              Privacy Policy
+            </a>
+          </p>
         </div>
       </main>
     </div>

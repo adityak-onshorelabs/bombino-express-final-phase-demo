@@ -201,11 +201,15 @@ export function isInternalOnlyStatus(status: OrderStatus): boolean {
  * The single helper both lanes use to answer "may this order advance toward a
  * docket?".
  *
- * COD passes by design and must never block settle/docket (§4, Flow C).
- * Otherwise payment is satisfied only when `payment_status === 'paid'`
- * (advance pay, or cash collected at pickup/drop-off).
+ * STUB — M3 owns the real implementation (reconciliation against `payments`
+ * rows and the reprice delta). The signature is fixed here so A5 and M3 can be
+ * written against it in parallel.
+ *
+ * Returns false for everything except COD, which passes by design and must
+ * never block a docket (§4, Flow C). Erring closed means a premature caller
+ * gets a refusal rather than a wrongly-dispatched parcel.
  */
 export function isPaymentSatisfied(order: Order): boolean {
   if (order.is_cod || order.payment_method === 'cod') return true;
-  return order.payment_status === 'paid';
+  return false;
 }

@@ -104,34 +104,6 @@ export function useCollections(enabled = true) {
   });
 }
 
-export interface UpiPayeeConfig {
-  vpa: string;
-  payeeName: string;
-}
-
-/**
- * Bombino's collection VPA, for the doorstep QR.
- *
- * `null` is a normal answer, not a failure — `BOMBINO_UPI_VPA` unset means the
- * QR is simply not offered. Cached for the session: the VPA does not change
- * mid-shift, and refetching it on every sheet open would be a request an agent
- * on bad network has to wait behind.
- */
-export function useUpiPayee(enabled = true) {
-  return useQuery({
-    queryKey: ['/api/payment/upi'] as const,
-    queryFn: async (): Promise<UpiPayeeConfig | null> => {
-      const res = await fetch('/api/payment/upi', { credentials: 'include' });
-      if (!res.ok) return null;
-      const body = (await res.json()) as { upi: UpiPayeeConfig | null };
-      return body.upi ?? null;
-    },
-    enabled,
-    staleTime: Infinity,
-    retry: false,
-  });
-}
-
 export interface ActionResult {
   order: AgentPickup;
   availableActions: AvailableAction[];

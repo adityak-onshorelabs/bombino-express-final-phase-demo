@@ -10,6 +10,7 @@ if (typeof setDefaultResultOrder === "function") {
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import { registerRoutes } from "./routes";
+import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
@@ -182,6 +183,8 @@ app.use((req, res, next) => {
       },
     })
   );
+
+  warnIfPaymentsTestModeEnabled();
 
   await registerRoutes(httpServer, app);
 
