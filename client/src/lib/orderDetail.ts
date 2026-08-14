@@ -17,7 +17,12 @@
  *                                a different thing entirely)
  */
 
-import type { OrderStatus, PaymentMethod, PaymentStatus } from '@shared/orderContract';
+import type {
+  CancellationState,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+} from '@shared/orderContract';
 
 // ── Wire types ────────────────────────────────────────────────────────────
 
@@ -98,6 +103,23 @@ export interface OrderDetailPayment {
   collectedByName: string | null;
 }
 
+/**
+ * A cancellation the customer has asked for.
+ *
+ * `pending` is the whole point: a request does not cancel anything. Ops decides,
+ * and until they do the order carries on — the agent still comes, and the page
+ * must say that rather than implying the parcel is off.
+ */
+export interface OrderDetailCancellationRequest {
+  state: CancellationState;
+  requestedAt: string;
+  reason: string | null;
+  decidedAt: string | null;
+  /** Ops' words when they declined. Null on an approval. */
+  decisionNote: string | null;
+  pending: boolean;
+}
+
 export interface OrderDetailResponse {
   order: OrderDetailOrder;
   customerStatus: string;
@@ -105,6 +127,7 @@ export interface OrderDetailResponse {
   events: OrderDetailEvent[];
   payments: OrderDetailPayment[];
   availableActions: { action: string; label: string; requiresPayload?: boolean }[];
+  cancellationRequest: OrderDetailCancellationRequest | null;
   warning?: string;
 }
 

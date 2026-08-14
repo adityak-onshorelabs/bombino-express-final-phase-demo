@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { Package, Copy, Send, Search, ArrowRight, Download } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
@@ -9,8 +9,11 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAppStore } from '@/lib/store';
+import { cn } from '@/lib/utils';
 import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
-import { fetchMergedShipmentRows, type DisplayRow } from '@/lib/shipmentRows';
+import { type DisplayRow } from '@/lib/shipmentRows';
+import { useCancellations, useOrderHistory } from '@/hooks/useCustomerOrders';
+import { CancellationsPanel } from '@/components/CancellationsPanel';
 import { useToast } from '@/hooks/use-toast';
 
 /** RFC 4180-style CSV parse (quoted fields, escaped "", newlines inside quotes). */
@@ -236,37 +239,43 @@ function ShipmentRow({
 }
 
 // ─── Page ───────────────────────────────────────────────────────────────────
+/**
+ * Which slice of the customer's history is on screen.
+ *
+ * A tab rather than a separate route: a cancellation is something that happened
+ * to an order, not a different part of the app. `shipments` keeps the merged
+ * orders + AWB list exactly as it was, cancelled rows included — this tab does
+ * not hide anything, it adds a place where a *request* is legible, which the
+ * main list cannot show because a pending request changes nothing about the
+ * order.
+ */
+type OrdersTab = 'shipments' | 'cancellations';
+
 export default function Orders() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [, setLocation] = useLocation();
   const { isLoggedIn } = useAppStore();
   const { toast } = useToast();
+  const [tab, setTab] = useState<OrdersTab>('shipments');
 
   const [trackingInput, setTrackingInput] = useState('');
-  const [rows, setRows] = useState<DisplayRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [csvOverlayData, setCsvOverlayData] = useState<string | null>(null);
   const [csvOverlayBlob, setCsvOverlayBlob] = useState<Blob | null>(null);
 
-  const loadHistory = useCallback(async () => {
-    if (!isLoggedIn) {
-      setRows([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      setRows(await fetchMergedShipmentRows());
-    } catch {
-      setRows([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [isLoggedIn]);
+  // Polls while anything here can still move (see useCustomerOrders). A parcel
+  // that reaches the hub while this screen is open now says so on its own.
+  const { data, isLoading } = useOrderHistory(isLoggedIn);
+  const rows: DisplayRow[] = data ?? [];
+  const loading = isLoggedIn && isLoading;
 
-  useEffect(() => {
-    void loadHistory();
-  }, [loadHistory]);
+  // Fetched on both tabs, because the count in the tab label is the only hint
+  // a customer gets that their request is being looked at. Cheap: one short
+  // list, and it stops polling once nothing is pending.
+  const { data: cancellationData } = useCancellations(isLoggedIn);
+  const cancellations = cancellationData ?? [];
+  const pendingCancellations = cancellations.filter(
+    (c) => c.cancellation.state === 'pending',
+  ).length;
 
   const copyId = (e: React.MouseEvent, id: string) => {
     e.preventDefault();
@@ -357,14 +366,16 @@ export default function Orders() {
           <div>
             <h1 className="text-lg md:text-[22px] font-bold tracking-tight text-foreground">
               My shipments
-              {isLoggedIn && !loading && rows.length > 0 && (
+              {tab === 'shipments' && isLoggedIn && !loading && rows.length > 0 && (
                 <span className="ml-2 text-sm font-medium text-muted-foreground tabular-nums">
                   · {rows.length}
                 </span>
               )}
             </h1>
             <p className="text-xs md:text-sm text-muted-foreground mt-0.5">
-              Track your outgoing and incoming shipments.
+              {tab === 'cancellations'
+                ? 'Requests you have raised, and orders our team has cancelled.'
+                : 'Track your outgoing and incoming shipments.'}
             </p>
           </div>
           {isLoggedIn && (
@@ -380,8 +391,53 @@ export default function Orders() {
           )}
         </div>
 
+        {/* Tabs. Only for signed-in customers — there is nothing to switch
+            between when the answer to both is "sign in". */}
+        {isLoggedIn && (
+          <div
+            className="flex items-center gap-1 border-b border-border -mt-2"
+            role="tablist"
+            data-testid="orders-tabs"
+          >
+            {([
+              { id: 'shipments' as const, label: 'Shipments' },
+              { id: 'cancellations' as const, label: 'Cancellations' },
+            ]).map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                onClick={() => setTab(id)}
+                className={cn(
+                  'relative px-3 py-2.5 text-sm font-semibold transition-colors',
+                  tab === id
+                    ? 'text-foreground'
+                    : 'text-muted-foreground hover:text-foreground/80',
+                )}
+                data-testid={`tab-${id}`}
+              >
+                {label}
+                {/* Amber count only on the tab the customer is waiting on.
+                    A total would be noise — a settled cancellation needs no
+                    attention. */}
+                {id === 'cancellations' && pendingCancellations > 0 && (
+                  <span className="ml-1.5 inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-[#F2A123] text-[10px] font-bold text-white tabular-nums align-middle">
+                    {pendingCancellations}
+                  </span>
+                )}
+                {tab === id && (
+                  <span className="absolute left-2 right-2 -bottom-px h-0.5 rounded-full bg-[#F2A123]" />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Body */}
-        {!isLoggedIn ? (
+        {isLoggedIn && tab === 'cancellations' ? (
+          <CancellationsPanel enabled={isLoggedIn} />
+        ) : !isLoggedIn ? (
           <div className="text-center py-16">
             <p className="text-sm text-muted-foreground mb-4">Sign in to view your shipments.</p>
             <Button className="bg-[lab(34.0831_-9.57756_-27.7093)] hover:bg-[#2F4468] rounded-lg" onClick={() => setLocation('/login')}>
@@ -463,7 +519,7 @@ export default function Orders() {
         )}
 
         {/* Helper footnote */}
-        {!loading && rows.length > 0 && (
+        {tab === 'shipments' && !loading && rows.length > 0 && (
           <p className="text-[11px] text-muted-foreground text-center">
             Showing {rows.length} {rows.length === 1 ? 'shipment' : 'shipments'} · Tap any row for details
           </p>

@@ -138,7 +138,14 @@ export type Action =
   | 'weigh'
   | 'settle'
   | 'generate_docket'
-  // both
+  // customer — asks; does not decide. See `cancel` below.
+  | 'request_cancellation'
+  // ops — the other half of the decision. `cancel` approves a request;
+  // this declines it and leaves the order running.
+  | 'reject_cancellation'
+  // ops only. A customer cannot cancel their own order: the parcel may already
+  // be routed, an agent may be en route, and money may have moved. They raise a
+  // request and ops acts on it.
   | 'cancel';
 
 /**
@@ -152,6 +159,103 @@ export interface AvailableAction {
   label: string;
   /** True when the action needs input (a weight, an amount) before it fires. */
   requiresPayload?: boolean;
+}
+
+// ── Cancellation requests ─────────────────────────────────────────────────
+
+/**
+ * A customer asking for their order to be cancelled.
+ *
+ * Lives in `orders.metadata.cancellation_request` — the escape hatch §4 keeps
+ * for exactly this, and the same place A4 keeps its gateway ids. No column,
+ * because `orders` is column-partitioned between the two lanes and a request is
+ * neither a booking fact nor a fulfilment fact: it is a message from the
+ * customer to ops, and it stops mattering the moment ops acts.
+ *
+ * The request never moves the order. `status` still says `agent_accepted`
+ * because the agent is still expected to collect the parcel until ops says
+ * otherwise — a pending request is not a cancelled order, and treating it as
+ * one is how a customer ends up with a parcel nobody came for.
+ */
+export interface CancellationRequest {
+  /** ISO instant the customer asked. */
+  requested_at: string;
+  /** `itd_users.id` of the customer who asked. */
+  requested_by: string;
+  /** Free text, or null when they gave no reason. */
+  reason: string | null;
+  /**
+   * Where ops has got to. Absent on rows written before decisions existed,
+   * which `cancellationState` reads as still pending — the safe direction,
+   * since an undecided request is exactly what those rows were.
+   */
+  status?: CancellationRequestStatus;
+  decided_at?: string | null;
+  /** `itd_users.id` of the ops user who approved or declined. */
+  decided_by?: string | null;
+  /** Why ops declined. The customer reads this, so it is never an id or a code. */
+  decision_note?: string | null;
+}
+
+export type CancellationRequestStatus = 'pending' | 'approved' | 'rejected';
+
+/**
+ * Where an order stands on cancellation, as one value the UI can switch on.
+ *
+ * `approved` is derived from `status === 'cancelled'` rather than trusted from
+ * metadata: the order row is the truth about whether an order is cancelled, and
+ * a metadata blob that disagreed with it would be a bug that showed the
+ * customer a cancelled parcel still coming, or the reverse.
+ */
+export type CancellationState = 'none' | 'pending' | 'approved' | 'rejected';
+
+function isCancellationRequest(value: unknown): value is CancellationRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const r = value as Record<string, unknown>;
+  return typeof r.requested_at === 'string' && typeof r.requested_by === 'string';
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+export function readCancellationRequest(
+  order: Pick<Order, 'metadata'>
+): CancellationRequest | null {
+  const raw = order.metadata?.cancellation_request;
+  if (!isCancellationRequest(raw)) return null;
+  return {
+    requested_at: raw.requested_at,
+    requested_by: raw.requested_by,
+    reason: optionalString(raw.reason),
+    status: raw.status === 'approved' || raw.status === 'rejected' ? raw.status : 'pending',
+    decided_at: optionalString(raw.decided_at),
+    decided_by: optionalString(raw.decided_by),
+    decision_note: optionalString(raw.decision_note),
+  };
+}
+
+export function cancellationState(
+  order: Pick<Order, 'metadata' | 'status'>
+): CancellationState {
+  if (order.status === 'cancelled') {
+    // Cancelled with no request behind it — ops acted on a phone call. Still
+    // an approved cancellation as far as anyone reading the order is concerned.
+    return 'approved';
+  }
+  const request = readCancellationRequest(order);
+  if (!request) return 'none';
+  return request.status === 'rejected' ? 'rejected' : 'pending';
+}
+
+/**
+ * A request still waiting on ops.
+ *
+ * Guards the customer's request button (no asking twice) and ops' decision
+ * buttons (nothing to decide without an open request).
+ */
+export function hasOpenCancellationRequest(order: Pick<Order, 'metadata' | 'status'>): boolean {
+  return cancellationState(order) === 'pending';
 }
 
 // ── Customer-facing derivation (M6 owns the fan-out; this is the mapping) ──
@@ -177,8 +281,38 @@ const CUSTOMER_STATUS: Record<OrderStatus, string> = {
   cancelled: 'Cancelled',
 };
 
+/**
+ * The same mapping, keyed by a bare status.
+ *
+ * The list screens hold an order row, not a whole `Order` — `GET /api/orders`
+ * returns a narrower projection than the detail endpoint. Without this they
+ * were reaching for their own label table and printing `weighed` / `settled`
+ * to the customer, which is precisely what `CUSTOMER_STATUS` exists to stop.
+ * One vocabulary, two call shapes.
+ */
+export function customerStatusForStatus(status: string): string {
+  return CUSTOMER_STATUS[status as OrderStatus] ?? 'Processing';
+}
+
 export function deriveCustomerStatus(order: Order): string {
-  return CUSTOMER_STATUS[order.status] ?? 'Processing';
+  return customerStatusForStatus(order.status);
+}
+
+/**
+ * Statuses the order row never moves out of. Nothing more will happen to it in
+ * our database: `dispatched` hands the parcel to ITD (tracking continues under
+ * the AWB, not here) and `cancelled` is the end of the road.
+ *
+ * Read by the client to stop polling. Never use it as an authorisation check —
+ * the legal transitions live in `server/orderLifecycle.ts` and only there.
+ */
+export const TERMINAL_ORDER_STATUSES: readonly OrderStatus[] = [
+  'dispatched',
+  'cancelled',
+] as const;
+
+export function isTerminalOrderStatus(status: string): boolean {
+  return (TERMINAL_ORDER_STATUSES as readonly string[]).includes(status);
 }
 
 /**

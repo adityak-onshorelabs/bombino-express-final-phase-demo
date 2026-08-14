@@ -38,8 +38,12 @@ import {
   insertOrderAndReturnRow,
   insertOrderEvent,
   listOrderEvents,
+  listCancellationOrdersByUserId,
   listOrdersByUserId,
   listPaymentsByOrderId,
+  markCancellationRequestDecided,
+  recordCancellationRequest,
+  toOrder,
 } from "./ordersDb.js";
 import {
   availableActions,
@@ -55,7 +59,13 @@ import {
 import { ensureDbUser, requireRole, requireUser } from "./routeGuards.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
-import { deriveCustomerStatus, isInternalOnlyStatus, isRole } from "../shared/orderContract.js";
+import {
+  cancellationState,
+  deriveCustomerStatus,
+  isInternalOnlyStatus,
+  isRole,
+  readCancellationRequest,
+} from "../shared/orderContract.js";
 import type { Order, OrderStatus, Role } from "../shared/orderContract.js";
 import { PICKUP_SLOT_VALUES } from "../shared/pickupSlots.js";
 import {
@@ -1981,11 +1991,60 @@ export async function registerRoutes(
           break;
         }
 
+        case "request_cancellation": {
+          const requestBody = z
+            .object({
+              // Optional, and capped: this is a note for whoever picks the
+              // request up, not a support ticket.
+              reason: z.string().trim().max(300, "Keep the reason under 300 characters")
+                .optional()
+                .nullable(),
+            })
+            .safeParse(parsed.data.payload ?? {});
+          if (!requestBody.success) {
+            res.status(400).json({
+              message: requestBody.error.issues[0]?.message ?? "Invalid request payload",
+              code: "INVALID_PAYLOAD",
+            });
+            return;
+          }
+
+          const reason = requestBody.data.reason?.trim() || null;
+
+          updated = await recordCancellationRequest({
+            orderId: order.id,
+            userId: callerId,
+            // The states a request is legal from, mirrored from the transition
+            // table so the WHERE clause re-asserts what the guard checked.
+            expectedStatuses: ["pickup_requested", "awaiting_dropoff", "agent_accepted"],
+            reason,
+          });
+          if (!updated) {
+            res.status(409).json({
+              message:
+                "This order has already moved on. Call support if you still need it cancelled.",
+              code: "ORDER_STATE_CHANGED",
+            });
+            return;
+          }
+
+          // Deliberately no status change: the order is still live and the
+          // agent is still expected to collect it until ops decides.
+          eventNote = reason
+            ? `Customer requested cancellation: ${reason}`
+            : "Customer requested cancellation";
+          extra = { reason };
+          break;
+        }
+
         case "cancel": {
           if (!transition.to) {
             res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
             return;
           }
+          // Ops only — `orderLifecycle.ts` gives the customer no `cancel` row,
+          // so a customer reaching here has already been refused by
+          // `findTransition` above.
           updated = await transitionOrderStatus({
             orderId: order.id,
             expectedFrom: transition.from,
@@ -1998,7 +2057,88 @@ export async function registerRoutes(
             });
             return;
           }
-          eventNote = "Order cancelled";
+          // Whether ops was acting on a request or a phone call is the first
+          // thing anyone asks afterwards, so the event says which.
+          const request = readCancellationRequest(order);
+          if (request) {
+            // Best-effort: the cancellation itself is already committed above,
+            // and failing the response because an audit field did not write
+            // would tell ops the cancellation failed when it did not.
+            await markCancellationRequestDecided({
+              orderId: order.id,
+              decision: "approved",
+              decidedBy: callerId,
+              note: null,
+            });
+          }
+          eventNote = request
+            ? "Order cancelled by ops on the customer's request"
+            : "Order cancelled by ops";
+          extra = request
+            ? { requested_at: request.requested_at, requested_reason: request.reason }
+            : {};
+          break;
+        }
+
+        case "reject_cancellation": {
+          const rejectBody = z
+            .object({
+              // The customer reads this. Optional, because a decline over the
+              // phone may already have been explained.
+              note: z.string().trim().max(300, "Keep the note under 300 characters")
+                .optional()
+                .nullable(),
+            })
+            .safeParse(parsed.data.payload ?? {});
+          if (!rejectBody.success) {
+            res.status(400).json({
+              message: rejectBody.error.issues[0]?.message ?? "Invalid decision payload",
+              code: "INVALID_PAYLOAD",
+            });
+            return;
+          }
+
+          const note = rejectBody.data.note?.trim() || null;
+
+          const written = await markCancellationRequestDecided({
+            orderId: order.id,
+            decision: "rejected",
+            decidedBy: callerId,
+            note,
+          });
+          if (!written) {
+            res.status(409).json({
+              message: "There is no open cancellation request on this order.",
+              code: "NO_OPEN_REQUEST",
+            });
+            return;
+          }
+
+          // Nothing moved — that is the decision. Re-read so the response and
+          // the recomputed actions reflect the decision just written.
+          updated = (await getOrderById(order.id)) ?? order;
+          eventNote = note
+            ? `Cancellation declined by ops: ${note}`
+            : "Cancellation declined by ops";
+          extra = { note };
+
+          // The one case the customer must be told about explicitly. An
+          // approval announces itself as the order turning `cancelled`, which
+          // the block below already notifies; a decline changes nothing on
+          // screen, so without this the customer waits forever.
+          void insertOrderStatusNotification({
+            user_id: updated.user_id,
+            title: "Cancellation declined",
+            body: note
+              ? `${updated.order_no} — ${note}`
+              : `${updated.order_no} — your cancellation request was declined. Your shipment is still going ahead.`,
+            data: {
+              order_id: updated.id,
+              order_no: updated.order_no,
+              status: updated.status,
+              cancellation: "rejected",
+            },
+          });
           break;
         }
 
@@ -2094,6 +2234,61 @@ export async function registerRoutes(
     res.json({ orders });
   });
 
+  // ── GET /api/orders/cancellations — the customer's cancellation screen ───
+  //
+  // MUST stay above `/api/orders/:orderNo`: Express matches in registration
+  // order, and the param route would otherwise swallow this and look up an
+  // order numbered "cancellations".
+  //
+  // One row per order cancellation has touched, in the three states the screen
+  // groups by. The state is derived server-side by `cancellationState` so the
+  // page never re-implements the rule that a cancelled order outranks whatever
+  // its metadata says.
+  app.get("/api/orders/cancellations", ensureDbUser, async (req: Request, res: Response) => {
+    const userId = req.session.dbUserId;
+    if (!userId) {
+      res.status(401).json({ message: "Login required" });
+      return;
+    }
+
+    const rows = await listCancellationOrdersByUserId(userId);
+    if (rows === null) {
+      res.status(502).json({ message: "Could not load your cancellations" });
+      return;
+    }
+
+    const orders = rows.map((row) => {
+      const order = toOrder(row);
+      const request = readCancellationRequest(order);
+      return {
+        id: order.id,
+        order_no: order.order_no,
+        status: order.status,
+        customerStatus: deriveCustomerStatus(order),
+        pickup_request: order.pickup_request,
+        pickup_date: order.pickup_date,
+        pickup_slot: order.pickup_slot,
+        quoted_amount: order.quoted_amount,
+        final_amount: order.final_amount,
+        payment_method: order.payment_method,
+        payment_status: order.payment_status,
+        created_at: order.created_at,
+        updated_at: order.updated_at,
+        cancellation: {
+          state: cancellationState(order),
+          requestedAt: request?.requested_at ?? null,
+          reason: request?.reason ?? null,
+          decidedAt: request?.decided_at ?? null,
+          // Ops' words to the customer when they declined. Null on an approval,
+          // which needs no explaining.
+          decisionNote: request?.decision_note ?? null,
+        },
+      };
+    });
+
+    res.json({ orders });
+  });
+
   // ── GET /api/orders/:orderNo — one order, in full, for its owner ─────────
   //
   // The customer's counterpart to the agent's pickup detail screen. Everything
@@ -2164,6 +2359,11 @@ export async function registerRoutes(
       // previous entry verbatim ("Agent on the way" twice in a row). Name what
       // actually happened instead.
       const isCollection = meta.action === "collect_payment";
+      // Same reasoning for the two cancellation verbs, which by design leave
+      // the status alone: without this the customer's own request, and ops
+      // declining it, both render as whatever the order already said.
+      const isCancellationRequest = meta.action === "request_cancellation";
+      const isCancellationDeclined = meta.action === "reject_cancellation";
       return {
         id: ev.id,
         at: ev.created_at,
@@ -2172,7 +2372,11 @@ export async function registerRoutes(
         // two different things on two screens.
         label: isCollection
           ? "Payment collected"
-          : deriveCustomerStatus({ ...order, status: ev.status as OrderStatus }),
+          : isCancellationRequest
+            ? "Cancellation requested"
+            : isCancellationDeclined
+              ? "Cancellation declined"
+              : deriveCustomerStatus({ ...order, status: ev.status as OrderStatus }),
         note: ev.note,
         action: typeof meta.action === "string" ? meta.action : null,
         actorName: actor?.full_name ?? null,
@@ -2206,8 +2410,27 @@ export async function registerRoutes(
         collectedAt: p.collected_at ?? p.created_at,
         collectedByName: p.collected_by ? contacts.get(p.collected_by)?.full_name ?? null : null,
       })),
-      // Lets the page render a Cancel button without knowing the state machine.
+      // Lets the page render its actions without knowing the state machine.
       availableActions: availableActions(order, "customer", { userId }),
+      // Surfaced as its own field rather than leaving the page to dig through
+      // `order.metadata` — the customer app has no business parsing an escape
+      // hatch that also carries gateway ids and failure blobs.
+      cancellationRequest: (() => {
+        const request = readCancellationRequest(order);
+        if (!request) return null;
+        const state = cancellationState(order);
+        return {
+          state,
+          requestedAt: request.requested_at,
+          reason: request.reason,
+          decidedAt: request.decided_at ?? null,
+          decisionNote: request.decision_note ?? null,
+          // Kept as its own field rather than left to the page to derive from
+          // `state`: "are we still waiting?" is the question the banner asks,
+          // and one boolean is harder to get wrong than a string comparison.
+          pending: state === "pending",
+        };
+      })(),
       // A failed events read is not fatal — the booking detail is still worth
       // showing — but the page must be able to say so rather than imply the
       // order has no history.

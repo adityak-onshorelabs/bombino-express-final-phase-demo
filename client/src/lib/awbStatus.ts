@@ -50,3 +50,24 @@ export function getStatusColor(state: string): AwbStatusTone {
   const key = normalizeStateKey(trimmed);
   return AWB_STATUS_MAP[key]?.color ?? 'gray';
 }
+
+/**
+ * States ITD will send no further scan for. Read by the client to stop polling.
+ *
+ * `UNDELIVERED` is deliberately absent — a failed delivery is re-attempted, so
+ * it is the state most worth still watching. So are the misplaced/hold family:
+ * they resolve. Only the six here are genuinely the last word.
+ */
+const FINAL_AWB_STATES: ReadonlySet<string> = new Set([
+  'DELIVERED',
+  'RTO',
+  'PART RTO',
+  'CANCELLED',
+  'ABANDONED',
+  'LOST',
+]);
+
+export function isAwbStatusFinal(state: string | null | undefined): boolean {
+  if (!state?.trim()) return false;
+  return FINAL_AWB_STATES.has(normalizeStateKey(state));
+}

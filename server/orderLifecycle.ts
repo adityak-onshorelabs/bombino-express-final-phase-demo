@@ -22,7 +22,11 @@ import type {
   OrderStatus,
   Role,
 } from "../shared/orderContract.js";
-import { isPaymentSatisfied, roleSatisfies } from "../shared/orderContract.js";
+import {
+  hasOpenCancellationRequest,
+  isPaymentSatisfied,
+  roleSatisfies,
+} from "../shared/orderContract.js";
 import { todayInIst } from "../shared/pickupSlots.js";
 
 /**
@@ -202,13 +206,65 @@ export const TRANSITIONS: readonly Transition[] = [
   },
 
   // ── Cancellation ───────────────────────────────────────────────────────
-  // Only before the parcel is physically with us. Once it is at the hub,
-  // cancelling is an ops conversation, not a button.
+  //
+  // Two different verbs, deliberately asymmetric.
+  //
+  // The customer *requests*. They do not cancel: by the time they change their
+  // mind an agent may already be riding to their door, money may have moved,
+  // and the decision has costs the customer cannot see. So their button writes
+  // a request and nothing else — the order does not move (`to: null`) and the
+  // agent keeps working it until ops says otherwise.
+  //
+  // Ops *cancels*. They see the request on the board and act on it, or they
+  // cancel without one when the customer phones in. The request is a signal,
+  // not a precondition — gating ops on it would strand every order cancelled
+  // over the phone, which is most of them.
+  //
+  // Both stop before the parcel is physically with us. Once it is at the hub,
+  // cancelling is a conversation, not a button.
   ...(
     ["pickup_requested", "awaiting_dropoff", "agent_accepted"] as const
   ).flatMap((from): Transition[] => [
-    { from, action: "cancel", role: "customer", to: "cancelled", label: "Cancel order" },
+    {
+      from,
+      action: "request_cancellation",
+      role: "customer",
+      // No status change. The request is a note on the order, not a move.
+      to: null,
+      label: "Request cancellation",
+      // Optional reason.
+      requiresPayload: true,
+      // Asking twice is not a second request, and a button that stays live
+      // after it has been pressed reads as one that did nothing.
+      guard: (order) => !hasOpenCancellationRequest(order),
+    },
+    // Two `cancel` rows, same effect, different words. `availableActions`
+    // dedupes by action name and keeps the first match, so ops reads "Approve
+    // cancellation" when they are answering a customer and "Cancel order" when
+    // they are acting on their own. The ops console renders `label` verbatim
+    // and needs no code for this.
+    {
+      from,
+      action: "cancel",
+      role: "admin",
+      to: "cancelled",
+      label: "Approve cancellation",
+      guard: hasOpenCancellationRequest,
+    },
     { from, action: "cancel", role: "admin", to: "cancelled", label: "Cancel order" },
+    {
+      from,
+      action: "reject_cancellation",
+      role: "admin",
+      // The order does not move — declining a request means it carries on
+      // exactly as it was, which is the entire point.
+      to: null,
+      label: "Decline cancellation",
+      // Optional note, shown to the customer.
+      requiresPayload: true,
+      // Nothing to decline without an open request.
+      guard: hasOpenCancellationRequest,
+    },
   ]),
 ] as const;
 
