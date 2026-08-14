@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useRoute } from 'wouter';
 import { Loader2, Phone, Navigation } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
 import { AgentJobSheet } from '@/components/agent/AgentShell';
 import { ActionBar } from '@/components/agent/ActionButtons';
 import { CollectPaymentSheet } from '@/components/agent/CollectPaymentSheet';
@@ -17,7 +16,13 @@ import {
 import { todayInIst } from '@shared/pickupSlots';
 import { bandForDate } from '@/lib/agentGrouping';
 import { docketItem, type OrderConsignee } from '@/lib/orderDetail';
-import { useAvailablePickups, useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';
+import { HandoverOtpSheet } from '@/components/agent/HandoverOtpSheet';
+import {
+  useAvailablePickups,
+  useMyPickups,
+  useOrderAction,
+  useRegenerateHandoverCode,
+} from '@/hooks/useAgentPickups';
 import type { AgentPickup } from '@/hooks/useAgentPickups';
 import type { PaymentMethod, PaymentStatus } from '@shared/orderContract';
 
@@ -103,7 +108,7 @@ export default function PickupDetail() {
   const mine = useMyPickups();
   const available = useAvailablePickups();
   const action = useOrderAction();
-  const { toast } = useToast();
+  const regenerate = useRegenerateHandoverCode();
 
   const entry =
     mine.data?.find((p) => p.order.id === params?.id) ??
@@ -136,6 +141,14 @@ export default function PickupDetail() {
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [receipt, setReceipt] = useState<{ txnId: string | null; amount: number } | null>(null);
+  const [otpOpen, setOtpOpen] = useState(false);
+  // Anything that failed and is not the handover code, shown above the action
+  // bar. This surface has no toasts (see `SurfaceToaster` in App.tsx), so a
+  // failure that is not written onto the screen is a failure nobody sees.
+  const [actionError, setActionError] = useState<string | null>(null);
+  // The server's verdict on the last code, held so the sheet can show it. Not
+  // a toast: the agent is retyping into the field the message is about.
+  const [otpError, setOtpError] = useState<string | null>(null);
 
   const runAction = (actionName: string, payload?: Record<string, unknown>): void => {
     if (!order) return;
@@ -143,6 +156,10 @@ export default function PickupDetail() {
       { orderId: order.id, action: actionName, payload },
       {
         onSuccess: (result) => {
+          if (actionName === 'mark_picked_up') {
+            setOtpOpen(false);
+            setOtpError(null);
+          }
           if (result.warning) {
             // The action landed but its history row did not — surfaced rather
             // than swallowed, because ops reads that history.
@@ -154,28 +171,38 @@ export default function PickupDetail() {
             setReceipt(result.receipt);
             return;
           }
-          toast({
-            title: 'Updated',
-            description: `${result.order.order_no} — ${agentStatusLabel(result.order.status)}`,
-          });
+          // Nothing announces success. The sheet re-renders with the new
+          // status in its eyebrow and the next action in its bar, which is the
+          // same fact told where the agent is already looking.
+          setActionError(null);
         },
         onError: (err) => {
-          toast({
-            title: err.status === 409 ? 'This job has moved on' : 'Could not update',
-            description: err.message,
-            variant: 'destructive',
-          });
+          // A rejected code belongs in the sheet, next to the field being
+          // retyped — not somewhere the agent has to look away to read.
+          if (actionName === 'mark_picked_up') {
+            setOtpError(err.message);
+            return;
+          }
+          setActionError(
+            err.status === 409 ? 'This job has moved on. Go back and refresh.' : err.message,
+          );
         },
       },
     );
   };
 
-  // Payment needs an amount and a mode, so it opens the sheet instead of
-  // firing. Everything else is a single decisive tap.
+  // Two actions need input before they can fire: money needs an amount and a
+  // mode, pickup needs the customer's code. Both open a sheet. Everything else
+  // is a single decisive tap.
   const handleAction = (actionName: string): void => {
     if (actionName === 'collect_payment') {
       setReceipt(null);
       setSheetOpen(true);
+      return;
+    }
+    if (actionName === 'mark_picked_up') {
+      setOtpError(null);
+      setOtpOpen(true);
       return;
     }
     runAction(actionName);
@@ -205,13 +232,23 @@ export default function PickupDetail() {
       orderNo={order?.order_no}
       actionBar={
         order && entry ? (
-          <ActionBar
-            actions={entry.availableActions}
-            owed={owed}
-            pendingAction={action.isPending ? action.variables?.action ?? null : null}
-            disabled={action.isPending}
-            onAction={handleAction}
-          />
+          <>
+            {actionError && (
+              <p
+                className="px-4 py-2.5 border-b border-[#E2E8F0]! font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-[#B91C1C] bg-white"
+                data-testid="action-error"
+              >
+                {actionError}
+              </p>
+            )}
+            <ActionBar
+              actions={entry.availableActions}
+              owed={owed}
+              pendingAction={action.isPending ? action.variables?.action ?? null : null}
+              disabled={action.isPending}
+              onAction={handleAction}
+            />
+          </>
         ) : undefined
       }
     >
@@ -327,6 +364,38 @@ export default function PickupDetail() {
             </div>
           )}
 
+          {/* The agent's own code, for the counter. This is the one handover
+              number the agent is allowed to see — it tests ops, not them. The
+              parcel is in their bag and there is no button left to press: the
+              job moves when ops types this in. */}
+          {order.status === 'picked_up' && (
+            <div
+              className="mx-4 mt-3 mb-4 border-2 border-[#1B2A41] px-4 py-4"
+              data-testid="block-hub-code"
+            >
+              <span className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#1B2A41]">
+                Hand over at the hub
+              </span>
+              <p className="font-mono text-[34px] font-bold leading-none tracking-[0.16em] text-[#1B2A41] tabular-nums mt-2.5">
+                {entry.handover?.code ?? '——————'}
+              </p>
+              <p className="text-[13px] font-medium leading-[1.45] text-[#334155] mt-2.5">
+                {entry.handover?.code
+                  ? 'Read this out at the counter. The job clears from your list once the hub enters it.'
+                  : 'No code yet. Pull to refresh, or ask the counter to complete it for you.'}
+              </p>
+              <button
+                type="button"
+                onClick={() => regenerate.mutate(order.id)}
+                disabled={regenerate.isPending}
+                className="mt-3 h-11 w-full border border-[#CBD5E1]! bg-white text-[14px] font-semibold text-[#1B2A41] disabled:opacity-60"
+                data-testid="button-regenerate-hub-code"
+              >
+                {regenerate.isPending ? 'Getting a new code…' : 'Get a new code'}
+              </button>
+            </div>
+          )}
+
           <CollectPaymentSheet
             open={sheetOpen}
             onOpenChange={(next) => {
@@ -337,6 +406,18 @@ export default function PickupDetail() {
             isPending={action.isPending}
             receipt={receipt}
             onConfirm={(payload) => runAction('collect_payment', payload)}
+          />
+
+          <HandoverOtpSheet
+            open={otpOpen}
+            onOpenChange={(next) => {
+              setOtpOpen(next);
+              if (!next) setOtpError(null);
+            }}
+            pickup={order}
+            isPending={action.isPending}
+            error={otpError}
+            onConfirm={(payload) => runAction('mark_picked_up', payload)}
           />
         </>
       )}

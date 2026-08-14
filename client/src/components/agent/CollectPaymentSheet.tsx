@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Smartphone, Banknote, Loader2, Copy } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
-import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { money } from '@/components/agent/PickupCard';
 import { type AgentPickup } from '@/hooks/useAgentPickups';
@@ -46,7 +45,7 @@ export function CollectPaymentSheet({
   const [amount, setAmount] = useState(String(due || ''));
   const [reference, setReference] = useState('');
   const [error, setError] = useState('');
-  const { toast } = useToast();
+  const [copied, setCopied] = useState(false);
 
   // Reset whenever the sheet reopens, so a previous job's amount cannot carry
   // over into the next doorstep.
@@ -77,10 +76,16 @@ export function CollectPaymentSheet({
     });
   };
 
+  /**
+   * Confirms in the label rather than a toast — this surface has none (see
+   * `SurfaceToaster` in App.tsx), and a copy confirmation belongs on the thing
+   * that was copied anyway.
+   */
   const copyTxn = (): void => {
     if (!receipt?.txnId) return;
     void navigator.clipboard.writeText(receipt.txnId);
-    toast({ title: 'Copied', description: 'Transaction ID copied' });
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -122,7 +127,7 @@ export function CollectPaymentSheet({
             >
               <span>
                 <span className="block font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[#64748B]">
-                  Transaction ID
+                  {copied ? 'Copied' : 'Transaction ID'}
                 </span>
                 <span className="block font-mono text-[15px] font-bold text-[#1B2A41] mt-1">
                   {receipt.txnId ?? 'Not issued'}

@@ -143,18 +143,25 @@ export const TRANSITIONS: readonly Transition[] = [
     role: "agent",
     to: "picked_up",
     label: "Mark picked up",
+    // The customer's handover code. Without it an agent can mark a parcel
+    // collected from the pavement outside.
+    requiresPayload: true,
     // Cannot leave the doorstep with the cash uncollected.
     guard: (order, ctx) => isOwningAgent(order, ctx) && !owesAtPickup(order),
   },
   {
+    // Ops, not the agent. The agent reads their code out at the counter and
+    // ops types it in — an agent who could complete their own handover is not
+    // being checked by the code, which is the only reason it exists.
+    //
+    // Terminal for the agent either way: no row has `from: picked_up` and
+    // `role: agent`, so the job leaves their queue when ops accepts it.
     from: "picked_up",
     action: "mark_received_at_hub",
-    role: "agent",
+    role: "admin",
     to: "received_at_hub",
-    label: "Mark received at hub",
-    // Terminal for the agent: no row below has `from: received_at_hub` and
-    // `role: agent`, so the job leaves their queue here and ops takes over.
-    guard: isOwningAgent,
+    label: "Receive from agent",
+    requiresPayload: true,
   },
 
   // ── Ops, drop-off path + hub (M2/M3/M5) ────────────────────────────────
@@ -166,6 +173,38 @@ export const TRANSITIONS: readonly Transition[] = [
     role: "admin",
     to: "received_at_hub",
     label: "Mark received",
+    // The customer's dropoff code, read from their app at the counter. Same
+    // shape as the pickup handover, different pair of hands.
+    requiresPayload: true,
+  },
+
+  // ── Handover override (ops) ────────────────────────────────────────────
+  // One row per OTP-gated step, each landing where the gated action would
+  // have. A dead phone must not strand a parcel — but only ops can wave it
+  // through, and every use writes an `order_events` row naming them.
+  {
+    from: "out_for_pickup",
+    action: "override_handover",
+    role: "admin",
+    to: "picked_up",
+    label: "Complete without code",
+    requiresPayload: true,
+  },
+  {
+    from: "picked_up",
+    action: "override_handover",
+    role: "admin",
+    to: "received_at_hub",
+    label: "Complete without code",
+    requiresPayload: true,
+  },
+  {
+    from: "awaiting_dropoff",
+    action: "override_handover",
+    role: "admin",
+    to: "received_at_hub",
+    label: "Complete without code",
+    requiresPayload: true,
   },
   {
     from: "received_at_hub",

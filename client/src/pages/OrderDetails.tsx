@@ -66,6 +66,7 @@ import {
 } from '@/lib/orderDetail';
 import {
   ORDER_HISTORY_KEY,
+  orderDetailKey,
   useCustomerOrderDetail,
 } from '@/hooks/useCustomerOrders';
 
@@ -313,6 +314,31 @@ export default function OrderDetails() {
   });
 
   /**
+   * A fresh handover code, when the one on screen has been locked by wrong
+   * guesses or never wrote at all.
+   *
+   * The server picks which code the caller is entitled to from the order's
+   * state — this sends no kind, so a customer can never ask for the agent's.
+   */
+  const regenerateHandover = useMutation({
+    mutationFn: async (orderId: string) => {
+      const res = await apiRequest('POST', `/api/orders/${orderId}/handover-code`);
+      return res.json() as Promise<{ handover: { kind: string; code: string } }>;
+    },
+    onSuccess: () => {
+      toast({ title: 'New code ready', description: 'Read out the code shown on this screen.' });
+      void queryClient.invalidateQueries({ queryKey: orderDetailKey(orderNo) });
+    },
+    onError: (err: unknown) => {
+      toast({
+        title: 'Could not get a new code',
+        description: err instanceof Error ? err.message : 'Please try again.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  /**
    * The second door into Razorpay. The first is booking; this one is for the
    * customer who dismissed that modal, or whose card failed, and came back.
    * Same server endpoints — a fresh gateway order against the same order id.
@@ -415,6 +441,7 @@ export default function OrderDetails() {
     payments,
     availableActions,
     cancellationRequest,
+    handover,
   } = data;
   const items = order.items;
   const consignee = order.consignee;
@@ -491,6 +518,63 @@ export default function OrderDetails() {
             </>
           )}
         </p>
+
+        {/* ─── Handover code ────────────────────────────────────────────
+            High on the page, because this is what the customer opens the app
+            to find while somebody stands in front of them waiting. Set in the
+            same mono the agent's screen uses, spaced so it can be read out
+            loud without losing a digit. */}
+        {handover && (
+          <div
+            className="mt-4 rounded-xl border-2 p-4"
+            style={{ borderColor: BRAND_NAVY }}
+            data-testid="card-handover-code"
+          >
+            <p
+              className="text-[11px] font-bold tracking-[0.12em] uppercase"
+              style={{ color: BRAND_NAVY }}
+            >
+              {handover.kind === 'pickup' ? 'Pickup code' : 'Drop-off code'}
+            </p>
+
+            <p
+              className="font-mono text-[34px] font-bold leading-none tracking-[0.16em] tabular-nums mt-2.5"
+              style={{ color: BRAND_NAVY }}
+              data-testid="text-handover-code"
+            >
+              {handover.code ?? '——————'}
+            </p>
+
+            <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed">
+              {handover.locked
+                ? 'This code has been entered wrongly too many times. Generate a new one before handing the parcel over.'
+                : handover.code
+                  ? handover.kind === 'pickup'
+                    ? 'Read this out to the agent when they arrive. Do not share it with anyone else — it is what proves the parcel went to us.'
+                    : 'Read this out at the Bombino hub counter when you drop your parcel off.'
+                  : 'No code has been generated yet. Tap below to get one.'}
+            </p>
+
+            <Button
+              variant="outline"
+              className="mt-3 w-full h-10 rounded-lg"
+              disabled={regenerateHandover.isPending}
+              onClick={() => regenerateHandover.mutate(order.id)}
+              data-testid="button-regenerate-handover"
+            >
+              {regenerateHandover.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Getting a new code
+                </>
+              ) : handover.code ? (
+                'Get a new code'
+              ) : (
+                'Generate code'
+              )}
+            </Button>
+          </div>
+        )}
 
         {/* Not yet a docket. Said once, here, rather than as a toast the
             customer has to dismiss to see anything at all. */}

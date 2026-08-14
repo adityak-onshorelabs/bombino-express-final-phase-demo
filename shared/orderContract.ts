@@ -135,6 +135,10 @@ export type Action =
   | 'collect_payment'
   // ops (M2/M3/M5)
   | 'mark_received_dropoff'
+  // ops — complete an OTP-gated handover without the code. The customer's
+  // phone is dead, the agent is at the door, and the parcel must not be
+  // stranded for it. Always audited.
+  | 'override_handover'
   | 'weigh'
   | 'settle'
   | 'generate_docket'

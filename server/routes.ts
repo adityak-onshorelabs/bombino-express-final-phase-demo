@@ -56,6 +56,13 @@ import {
   recordCollectedPayment,
   transitionOrderStatus,
 } from "./agentDb.js";
+import {
+  burnCodeForOverride,
+  getCodeForOwner,
+  issueCode,
+  verifyCode,
+  type HandoverKind,
+} from "./handoverCodes.js";
 import { ensureDbUser, requireRole, requireUser } from "./routeGuards.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
@@ -1758,6 +1765,14 @@ export async function registerRoutes(
       actor_user_id: req.session.dbUserId,
     });
 
+    // A drop-off has no agent and no claim, so there is no later moment to
+    // issue its code from: the customer walks into the hub whenever they like,
+    // and the code has to be on their screen before they set off. A pickup's
+    // code waits for the claim — nobody needs a code for a job no agent holds.
+    if (!isPickup) {
+      await issueCode(order.id, "dropoff");
+    }
+
     res.json({ order });
   });
 
@@ -1788,6 +1803,26 @@ export async function registerRoutes(
   // A legal request gets 501 today. When the handlers land, replace the 501
   // with the transition's effect — and put the race-prone preconditions in the
   // UPDATE's WHERE clause, not just in the guard (see orderLifecycle.ts).
+
+  /**
+   * Which handover each OTP-gated action checks.
+   *
+   * Kept as data next to the switch rather than inferred inside it, so adding a
+   * fourth handover is one line here and one transition row — the same
+   * discipline `orderLifecycle.ts` follows.
+   */
+  const HANDOVER_KIND_FOR_ACTION = {
+    mark_picked_up: "pickup",
+    mark_received_at_hub: "hub",
+    mark_received_dropoff: "dropoff",
+  } as const satisfies Record<string, HandoverKind>;
+
+  /** Which handover an ops override is waving through, by the status it acts on. */
+  const HANDOVER_KIND_FOR_STATUS: Partial<Record<OrderStatus, HandoverKind>> = {
+    out_for_pickup: "pickup",
+    picked_up: "hub",
+    awaiting_dropoff: "dropoff",
+  };
 
   /**
    * Session role → contract role. `req.session.user.role` is a free-form
@@ -1895,13 +1930,16 @@ export async function registerRoutes(
             return;
           }
           eventNote = "Pickup claimed by agent";
+          // The customer can now be told a code, and will want it visible well
+          // before the doorbell goes. Best-effort: the claim is already
+          // committed, and refusing it because a code failed to write would
+          // hand the job back to the pool for no good reason. The customer's
+          // screen offers a regenerate when there is nothing to show.
+          await issueCode(order.id, "pickup");
           break;
         }
 
-        case "start_pickup":
-        case "mark_picked_up":
-        case "mark_received_at_hub": {
-          // `transition.to` is non-null for all three — they are status moves.
+        case "start_pickup": {
           if (!transition.to) {
             res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
             return;
@@ -1923,6 +1961,165 @@ export async function registerRoutes(
             return;
           }
           eventNote = `Agent moved order to ${transition.to}`;
+          break;
+        }
+
+        // ── OTP-gated handovers ───────────────────────────────────────────
+        // Three steps, one shape: check the code the other party read out,
+        // then move the order. The code is verified BEFORE the status write,
+        // so a wrong guess costs an attempt and changes nothing else.
+        case "mark_picked_up":
+        case "mark_received_at_hub":
+        case "mark_received_dropoff": {
+          if (!transition.to) {
+            res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
+            return;
+          }
+
+          const kind = HANDOVER_KIND_FOR_ACTION[action];
+
+          const otpBody = z
+            .object({
+              // `required_error` as well as the regex message: a missing key
+              // otherwise surfaces zod's bare "Required", which is what an
+              // agent would have been shown at a doorstep.
+              otp: z
+                .string({ required_error: "Enter the 6-digit code" })
+                .trim()
+                .regex(/^\d{6}$/, "Enter the 6-digit code"),
+            })
+            .safeParse(parsed.data.payload ?? {});
+          if (!otpBody.success) {
+            res.status(400).json({
+              message: otpBody.error.issues[0]?.message ?? "The handover code is required",
+              code: "OTP_REQUIRED",
+            });
+            return;
+          }
+
+          const check = await verifyCode({
+            orderId: order.id,
+            kind,
+            submitted: otpBody.data.otp,
+            verifiedBy: callerId,
+          });
+
+          if (!check.ok) {
+            const messages: Record<typeof check.reason, string> = {
+              no_code: "There is no handover code on this order to check.",
+              locked:
+                "Too many wrong codes. Ask for a fresh code to be generated, then try again.",
+              mismatch:
+                check.attemptsLeft > 0
+                  ? `That code is not right. ${check.attemptsLeft} ${
+                      check.attemptsLeft === 1 ? "try" : "tries"
+                    } left.`
+                  : "That code is not right, and this code is now locked. Ask for a fresh one.",
+              error: "Could not check the code. Try again.",
+            };
+            res.status(check.reason === "error" ? 502 : 409).json({
+              message: messages[check.reason],
+              code: `OTP_${check.reason.toUpperCase()}`,
+              attemptsLeft: check.attemptsLeft,
+            });
+            return;
+          }
+
+          // Ownership differs by who is acting: the agent may only advance a
+          // job they hold, ops may act on anyone's.
+          updated =
+            role === "agent"
+              ? await advanceOrderStatus({
+                  orderId: order.id,
+                  agentId: callerId,
+                  expectedFrom: transition.from,
+                  to: transition.to,
+                })
+              : await transitionOrderStatus({
+                  orderId: order.id,
+                  expectedFrom: transition.from,
+                  to: transition.to,
+                });
+
+          if (!updated) {
+            // The code is already spent at this point. Saying so matters: the
+            // caller must ask for a fresh one rather than retyping the same
+            // number and being told it is wrong.
+            res.status(409).json({
+              message:
+                "This order moved on before the code was accepted. Refresh, then ask for a fresh code.",
+              code: "ORDER_STATE_CHANGED",
+            });
+            return;
+          }
+
+          eventNote = `${
+            role === "agent" ? "Agent" : "Ops"
+          } completed the ${kind} handover with the customer's code`;
+          extra = { handover: kind, verified: true };
+
+          // The agent's parcel is now in their bag and the next handover is at
+          // the hub counter. Issue that code here so it is on their screen for
+          // the whole ride, not conjured at the counter on a bad signal.
+          if (action === "mark_picked_up") {
+            await issueCode(order.id, "hub");
+          }
+          break;
+        }
+
+        case "override_handover": {
+          if (!transition.to) {
+            res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
+            return;
+          }
+
+          const overrideBody = z
+            .object({
+              // Required, unlike every other note in this endpoint. An
+              // override is the one action here with no check on it at all,
+              // so the reason is the only thing anyone can audit it by.
+              reason: z
+                .string({ required_error: "Say why the code could not be used" })
+                .trim()
+                .min(3, "Say why the code could not be used")
+                .max(300, "Keep the reason under 300 characters"),
+            })
+            .safeParse(parsed.data.payload ?? {});
+          if (!overrideBody.success) {
+            res.status(400).json({
+              message: overrideBody.error.issues[0]?.message ?? "A reason is required",
+              code: "REASON_REQUIRED",
+            });
+            return;
+          }
+
+          const kind = HANDOVER_KIND_FOR_STATUS[transition.from];
+
+          updated = await transitionOrderStatus({
+            orderId: order.id,
+            expectedFrom: transition.from,
+            to: transition.to,
+          });
+          if (!updated) {
+            res.status(409).json({
+              message: "This order has already moved on.",
+              code: "ORDER_STATE_CHANGED",
+            });
+            return;
+          }
+
+          // Spend the code so it cannot be used afterwards to imply the
+          // handover was verified when it was waved through.
+          if (kind) {
+            await burnCodeForOverride({
+              orderId: order.id,
+              kind,
+              overriddenBy: callerId,
+            });
+          }
+
+          eventNote = `Ops completed the ${kind ?? "handover"} without a code: ${overrideBody.data.reason}`;
+          extra = { handover: kind, override: true, reason: overrideBody.data.reason };
           break;
         }
 
@@ -2234,6 +2431,93 @@ export async function registerRoutes(
     res.json({ orders });
   });
 
+  // ── POST /api/orders/:id/handover-code — issue a fresh code ─────────────
+  //
+  // The escape hatch for the two ways a code stops working: five wrong guesses
+  // locked it, or nobody can find it because the write failed when the order
+  // moved. Only the party who *shows* the code may regenerate it — a verifier
+  // who could mint a new one would be testing themselves.
+  //
+  // The kind is derived from role and status rather than taken from the body,
+  // so a customer cannot ask for the agent's hub code by naming it.
+  app.post(
+    "/api/orders/:id/handover-code",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const callerId = req.session.dbUserId;
+      if (!callerId) {
+        res.status(401).json({ message: "Login required" });
+        return;
+      }
+
+      const role = resolveRole(req.session.user?.role);
+      if (!role) {
+        res.status(403).json({ message: "Not allowed", code: "FORBIDDEN" });
+        return;
+      }
+
+      const order = await getOrderById(req.params.id);
+      if (!order) {
+        res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+        return;
+      }
+
+      let kind: HandoverKind | null = null;
+
+      if (role === "customer") {
+        // Ownership first: a customer regenerating someone else's code would
+        // be a denial of service on a stranger's pickup.
+        if (order.user_id !== callerId) {
+          res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+          return;
+        }
+        if (order.pickup_request === 2 && order.status === "awaiting_dropoff") {
+          kind = "dropoff";
+        } else if (
+          order.pickup_request === 1 &&
+          (order.status === "agent_accepted" || order.status === "out_for_pickup")
+        ) {
+          kind = "pickup";
+        }
+      } else if (role === "agent") {
+        // Only the agent holding the parcel, and only once it is in their bag.
+        if (order.agent_id === callerId && order.status === "picked_up") {
+          kind = "hub";
+        }
+      }
+
+      if (!kind) {
+        res.status(409).json({
+          message: "This order has no handover code to refresh right now.",
+          code: "NO_HANDOVER_DUE",
+        });
+        return;
+      }
+
+      const code = await issueCode(order.id, kind);
+      if (!code) {
+        res.status(502).json({
+          message: "Could not generate a new code. Try again.",
+          code: "CODE_ISSUE_FAILED",
+        });
+        return;
+      }
+
+      // Logged so a string of regenerations before a disputed handover is
+      // visible afterwards, rather than being invisible in the order's history.
+      void insertOrderEvent({
+        order_id: order.id,
+        status: order.status,
+        note: `New ${kind} handover code issued`,
+        actor_user_id: callerId,
+        metadata: { action: "regenerate_handover_code", handover: kind, role },
+      });
+
+      res.json({ handover: { kind, code, locked: false } });
+    }
+  );
+
   // ── GET /api/orders/cancellations — the customer's cancellation screen ───
   //
   // MUST stay above `/api/orders/:orderNo`: Express matches in registration
@@ -2333,9 +2617,30 @@ export async function registerRoutes(
       return;
     }
 
-    const [rawEvents, payments] = await Promise.all([
+    /**
+     * The customer's handover code, and only the customer's.
+     *
+     * A pickup order's code is theirs to read to the agent; a drop-off order's
+     * is theirs to read at the hub counter. The `hub` code belongs to the
+     * agent and must never appear here — this endpoint is the customer's.
+     *
+     * Only fetched in the statuses where the handover is actually next. Showing
+     * a code for a parcel already at the hub invites someone to read out a
+     * number that opens nothing.
+     */
+    const handoverKind: HandoverKind | null =
+      order.pickup_request === 2
+        ? order.status === "awaiting_dropoff"
+          ? "dropoff"
+          : null
+        : order.status === "agent_accepted" || order.status === "out_for_pickup"
+          ? "pickup"
+          : null;
+
+    const [rawEvents, payments, handover] = await Promise.all([
       listOrderEvents(order.id),
       listPaymentsByOrderId(order.id),
+      handoverKind ? getCodeForOwner(order.id, handoverKind) : Promise.resolve(null),
     ]);
 
     // The three internal statuses produce no customer-visible change (§2 of
@@ -2412,6 +2717,18 @@ export async function registerRoutes(
       })),
       // Lets the page render its actions without knowing the state machine.
       availableActions: availableActions(order, "customer", { userId }),
+      /**
+       * `kind` is sent even when there is no code, so the page can offer a
+       * regenerate instead of silently showing nothing at the one moment the
+       * customer is standing at the door being asked for a number.
+       */
+      handover: handoverKind
+        ? {
+            kind: handoverKind,
+            code: handover?.code ?? null,
+            locked: handover?.locked ?? false,
+          }
+        : null,
       // Surfaced as its own field rather than leaving the page to dig through
       // `order.metadata` — the customer app has no business parsing an escape
       // hatch that also carries gateway ids and failure blobs.

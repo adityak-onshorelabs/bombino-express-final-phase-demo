@@ -315,6 +315,70 @@ export function CollectStrip({ amount }: { amount: number }) {
 }
 
 /**
+ * The hub handover code, on a job already in the agent's bag.
+ *
+ * Read out at the hub counter for ops to type in. It earns a full-bleed strip
+ * of its own because of where it gets used: a counter, on a bad signal, with
+ * somebody waiting — the number has to be findable without opening the job
+ * sheet, and legible without being read twice.
+ *
+ * NOT amber. On this surface amber means money and nothing else (PRODUCT.md),
+ * and a code that shouted in the same colour as an amount owed would be read as
+ * one. Weight and letter-spacing do the work instead: 22px mono, `0.22em`
+ * tracking, so six digits come apart into six digits rather than a number.
+ *
+ * `code` is null when nothing has been issued — a seeded order, or a write that
+ * failed at pickup. That state gets a generate control rather than a blank,
+ * because a strip that shows `——————` and offers no way forward is the dead end
+ * this is meant to prevent.
+ */
+export function HubCodeStrip({
+  code,
+  onGenerate,
+  pending = false,
+}: {
+  code: string | null;
+  onGenerate?: () => void;
+  pending?: boolean;
+}) {
+  return (
+    <div
+      className="border-t border-[#E2E8F0]! bg-[#F1F5F9] px-4 py-3"
+      data-testid="strip-hub-code"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#1B2A41]">
+          Hub code
+        </span>
+        {code ? (
+          <span
+            className="font-mono text-[22px] font-bold leading-none tracking-[0.22em] text-[#1B2A41] tabular-nums"
+            data-testid="text-hub-code"
+          >
+            {code}
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={onGenerate}
+            disabled={pending || !onGenerate}
+            className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-[#1B2A41] underline underline-offset-4 disabled:opacity-50"
+            data-testid="button-generate-hub-code"
+          >
+            {pending ? 'Getting code' : 'Generate code'}
+          </button>
+        )}
+      </div>
+      <p className="mt-1.5 text-[11px] font-medium leading-[1.35] text-[#64748B]">
+        {code
+          ? 'Read this out at the hub counter. It is what closes this job.'
+          : 'No code on this job yet. Generate one before you reach the hub.'}
+      </p>
+    </div>
+  );
+}
+
+/**
  * A job you are only accounting for: one line of name, one line of mono meta.
  *
  * `meta` is passed in rather than derived, because what matters about a compact

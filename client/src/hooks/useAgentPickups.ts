@@ -24,6 +24,14 @@ export type AgentPickup = Order & { origin_address: PickupAddress | null };
 export interface PickupEntry {
   order: AgentPickup;
   availableActions: AvailableAction[];
+  /**
+   * The agent's own hub handover code, on jobs already in their bag.
+   *
+   * Only ever `hub`. The customer's `pickup` code is what tests this agent at
+   * the door and the server never sends it here — if it appears in this
+   * payload, something has gone badly wrong server-side.
+   */
+  handover?: { kind: 'hub'; code: string | null };
 }
 
 export const AVAILABLE_PICKUPS_KEY = ['/api/agent/pickups/available'] as const;
@@ -101,6 +109,28 @@ export function useCollections(enabled = true) {
     staleTime: 0,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
+  });
+}
+
+/**
+ * Ask the server for a fresh hub code.
+ *
+ * The agent's escape hatch when ops has burned through the attempts on a
+ * misheard number, or when the code failed to write at pickup. The server
+ * decides which kind they are entitled to from the order's state — this sends
+ * no kind, deliberately, so an agent cannot ask for the customer's code.
+ */
+export function useRegenerateHandoverCode() {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ handover: { kind: string; code: string } }, Error, string>({
+    mutationFn: async (orderId) => {
+      const res = await apiRequest('POST', `/api/orders/${orderId}/handover-code`);
+      return (await res.json()) as { handover: { kind: string; code: string } };
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: MY_PICKUPS_KEY });
+    },
   });
 }
 

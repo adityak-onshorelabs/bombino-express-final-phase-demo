@@ -120,6 +120,24 @@ export interface OrderDetailCancellationRequest {
   pending: boolean;
 }
 
+/**
+ * The customer's handover code for this order.
+ *
+ * `pickup` is read out to the agent at the door; `dropoff` is read out at the
+ * hub counter. The agent's own `hub` code never appears here — the customer has
+ * no part in that handover.
+ *
+ * `code` may be null while `kind` is set: the handover is due but no code is on
+ * file, which is the one moment the page must offer to generate one rather than
+ * silently showing nothing.
+ */
+export interface OrderDetailHandover {
+  kind: 'pickup' | 'dropoff';
+  code: string | null;
+  /** Too many wrong attempts. A fresh code is the only way forward. */
+  locked: boolean;
+}
+
 export interface OrderDetailResponse {
   order: OrderDetailOrder;
   customerStatus: string;
@@ -128,6 +146,7 @@ export interface OrderDetailResponse {
   payments: OrderDetailPayment[];
   availableActions: { action: string; label: string; requiresPayload?: boolean }[];
   cancellationRequest: OrderDetailCancellationRequest | null;
+  handover: OrderDetailHandover | null;
   warning?: string;
 }
 

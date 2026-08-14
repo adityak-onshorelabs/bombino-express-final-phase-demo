@@ -64,6 +64,27 @@ function CustomerRouter() {
  * `SurfaceGuard` sits above both and bounces anyone onto their own surface.
  * It is cosmetic — the real enforcement is `requireRole` on the server.
  */
+/**
+ * Toasts, everywhere except the agent app.
+ *
+ * The agent surface is worked one-handed, outdoors, often mid-conversation with
+ * a customer, and a card sliding over the top of the screen there is something
+ * to dismiss rather than something to read. Its screens already say what
+ * happened where the agent is looking: the job's status changes on the card
+ * they just pressed, a rejected handover code appears under the field being
+ * retyped, and a collection receipt holds its own sheet open.
+ *
+ * Not merely hidden — `Toaster` is not mounted at all on `/agent/*`, so a
+ * stray `toast()` call from a shared component costs nothing and shows nothing.
+ * Calls left in the agent code are inert by design; see the note in
+ * `ActiveJobCard`.
+ */
+function SurfaceToaster() {
+  const [location] = useLocation();
+  if (surfaceForPath(location) === 'agent') return null;
+  return <Toaster />;
+}
+
 function Surfaces() {
   const [location] = useLocation();
 
@@ -110,7 +131,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Toaster />
+        <SurfaceToaster />
         <SessionWatch />
         <SurfaceGuard>
           <Surfaces />

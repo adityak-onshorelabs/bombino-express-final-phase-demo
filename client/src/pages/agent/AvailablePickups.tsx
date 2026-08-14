@@ -1,5 +1,4 @@
 import { Loader2 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { AgentShell } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
@@ -59,30 +58,26 @@ function callMeta(entry: PickupEntry, withDate: boolean): string {
 export default function AvailablePickups() {
   const { data: pickups, isLoading, isError, refetch } = useAvailablePickups();
   const action = useOrderAction();
-  const { toast } = useToast();
 
+  /**
+   * Accepting says nothing on success: the job leaves this list and appears in
+   * My jobs, which is a louder answer than any confirmation. The agent surface
+   * carries no toasts at all (see `SurfaceToaster` in App.tsx).
+   *
+   * A failure still has to be said, and is said at the top of the list — a
+   * claim that silently does nothing is the exact failure §5 warns about.
+   */
   const handleAccept = (orderId: string, actionName: string): void => {
-    action.mutate(
-      { orderId, action: actionName },
-      {
-        onSuccess: (result) => {
-          toast({
-            title: 'Pickup accepted',
-            description: `${result.order.order_no} is now in My jobs.`,
-          });
-        },
-        onError: (err) => {
-          // 409 is the expected outcome of a lost race, not a malfunction —
-          // say so plainly rather than showing a generic failure.
-          toast({
-            title: err.status === 409 ? 'Someone got there first' : 'Could not accept',
-            description: err.message,
-            variant: 'destructive',
-          });
-        },
-      },
-    );
+    action.mutate({ orderId, action: actionName });
   };
+
+  // 409 is the expected outcome of a lost race, not a malfunction — say so
+  // plainly rather than showing a generic failure.
+  const failure = action.error
+    ? action.error.status === 409
+      ? 'Someone got there first. This list has been refreshed.'
+      : action.error.message
+    : null;
 
   const bands = groupByDate(pickups ?? []);
   const count = pickups?.length ?? 0;
@@ -94,6 +89,17 @@ export default function AvailablePickups() {
         count === 0 ? 'Nothing unclaimed' : `${count} unclaimed · oldest first`
       }
     >
+      {failure && (
+        <div
+          className="bg-white border border-[#B91C1C]! rounded-[4px] px-4 py-3 mb-4"
+          data-testid="claim-error"
+        >
+          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-[#B91C1C]">
+            {failure}
+          </p>
+        </div>
+      )}
+
       {isLoading && (
         <div className="flex items-center justify-center gap-2 py-16 text-[#64748B]">
           <Loader2 className="w-4 h-4 animate-spin" />

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Check, ChevronUp, ChevronDown } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorMessage } from '@/lib/apiError';
 import { cn } from '@/lib/utils';
@@ -54,7 +53,6 @@ function slotSummary(slots: PickupSlot[]): string {
 
 export default function Schedule() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
 
   const todayDow = dayOfWeekForDate(todayInIst());
   const [openDay, setOpenDay] = useState<number | null>(todayDow);
@@ -90,13 +88,10 @@ export default function Schedule() {
     // No optimistic update: an agent who believes they are rostered when the
     // save failed is exactly the failure this screen exists to prevent.
     onSuccess: () => queryClient.invalidateQueries({ queryKey: AVAILABILITY_KEY }),
-    onError: (err) => {
+    // Reported by the "Not saved" indicator in the header rather than a toast:
+    // the agent surface has none (see `SurfaceToaster` in App.tsx).
+    onError: () => {
       void queryClient.invalidateQueries({ queryKey: AVAILABILITY_KEY });
-      toast({
-        title: 'Not saved',
-        description: parseApiErrorMessage(err, 'Could not save your schedule'),
-        variant: 'destructive',
-      });
     },
   });
 
@@ -124,13 +119,9 @@ export default function Schedule() {
     const source = pattern[dow] ?? [];
     const next: WeekPattern = { ...pattern };
     for (const d of [1, 2, 3, 4, 5]) next[d] = [...source];
+    // No confirmation: five weekday rows change under the agent's thumb, which
+    // is the confirmation.
     save.mutate(next);
-    toast({
-      title: 'Applied to Mon–Fri',
-      description: source.length
-        ? `${slotSummary(source)} on every weekday.`
-        : 'Every weekday is now a day off.',
-    });
   };
 
   return (
@@ -148,6 +139,17 @@ export default function Schedule() {
             data-testid="indicator-saving"
           >
             Saving
+          </span>
+        ) : save.isError ? (
+          // Replaces the toast this surface no longer has. It sits where
+          // "Saved" would, because that is where an agent already looks to
+          // check the roster stuck — and a roster that silently did not save
+          // is what this screen exists to prevent.
+          <span
+            className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#B91C1C] shrink-0"
+            data-testid="indicator-not-saved"
+          >
+            Not saved
           </span>
         ) : data ? (
           <span

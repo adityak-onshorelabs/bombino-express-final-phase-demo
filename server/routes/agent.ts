@@ -28,6 +28,7 @@ import {
   getMyPickups,
   type AgentPickup,
 } from "../agentDb.js";
+import { getCodeForOwner } from "../handoverCodes.js";
 import { availableActions } from "../orderLifecycle.js";
 import { ensureDbUser, requireRole, requireUser } from "../routeGuards.js";
 
@@ -85,7 +86,29 @@ export function registerAgentRoutes(app: Express): void {
         return;
       }
 
-      res.json({ pickups: withActions(pickups, agentId) });
+      /**
+       * The hub handover code, for parcels already in the agent's bag.
+       *
+       * Attached to the list rather than fetched per screen because the agent
+       * reads it out at a counter, often on a bad signal, and the number must
+       * already be on the phone by then.
+       *
+       * Only the `hub` kind. The `pickup` code belongs to the customer and is
+       * what tests this agent at the door — returning it here would hand the
+       * verifier the answer.
+       */
+      const rows = await Promise.all(
+        withActions(pickups, agentId).map(async (row) => {
+          if (row.order.status !== "picked_up") return row;
+          const handover = await getCodeForOwner(row.order.id, "hub");
+          return {
+            ...row,
+            handover: { kind: "hub" as const, code: handover?.code ?? null },
+          };
+        })
+      );
+
+      res.json({ pickups: rows });
     }
   );
 
