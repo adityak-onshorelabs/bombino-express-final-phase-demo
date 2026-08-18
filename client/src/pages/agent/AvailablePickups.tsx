@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { AgentShell } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
 import { PanelAction } from '@/components/agent/ActionButtons';
-import { JobCard, JobEntry } from '@/components/agent/PickupCard';
+import { JobCard, JobEntry, JobRow } from '@/components/agent/PickupCard';
 import { BAND_LABEL, bandForEntry } from '@/lib/agentGrouping';
 import {
   useAvailablePickups,
@@ -14,11 +14,16 @@ import {
 import { todayInIst } from '@shared/pickupSlots';
 
 /**
- * Jobs nobody has taken, in two bands: Late, then Today.
+ * Jobs nobody has taken, in three bands: Late, Today, then Later.
  *
- * Only two. Jobs three days out are not what an agent scans here — they are
- * still reachable from My jobs once taken, and from a direct link. The subtitle
- * counts what renders, never what the endpoint returned, or the number lies.
+ * `Later` is compact rows rather than cards. A job dated for Thursday is not
+ * work an agent picks up now, so it does not deserve a card's worth of screen —
+ * but it has to be *somewhere*, and it was previously nowhere: a pickup booked
+ * for a future date appeared on no agent screen at all until its date arrived,
+ * while the nav badge counted it. A number that disagrees with what renders is
+ * the failure the handoff calls out twice, and this was it.
+ *
+ * The subtitle counts what renders, never what the endpoint returned.
  *
  * Within a band the queue is still oldest-first, so nothing rots at the bottom
  * of the list — the FIFO fairness the server orders by is untouched.
@@ -53,16 +58,20 @@ export default function AvailablePickups() {
       : action.error.message
     : null;
 
-  // Late and today only. Undated jobs ride with today: they have no date to
-  // push them into a band, and they are still work nobody has taken.
+  // Undated jobs ride with today: they have no date to push them into a band,
+  // and they are still work nobody has taken.
   const late: PickupEntry[] = [];
   const now: PickupEntry[] = [];
+  const later: PickupEntry[] = [];
   for (const entry of pickups ?? []) {
     const band = bandForEntry(entry, today);
     if (band === 'overdue') late.push(entry);
-    else if (band === 'today' || band === 'undated') now.push(entry);
+    else if (band === 'scheduled') later.push(entry);
+    else now.push(entry);
   }
-  const shown = late.length + now.length;
+  // Every free job renders somewhere now, so the count is simply all of them —
+  // and it agrees with the nav badge, which counts the same list.
+  const shown = late.length + now.length + later.length;
 
   const bands = [
     { key: 'overdue' as const, entries: late },
@@ -152,6 +161,19 @@ export default function AvailablePickups() {
             </section>
           );
         })}
+
+      {!isLoading && !isError && later.length > 0 && (
+        <section>
+          <BandHeader label={BAND_LABEL.scheduled} band="scheduled" testId="band-later" />
+          <div className="flex flex-col gap-3.5">
+            {later.map((entry) => (
+              <JobCard key={entry.order.id}>
+                <JobRow pickup={entry.order} today={today} />
+              </JobCard>
+            ))}
+          </div>
+        </section>
+      )}
     </AgentShell>
   );
 }
