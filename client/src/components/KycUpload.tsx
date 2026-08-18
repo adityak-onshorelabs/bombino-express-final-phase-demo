@@ -80,7 +80,7 @@ const DOC_TYPES: Record<string, DocConfig> = {
 const DOC_TYPE_KEYS = Object.keys(DOC_TYPES);
 
 const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB — must match kycUpload in server/routes.ts
 
 function StatusPill({ status }: { status: UploadStatus }) {
   const config: Record<UploadStatus, { label: string; className: string }> = {
@@ -289,7 +289,7 @@ export function KycUpload({
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
-      setUploadError('File must be under 5MB.');
+      setUploadError('File must be under 4MB.');
       setUploadStatus('error');
       return;
     }
@@ -500,7 +500,7 @@ export function KycUpload({
         )}
         <div className="flex items-center gap-1 mt-1.5">
           <FileText className="w-3 h-3 text-muted-foreground" />
-          <p className="text-[10px] text-muted-foreground">PDF, JPEG, or PNG · Max 5MB</p>
+          <p className="text-[10px] text-muted-foreground">PDF, JPEG, or PNG · Max 4MB</p>
         </div>
       </div>
     </div>

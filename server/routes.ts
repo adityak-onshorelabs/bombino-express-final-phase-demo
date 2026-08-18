@@ -139,7 +139,12 @@ const ITD_LINK_TIMEOUT_MS = 10_000;
 
 const kycUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  // 4MB, not 5: a serverless request body is capped at 4.5MB on Vercel and the
+  // platform rejects the request before multer ever sees it — which surfaces as
+  // a bare 413 with no JSON body and no way to say why. Staying under the cap
+  // keeps the error ours. Raise this only if the host is a long-lived server,
+  // and change client/src/components/KycUpload.tsx to match.
+  limits: { fileSize: 4 * 1024 * 1024 }, // 4MB
   fileFilter: (_req, file, cb) => {
     const allowed = new Set(["application/pdf", "image/jpeg", "image/png"]);
     if (allowed.has(file.mimetype)) {
