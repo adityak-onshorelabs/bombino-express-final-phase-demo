@@ -26,6 +26,7 @@ if (typeof setDefaultResultOrder === "function") {
 import express, { type Express, type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import { registerRoutes } from "./routes.js";
+import { assertDatabaseUrl, getPgPoolConfig } from "./pgPoolConfig.js";
 import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode.js";
 import { createServer, type Server } from "http";
 
@@ -94,10 +95,64 @@ function makeSessionStoreFailOpen(base: session.Store): session.Store {
   return base;
 }
 
+/**
+ * Sessions in Postgres, using the database the app already has.
+ *
+ * This is the fallback that matters on a serverless host. MemoryStore lives
+ * inside one container and Vercel hands you a different container whenever it
+ * likes, so a user signs in on one and is a stranger to the next — which reads
+ * as "the login page bounced me back". Postgres is already configured, already
+ * holds the data, and needs no second service.
+ *
+ * `createTableIfMissing` writes the `session` table on first boot, so there is
+ * nothing to migrate by hand.
+ *
+ * Returns undefined if there is no usable DATABASE_URL, which leaves
+ * MemoryStore — fine for `npm run dev`, broken on serverless, and the caller
+ * says so.
+ */
+async function buildPgSessionStore(): Promise<session.Store | undefined> {
+  try {
+    assertDatabaseUrl();
+  } catch {
+    return undefined;
+  }
+
+  try {
+    const { default: connectPgSimple } = await import("connect-pg-simple");
+    const { default: pg } = await import("pg");
+
+    const PgStore = connectPgSimple(session);
+    const pool = new pg.Pool(
+      getPgPoolConfig({
+        // A serverless container handles one request at a time and is frozen
+        // between them; a big pool would just hold connections open against
+        // Supabase for nothing.
+        max: 2,
+        idleTimeoutMillis: 10_000,
+      })
+    );
+
+    const store = new PgStore({
+      pool,
+      tableName: "session",
+      createTableIfMissing: true,
+      // Cleaning up expired rows on a serverless boot is wasted work — one
+      // container in ten thousand would run it. Do it in SQL if it ever matters.
+      pruneSessionInterval: false,
+    });
+
+    console.log("[session] using PostgresStore");
+    return makeSessionStoreFailOpen(store as unknown as session.Store);
+  } catch (e) {
+    console.warn("[session] PostgresStore init failed:", e);
+    return undefined;
+  }
+}
+
 async function buildSessionStore(): Promise<session.Store | undefined> {
   if (!process.env.REDIS_URL) {
-    console.log("[session] using MemoryStore (REDIS_URL not set)");
-    return undefined;
+    return buildPgSessionStore();
   }
 
   try {
@@ -106,19 +161,23 @@ async function buildSessionStore(): Promise<session.Store | undefined> {
 
     const ready = await waitForRedisReady(client);
     if (!ready) {
+      // A REDIS_URL that does not answer is the common case on a fresh deploy —
+      // `redis://localhost:6379` copied out of .env.example, pointing at a
+      // machine that is not there. Fall through to Postgres rather than to
+      // MemoryStore, which would silently break every login.
       console.warn(
-        `[session] using MemoryStore (Redis not ready within ${REDIS_READY_WAIT_MS}ms; ` +
-          `isOpen=${client.isOpen}, isReady=${client.isReady})`
+        `[session] Redis not ready within ${REDIS_READY_WAIT_MS}ms ` +
+          `(isOpen=${client.isOpen}, isReady=${client.isReady}) — falling back to Postgres`
       );
-      return undefined;
+      return buildPgSessionStore();
     }
 
     const baseStore = new RedisStore({ client });
     console.log("[session] using RedisStore");
     return makeSessionStoreFailOpen(baseStore);
   } catch (e) {
-    console.warn("[session] using MemoryStore (RedisStore init failed):", e);
-    return undefined;
+    console.warn("[session] RedisStore init failed, falling back to Postgres:", e);
+    return buildPgSessionStore();
   }
 }
 
@@ -193,14 +252,14 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
 
   const sessionStore = await buildSessionStore();
 
-  // No store means MemoryStore, which is per-process. On a long-lived server
-  // that is merely lossy across restarts; on serverless it is broken — every
-  // invocation gets an empty store and the user is signed out at random. Set
-  // REDIS_URL anywhere the process is not permanent.
-  if (!sessionStore && process.env.NODE_ENV === "production") {
+  // Neither Redis nor Postgres: MemoryStore, which is per-process. On a
+  // long-lived server that is merely lossy across restarts; on serverless it is
+  // broken — every invocation gets an empty store and the user is bounced back
+  // to the sign-in page. Reaching here means DATABASE_URL is unusable too.
+  if (!sessionStore) {
     console.warn(
-      "[session] PRODUCTION WITHOUT REDIS — sessions live in this process only. " +
-        "Set REDIS_URL, or logins will not survive a restart or a second instance.",
+      "[session] using MemoryStore — no Redis and no usable DATABASE_URL. " +
+        "Sessions live in this process only; on serverless, logins will not stick.",
     );
   }
 
