@@ -50,6 +50,10 @@ async function fetchPickups(url: string): Promise<PickupEntry[]> {
  *
  * `refetchInterval` keeps the available list moving while it is on screen —
  * jobs appear and get taken by other agents without any action from this one.
+ * Ten seconds, not thirty: a customer booking a pickup and an agent watching
+ * the queue is the demo everyone asks for, and half a minute of nothing reads
+ * as broken. It is one small request against a list the server already has in
+ * hand, and it only runs while the tab is in the foreground.
  */
 export function useAvailablePickups(enabled = true) {
   return useQuery({
@@ -59,7 +63,10 @@ export function useAvailablePickups(enabled = true) {
     staleTime: 0,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
-    refetchInterval: 30_000,
+    refetchInterval: 10_000,
+    // No polling from a backgrounded tab — an agent's phone should not be
+    // waking up for this while it is in their pocket.
+    refetchIntervalInBackground: false,
   });
 }
 

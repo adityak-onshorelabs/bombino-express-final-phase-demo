@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { AgentShell } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
 import { PanelAction } from '@/components/agent/ActionButtons';
-import { JobCard, JobEntry, JobRow } from '@/components/agent/PickupCard';
+import { JobCard, JobEntry } from '@/components/agent/PickupCard';
 import { BAND_LABEL, bandForEntry } from '@/lib/agentGrouping';
 import {
   useAvailablePickups,
@@ -16,14 +16,15 @@ import { todayInIst } from '@shared/pickupSlots';
 /**
  * Jobs nobody has taken, in three bands: Late, Today, then Later.
  *
- * `Later` is compact rows rather than cards. A job dated for Thursday is not
- * work an agent picks up now, so it does not deserve a card's worth of screen —
- * but it has to be *somewhere*, and it was previously nowhere: a pickup booked
- * for a future date appeared on no agent screen at all until its date arrived,
- * while the nav badge counted it. A number that disagrees with what renders is
- * the failure the handoff calls out twice, and this was it.
+ * Every free job is a full card with its own `Take job`, including the ones
+ * dated ahead. This screen is the queue — the one place an agent goes to find
+ * work — so a job that exists and is claimable belongs here in full, and a
+ * booking made a minute ago should be visible a minute later without anyone
+ * refreshing anything. Compact rows were tried for `Later` and read as a
+ * footnote to the screen rather than part of it.
  *
- * The subtitle counts what renders, never what the endpoint returned.
+ * The subtitle counts what renders, never what the endpoint returned — it and
+ * the nav badge both count every free job, so they agree.
  *
  * Within a band the queue is still oldest-first, so nothing rots at the bottom
  * of the list — the FIFO fairness the server orders by is untouched.
@@ -73,9 +74,16 @@ export default function AvailablePickups() {
   // and it agrees with the nav badge, which counts the same list.
   const shown = late.length + now.length + later.length;
 
+  // Within Later the queue is by date rather than by booking order: what an
+  // agent wants to know about a job three days out is which day.
+  later.sort((a, b) =>
+    (a.order.pickup_date ?? '').localeCompare(b.order.pickup_date ?? ''),
+  );
+
   const bands = [
     { key: 'overdue' as const, entries: late },
     { key: 'today' as const, entries: now },
+    { key: 'scheduled' as const, entries: later },
   ].filter((b) => b.entries.length > 0);
 
   return (
@@ -162,18 +170,6 @@ export default function AvailablePickups() {
           );
         })}
 
-      {!isLoading && !isError && later.length > 0 && (
-        <section>
-          <BandHeader label={BAND_LABEL.scheduled} band="scheduled" testId="band-later" />
-          <div className="flex flex-col gap-3.5">
-            {later.map((entry) => (
-              <JobCard key={entry.order.id}>
-                <JobRow pickup={entry.order} today={today} />
-              </JobCard>
-            ))}
-          </div>
-        </section>
-      )}
     </AgentShell>
   );
 }
