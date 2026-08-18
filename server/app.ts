@@ -25,8 +25,8 @@ if (typeof setDefaultResultOrder === "function") {
 }
 import express, { type Express, type Request, Response, NextFunction } from "express";
 import session from "express-session";
-import { registerRoutes } from "./routes";
-import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode";
+import { registerRoutes } from "./routes.js";
+import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode.js";
 import { createServer, type Server } from "http";
 
 

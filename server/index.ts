@@ -8,8 +8,8 @@ if (typeof setDefaultResultOrder === "function") {
   setDefaultResultOrder("ipv4first");
 }
 
-import { createApp, log } from "./app";
-import { serveStatic } from "./static";
+import { createApp, log } from "./app.js";
+import { serveStatic } from "./static.js";
 
 /**
  * The standalone server: one node process that serves the API and the client
@@ -27,7 +27,7 @@ import { serveStatic } from "./static";
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
-    const { setupVite } = await import("./vite");
+    const { setupVite } = await import("./vite.js");
     await setupVite(httpServer, app);
   }
 

@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "http";
-import { createApp } from "../server/app";
+import { createApp } from "../server/app.js";
 
 /**
  * The whole API as one Vercel serverless function.

@@ -110,11 +110,11 @@ import path from "path";
 import crypto from "crypto";
 import multer from "multer";
 import { z } from "zod";
-import { itdClient } from "./itd";
-import type { CreateShipmentPayload, RateParams } from "./itd";
-import { handleChat } from "./supportAgent";
+import { itdClient } from "./itd.js";
+import type { CreateShipmentPayload, RateParams } from "./itd.js";
+import { handleChat } from "./supportAgent.js";
 import { supportChatRateLimit } from "./supportRateLimit.js";
-import type { ChatMessage } from "./supportTypes";
+import type { ChatMessage } from "./supportTypes.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import { lookupPostal } from "./postalLookup.js";
 import {
@@ -131,7 +131,7 @@ import { validateGstin } from "../shared/gstin.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
   SUPPORT_CHAT_MAX_CONTENT_LENGTH,
-} from "./supportTypes";
+} from "./supportTypes.js";
 
 // Matches the refresh path's ceiling (itdTokenRefresh.ts). The legacy
 // POST /api/auth/login has no timeout and can hang on a stalled ITD.
