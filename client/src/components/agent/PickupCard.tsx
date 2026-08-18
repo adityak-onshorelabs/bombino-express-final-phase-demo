@@ -1,59 +1,111 @@
+import type * as React from 'react';
 import { Link } from 'wouter';
-import { ChevronRight } from 'lucide-react';
+import {
+  ChevronRight,
+  Clock,
+  CreditCard,
+  MapPin,
+  Package,
+  CalendarDays,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { slotLabel, todayInIst } from '@shared/pickupSlots';
-import { bandForDate, toneForBand } from '@/lib/agentGrouping';
+import { bandForDate } from '@/lib/agentGrouping';
 import type { AgentPickup } from '@/hooks/useAgentPickups';
 
 /**
  * One job, readable at arm's length in direct sunlight.
  *
- * Two forms, because the agent surface asks two different questions of a job:
+ * The order number is the headline. It leads every card as a full-bleed navy
+ * strip, because it is what the agent says on the phone and what ops asks for —
+ * not the customer's name, which was once the loudest thing here and is useless
+ * on a call.
  *
- *   JobEntry — the job you are deciding about or acting on. Name at 20px,
- *              address, mono meta.
- *   JobRow   — the job you are only accounting for. One line of name, one line
- *              of mono meta, a chevron to the sheet.
+ * Every other fact gets its own row, an icon and a label. A card is never a run
+ * of words: `Place`, `Time`, `Weight`, `Boxes`, `Goes to` each sit on their own
+ * line with the label above the value, so an agent scanning for one fact never
+ * has to read the others. That is the v4 correction — the earlier passes packed
+ * the same facts into one mono meta line and nobody could find anything in it.
  *
- * Neither draws its own border. Both live inside a panel and are separated
- * from their neighbours by a single hairline, because a bordered card inside a
- * bordered panel is a border inside a border.
+ * Three forms:
  *
- * Design commitments, per PRODUCT.md and the docket grammar:
- * - Status is set in size, weight and case — never a coloured chip.
- * - Amber means money and nothing else. If a job shows amber, the agent is
- *   collecting cash at that door.
+ *   JobCard  — the card shell: white, square, one hairline border, late variant.
+ *   JobEntry — the job you are deciding about: number strip, name, fact rows.
+ *   JobRow   — a job dated forward, which needs a date and a chevron, no more.
+ *
+ * Design commitments, per the handoff and PRODUCT.md:
+ * - Status is one short word, set in weight and case — never a coloured chip.
+ * - Amber means money, or the fact the agent needs next (place, time).
  * - Red means late and nothing else, and comes from the job's band.
+ * - No sentence anywhere. If a label needs a verb, it is too long.
+ * - Radius 0 everywhere. Nothing on this surface is soft.
  */
 
-/** Internal status → the short imperative the agent reads. */
-const AGENT_STATUS_LABEL: Record<string, string> = {
-  pickup_requested: 'Unclaimed',
-  agent_accepted: 'Accepted',
-  out_for_pickup: 'On the way',
-  picked_up: 'In your bag',
+/** How many days past its date a job is. Zero when it is not late. */
+function daysLate(pickupDate: string | null, today: string): number {
+  if (!pickupDate || pickupDate >= today) return 0;
+  return Math.round(
+    (new Date(`${today}T00:00:00Z`).getTime() -
+      new Date(`${pickupDate}T00:00:00Z`).getTime()) /
+      86_400_000,
+  );
+}
+
+/** Internal status → the one word that goes on the number strip. */
+const STATUS_WORD: Record<string, string> = {
+  pickup_requested: 'Free',
+  agent_accepted: 'Mine',
+  out_for_pickup: 'Going',
+  picked_up: 'Done',
   received_at_hub: 'At hub',
   cancelled: 'Cancelled',
 };
 
-export function agentStatusLabel(status: string): string {
-  return AGENT_STATUS_LABEL[status] ?? status.replace(/_/g, ' ');
+/**
+ * The status word, from a closed set: Free · Mine · Going · Done · N days late.
+ *
+ * Late outranks everything. A job the agent accepted yesterday and never did is
+ * not "Mine", it is one day late, and that is the only fact about it worth the
+ * one slot the strip gives a status.
+ */
+export function statusWord(pickup: AgentPickup, today = todayInIst()): string {
+  const late = daysLate(pickup.pickup_date, today);
+  if (late > 0) return late === 1 ? '1 day late' : `${late} days late`;
+  return STATUS_WORD[pickup.status] ?? pickup.status.replace(/_/g, ' ');
 }
 
-export function shortAddress(pickup: AgentPickup): string {
-  const a = pickup.origin_address;
-  if (!a) return 'Address unavailable';
-  // Pincode hangs off the city rather than taking a comma of its own — it is
-  // part of the same place, and a third comma makes the line read as a list.
-  const place = [a.city, a.pincode].filter(Boolean).join(' ');
-  return [a.address_line_1, place].filter(Boolean).join(', ');
-}
-
-/** The street line only — the sheet and the compact rows both want it short. */
+/**
+ * The street line — house and area, no pincode.
+ *
+ * The pincode is on the docket and in the map link; on a card it is six digits
+ * the agent never reads, pushing the area onto a second line.
+ */
 export function streetLine(pickup: AgentPickup): string {
   const a = pickup.origin_address;
-  if (!a) return 'Address unavailable';
+  if (!a) return 'No address';
   return [a.address_line_1, a.city].filter(Boolean).join(', ');
+}
+
+/** Just the house, for the `Place` row's first line. */
+export function houseLine(pickup: AgentPickup): string {
+  return pickup.origin_address?.address_line_1 ?? 'No address';
+}
+
+/** Area, city and pincode — the `Place` row's second line. */
+export function areaLine(pickup: AgentPickup): string | null {
+  const a = pickup.origin_address;
+  if (!a) return null;
+  const line = [a.address_line_2, a.city, a.pincode].filter(Boolean).join(', ');
+  return line || null;
+}
+
+/** The whole address, for the one screen that has room: One job. */
+export function fullAddress(pickup: AgentPickup): string {
+  const a = pickup.origin_address;
+  if (!a) return 'No address';
+  return [a.address_line_1, a.address_line_2, a.city, a.state, a.pincode]
+    .filter(Boolean)
+    .join(', ');
 }
 
 /** Every rupee figure on this surface, grouped the Indian way. */
@@ -61,33 +113,44 @@ export function money(amount: number): string {
   return amount.toLocaleString('en-IN');
 }
 
-/** `12 AUG` — mono data, so month never renders as a word longer than three. */
+/** `12 Aug` — short enough to sit in front of a window on one line. */
 function shortDate(date: string): string {
-  return new Date(`${date}T00:00:00Z`)
-    .toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
-    .toUpperCase();
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+  });
 }
 
 /**
- * The appointment, as mono data rather than a chip.
+ * The appointment: `10 AM – 12 PM`, or `12 Aug · 10 AM – 12 PM` with the date.
  *
- * It was a coloured chip; the colour law leaves colour to money and to late, so
- * the window earns its emphasis from weight and from being first in the meta
- * row instead.
+ * Sentence case, not mono caps. The whole surface reads as plain sans now, and
+ * a window shouted in capitals was the kind of formality the brief cut.
  */
 export function windowLabel(pickup: AgentPickup, withDate = false): string {
-  // `9 – 11 AM` → `9–11 AM`. The shared label is set for prose; mono data wants
-  // the range closed up so the whole window reads as one token.
-  const slot = pickup.pickup_slot
-    ? slotLabel(pickup.pickup_slot).toUpperCase().replace(/\s*–\s*/g, '–')
-    : null;
+  const slot = pickup.pickup_slot ? slotLabel(pickup.pickup_slot) : null;
   const date = pickup.pickup_date && withDate ? shortDate(pickup.pickup_date) : null;
-  if (!slot && !date) return 'NO WINDOW SET';
+  if (!slot && !date) return 'No time';
   return [date, slot].filter(Boolean).join(' · ');
 }
 
+/**
+ * The `Time` fact, as every screen says it: `Today · 10 AM – 12 PM` when it is
+ * today's, and the date in front of it when it is not.
+ */
+export function timeValue(pickup: AgentPickup, today = todayInIst()): string {
+  const band = bandForDate(pickup.pickup_date, today);
+  if (band === 'today') return `Today · ${windowLabel(pickup)}`;
+  return windowLabel(pickup, true);
+}
+
+/** `12 Aug · 10 AM – 12 PM` — a forward-dated job's calendar line. */
+export function dateValue(pickup: AgentPickup): string {
+  return windowLabel(pickup, true);
+}
+
 export function weightLabel(pickup: AgentPickup): string {
-  return pickup.booked_weight ? `${pickup.booked_weight} KG EST.` : 'NO WEIGHT';
+  return pickup.booked_weight ? `${pickup.booked_weight} kg` : 'No weight';
 }
 
 /**
@@ -96,37 +159,16 @@ export function weightLabel(pickup: AgentPickup): string {
  *
  * The server refuses `start_pickup` before the pickup date (see
  * `pickupDateArrived` in server/orderLifecycle.ts) and simply omits it from
- * `availableActions`. Without this the agent is told "Nothing to do here" on a
- * job they hold and are expecting to work, which reads as a bug.
+ * `availableActions`. Without this the agent is told nothing on a job they hold
+ * and are expecting to work, which reads as a bug.
  *
- * Mirrors the server rule; it does not enforce it. The refusal is server-side
- * and stands whatever this returns.
+ * Mirrors the server rule; it does not enforce it.
  */
 export function notDueYetReason(pickup: AgentPickup): string | null {
   if (pickup.status !== 'agent_accepted') return null;
   if (!pickup.pickup_date) return null;
-
-  const today = todayInIst();
-  if (pickup.pickup_date <= today) return null;
-
-  const days = Math.round(
-    (new Date(`${pickup.pickup_date}T00:00:00Z`).getTime() -
-      new Date(`${today}T00:00:00Z`).getTime()) /
-      86_400_000,
-  );
-  if (days === 1) return 'Starts tomorrow';
-
-  const when = new Date(`${pickup.pickup_date}T00:00:00Z`).toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-  });
-  return `Starts ${when} · in ${days} days`;
-}
-
-/** The same fact as `notDueYetReason`, set as mono data for a compact row. */
-export function notDueYetMeta(pickup: AgentPickup): string | null {
-  const reason = notDueYetReason(pickup);
-  return reason ? reason.toUpperCase() : null;
+  if (pickup.pickup_date <= todayInIst()) return null;
+  return `Starts ${shortDate(pickup.pickup_date)}`;
 }
 
 /** Money the agent must physically collect. Nothing else is their problem. */
@@ -137,160 +179,238 @@ export function amountOwedAtDoor(pickup: AgentPickup): number | null {
 }
 
 /**
- * Where this job's money stands, in the words the agent needs at the door.
+ * The card: white, square, one hairline.
  *
- * Deliberately plain mono text in the meta row, not a coloured chip: amber on
- * this surface means "you are collecting cash" and nothing else, so a green
- * PAID pill would spend the one colour signal the agent relies on.
- *
- * Returns null for the one case the job already answers louder — an unpaid
- * pay-at-pickup job, which carries the amber amount. Saying it twice in two
- * registers is how an agent starts skimming both.
- *
- * The "don't collect" wording is not a permission check. The server refuses
- * `collect_payment` on anything but pay_at_pickup and omits the button
- * entirely; this exists for the customer at the door who offers cash anyway.
+ * Sibling cards in a band sit 14px apart rather than sharing one panel — at
+ * this scale two stacks of facts divided by a single hairline read as one long
+ * job, and the number strip stops looking like a beginning.
  */
-export function paymentNote(pickup: AgentPickup): string | null {
-  const { payment_method: method, payment_status: status } = pickup;
-
-  if (method === 'pay_at_pickup') {
-    return status === 'paid' ? 'Already paid' : null;
-  }
-
-  // Collected at the destination by someone else entirely — never by us.
-  if (method === 'cod') return 'COD · collect nothing';
-
-  if (method === 'pay_now') {
-    if (status === 'paid') return 'Prepaid';
-    if (status === 'partially_paid') return 'Part paid · don’t collect';
-    if (status === 'refund_due') return 'Refund due · don’t collect';
-    return 'Unpaid online · don’t collect';
-  }
-
-  // pay_at_dropoff cannot reach a pickup job — the booking endpoint refuses
-  // the pairing — but if one ever does, say so rather than showing nothing.
-  if (method === 'pay_at_dropoff') return 'Pays at hub · collect nothing';
-
-  return null;
+export function JobCard({
+  late = false,
+  className,
+  children,
+  testId,
+}: {
+  late?: boolean;
+  className?: string;
+  children: React.ReactNode;
+  testId?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        'border',
+        late ? 'bg-[#FEF2F2] border-[#FECACA]!' : 'bg-white border-[#D8DFE7]!',
+        className,
+      )}
+      data-testid={testId}
+    >
+      {children}
+    </div>
+  );
 }
 
 /**
- * The mono meta line under a compact row's name.
+ * The order number, full-bleed, as the first thing on every card.
  *
- * Window first, because it is the appointment. An overdue job leads with LATE
- * and carries its slipped date; everything else carries the payment note only
- * when there is something to say about it.
+ * Navy normally; red when the job is late, and then the status word turns white
+ * rather than amber — amber on this surface means money, and a late job that
+ * shouted in the money colour would be read as one owing cash.
+ *
+ * `compact` is the rail's slightly smaller strip. Nothing else changes.
  */
-export function rowMeta(pickup: AgentPickup, today = todayInIst()): string {
-  const isOverdue = bandForDate(pickup.pickup_date, today) === 'overdue';
-  if (isOverdue) return `LATE · ${windowLabel(pickup, true)}`;
-
-  const note = paymentNote(pickup);
-  const withDate = bandForDate(pickup.pickup_date, today) === 'scheduled';
-  return [windowLabel(pickup, withDate), note?.toUpperCase()].filter(Boolean).join(' · ');
+export function NumberStrip({
+  orderNo,
+  word,
+  late = false,
+  compact = false,
+}: {
+  orderNo: string;
+  word: string;
+  late?: boolean;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        'flex items-center justify-between gap-3',
+        compact ? 'px-3.5 py-[11px]' : 'px-4 py-[13px]',
+        late ? 'bg-[#B91C1C]' : 'bg-[#1B2A41]',
+      )}
+      data-testid={`strip-number-${orderNo}`}
+    >
+      <span
+        className={cn(
+          'font-bold leading-none tracking-[0.02em] text-white',
+          compact ? 'text-[19px]' : 'text-[21px]',
+        )}
+      >
+        {orderNo}
+      </span>
+      <span
+        className={cn(
+          'font-bold uppercase tracking-[0.1em] shrink-0',
+          compact ? 'text-[11px]' : 'text-xs',
+          late ? 'text-white' : 'text-[#F2A123]',
+        )}
+      >
+        {word}
+      </span>
+    </div>
+  );
 }
-
-/** The status eyebrow, which says "late" before it says anything else. */
-export function eyebrowText(pickup: AgentPickup, today = todayInIst()): string {
-  const band = bandForDate(pickup.pickup_date, today);
-  if (band === 'overdue' && pickup.pickup_date) {
-    return `Late · since ${new Date(`${pickup.pickup_date}T00:00:00Z`).toLocaleDateString('en-IN', {
-      day: 'numeric',
-      month: 'short',
-    })}`;
-  }
-  return agentStatusLabel(pickup.status);
-}
-
-/** How a job's owed amount is carried. `strip` means the caller renders it. */
-type AmountForm = 'chip' | 'due' | 'strip' | 'none';
 
 /**
- * A full job entry, filling a panel's width.
+ * One fact, on its own row: an icon, a label, and the value under it.
  *
- * `children` is a full-bleed footer — an action row or an amber money strip —
- * so it cancels the entry's own horizontal padding rather than sitting inside
- * it.
+ * The icon is amber when the fact is what the agent needs next — where to go,
+ * when to be there — and grey when it is reference they will read once, like
+ * weight or the destination. That is the whole rule; there is no third colour.
+ *
+ * `right` is a second short fact sharing the row (weight beside time, boxes
+ * beside weight). Only ever two, only ever when both are short.
+ */
+export function FactRow({
+  icon: Icon,
+  tone = 'grey',
+  label,
+  value,
+  second,
+  right,
+  size = 'card',
+  valueClassName,
+  className,
+}: {
+  icon: typeof MapPin;
+  tone?: 'amber' | 'grey' | 'late';
+  label: string;
+  value: string;
+  /** The address's second line. Lighter and smaller than the value. */
+  second?: string | null;
+  right?: { label: string; value: string };
+  /** `sheet` is One job's roomier scale: 24px icon, 18/20px padding. */
+  size?: 'card' | 'sheet';
+  valueClassName?: string;
+  className?: string;
+}) {
+  const sheet = size === 'sheet';
+  const stroke =
+    tone === 'amber' ? '#F2A123' : tone === 'late' ? '#B91C1C' : '#94A3B8';
+
+  return (
+    <div
+      className={cn(
+        'flex gap-[15px]',
+        second ? 'items-start' : 'items-center',
+        sheet ? 'px-5 py-[18px]' : 'px-4 py-[15px]',
+        className,
+      )}
+      data-testid={`fact-${label.toLowerCase().replace(/\s+/g, '-')}`}
+    >
+      <Icon
+        className={cn('shrink-0', sheet ? 'w-6 h-6' : 'w-[23px] h-[23px]', second && 'mt-0.5')}
+        style={{ color: stroke }}
+        strokeWidth={1.5}
+      />
+
+      <span className="flex-1 min-w-0">
+        <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-[#94A3B8]">
+          {label}
+        </span>
+        <span
+          className={cn(
+            'block text-xl font-bold leading-[1.25] text-[#1B2A41] mt-1.5',
+            valueClassName,
+          )}
+        >
+          {value}
+        </span>
+        {second && (
+          <span className="block text-[17px] font-medium leading-[1.45] text-[#475569] mt-1">
+            {second}
+          </span>
+        )}
+      </span>
+
+      {right && (
+        <span className="shrink-0 text-right">
+          <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-[#94A3B8]">
+            {right.label}
+          </span>
+          <span className="block text-xl font-bold leading-[1.25] text-[#1B2A41] mt-1.5">
+            {right.value}
+          </span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A job you are deciding about or working: number, name, then the facts.
+ *
+ * `children` is a full-bleed footer — an action row or the amber money strip —
+ * so it cancels the entry's own padding rather than sitting inside it.
  */
 export function JobEntry({
   pickup,
-  amount = 'chip',
-  eyebrow,
+  today = todayInIst(),
+  facts = 'shared',
   children,
 }: {
   pickup: AgentPickup;
-  amount?: AmountForm;
-  /** Overrides the status eyebrow, e.g. `Unclaimed · 12 min ago` on Calls. */
-  eyebrow?: string;
+  today?: string;
+  /**
+   * `shared` puts weight on the time row, which is how a job being offered
+   * reads. `split` gives weight its own row — the job in hand has the screen to
+   * itself and every fact gets a line.
+   */
+  facts?: 'shared' | 'split';
   children?: React.ReactNode;
 }) {
-  const owed = amountOwedAtDoor(pickup);
-  const payment = paymentNote(pickup);
-  const band = bandForDate(pickup.pickup_date);
-  const tone = toneForBand(band);
-  const isOverdue = band === 'overdue';
+  const late = bandForDate(pickup.pickup_date, today) === 'overdue';
+  const divider = late ? 'border-[#FECACA]!' : 'border-[#E8EDF2]!';
 
   return (
     <div data-testid={`job-entry-${pickup.order_no}`}>
-      <div className={cn('px-4 pt-3.5', children ? 'pb-3' : 'pb-3.5')}>
-        <div className="flex items-baseline justify-between gap-3">
-          <span
-            className={cn(
-              'font-mono text-[10px] font-bold uppercase tracking-[0.14em]',
-              tone.eyebrow,
-            )}
-          >
-            {eyebrow ?? eyebrowText(pickup)}
-          </span>
-          <span className="font-mono text-[10px] font-medium text-[#64748B] shrink-0">
-            {pickup.order_no}
-          </span>
-        </div>
+      <NumberStrip
+        orderNo={pickup.order_no}
+        word={statusWord(pickup, today)}
+        late={late}
+      />
 
-        <p className="text-xl font-bold tracking-[-0.01em] leading-[1.15] text-[#1B2A41] mt-1.5">
-          {pickup.origin_address?.full_name ?? 'Unknown sender'}
-        </p>
+      <p className="px-4 pt-4 pb-3.5 text-[22px] font-bold leading-[1.2] text-[#1B2A41]">
+        {pickup.origin_address?.full_name ?? 'No name'}
+      </p>
 
-        <p className="text-sm font-medium leading-[1.4] text-[#334155] mt-1">
-          {shortAddress(pickup)}
-        </p>
+      <FactRow
+        icon={MapPin}
+        tone={late ? 'late' : 'amber'}
+        label="Place"
+        value={houseLine(pickup)}
+        second={areaLine(pickup)}
+        valueClassName="text-[19px] leading-[1.3]"
+        className={cn('border-t', divider)}
+      />
 
-        <div className="flex items-center gap-4 mt-2.5">
-          <span
-            className={cn(
-              'font-mono text-[11px]',
-              isOverdue ? 'font-bold text-[#B91C1C]' : 'font-semibold text-[#1B2A41]',
-            )}
-          >
-            {windowLabel(pickup, isOverdue)}
-          </span>
-          <span className="font-mono text-[11px] font-medium text-[#64748B]">
-            {weightLabel(pickup)}
-          </span>
-          {payment && (
-            <span
-              className="font-mono text-[11px] font-medium uppercase text-[#64748B]"
-              data-testid="payment-note"
-            >
-              {payment}
-            </span>
-          )}
-          {owed !== null && amount === 'due' && (
-            <span className="font-mono text-[11px] font-bold text-[#1B2A41]">
-              ₹{money(owed)} DUE
-            </span>
-          )}
-          {owed !== null && amount === 'chip' && (
-            <span
-              className="ml-auto bg-[#F2A123] px-1.5 py-[3px] font-mono text-[11px] font-bold text-[#1B2A41] tabular-nums"
-              data-testid="badge-collect-cash"
-            >
-              ₹{money(owed)}
-            </span>
-          )}
-        </div>
-      </div>
+      <FactRow
+        icon={Clock}
+        tone={late ? 'late' : 'amber'}
+        label="Time"
+        value={timeValue(pickup, today)}
+        valueClassName={late ? 'text-[#B91C1C]' : undefined}
+        right={facts === 'shared' ? { label: 'Weight', value: weightLabel(pickup) } : undefined}
+        className={cn('border-t', divider)}
+      />
+
+      {facts === 'split' && (
+        <FactRow
+          icon={Package}
+          label="Weight"
+          value={weightLabel(pickup)}
+          className={cn('border-t', divider)}
+        />
+      )}
 
       {children}
     </div>
@@ -301,139 +421,71 @@ export function JobEntry({
 export function CollectStrip({ amount }: { amount: number }) {
   return (
     <div
-      className="flex items-center justify-between bg-[#F2A123] px-4 py-2.5"
-      data-testid="strip-collect-cash"
+      className="flex items-center justify-between gap-3 bg-[#F2A123] px-4 py-[15px]"
+      data-testid="strip-take-money"
     >
-      <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#1B2A41]">
-        Collect at door
+      <span className="flex items-center gap-2.5">
+        <CreditCard className="w-[21px] h-[21px] text-[#1B2A41]" strokeWidth={1.5} />
+        <span className="text-[13px] font-bold uppercase tracking-[0.1em] text-[#1B2A41]">
+          Take money
+        </span>
       </span>
-      <span className="font-mono text-lg font-bold leading-none text-[#1B2A41] tabular-nums">
+      <span className="text-[23px] font-bold leading-none text-[#1B2A41]">
         ₹{money(amount)}
       </span>
     </div>
   );
 }
 
-/**
- * The hub handover code, on a job already in the agent's bag.
+/*
+ * There is no HubCodeStrip here any more.
  *
- * Read out at the hub counter for ops to type in. It earns a full-bleed strip
- * of its own because of where it gets used: a counter, on a bad signal, with
- * somebody waiting — the number has to be findable without opening the job
- * sheet, and legible without being read twice.
- *
- * NOT amber. On this surface amber means money and nothing else (PRODUCT.md),
- * and a code that shouted in the same colour as an amount owed would be read as
- * one. Weight and letter-spacing do the work instead: 22px mono, `0.22em`
- * tracking, so six digits come apart into six digits rather than a number.
- *
- * `code` is null when nothing has been issued — a seeded order, or a write that
- * failed at pickup. That state gets a generate control rather than a blank,
- * because a strip that shows `——————` and offers no way forward is the dead end
- * this is meant to prevent.
+ * It displayed the hub code back when ops typed it in. The agent types it now,
+ * read out to them at the counter from the ops console, and this app shows no
+ * handover code anywhere — see `handoverCodes.ts` for why a verifier must never
+ * be able to read the number they are about to enter.
  */
-export function HubCodeStrip({
-  code,
-  onGenerate,
-  pending = false,
-}: {
-  code: string | null;
-  onGenerate?: () => void;
-  pending?: boolean;
-}) {
-  return (
-    <div
-      className="border-t border-[#E2E8F0]! bg-[#F1F5F9] px-4 py-3"
-      data-testid="strip-hub-code"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#1B2A41]">
-          Hub code
-        </span>
-        {code ? (
-          <span
-            className="font-mono text-[22px] font-bold leading-none tracking-[0.22em] text-[#1B2A41] tabular-nums"
-            data-testid="text-hub-code"
-          >
-            {code}
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={onGenerate}
-            disabled={pending || !onGenerate}
-            className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-[#1B2A41] underline underline-offset-4 disabled:opacity-50"
-            data-testid="button-generate-hub-code"
-          >
-            {pending ? 'Getting code' : 'Generate code'}
-          </button>
-        )}
-      </div>
-      <p className="mt-1.5 text-[11px] font-medium leading-[1.35] text-[#64748B]">
-        {code
-          ? 'Read this out at the hub counter. It is what closes this job.'
-          : 'No code on this job yet. Generate one before you reach the hub.'}
-      </p>
-    </div>
-  );
-}
 
 /**
- * A job you are only accounting for: one line of name, one line of mono meta.
+ * A job dated forward: its number, where it is, and the day it starts.
  *
- * `meta` is passed in rather than derived, because what matters about a compact
- * row differs by screen — an unclaimed call shows its window and area, a
- * scheduled job of your own shows how many days off it is.
+ * No status word and no facts beyond those two lines. Nothing about a job three
+ * days out changes what the agent does now, so the row carries only what tells
+ * them whether to plan around it — and a chevron to the sheet if they want more.
  */
-export function JobRow({
-  pickup,
-  meta,
-  address,
-  showAmount = true,
-}: {
-  pickup: AgentPickup;
-  meta: string;
-  /** Second line, above the meta. Omitted where the meta already carries it. */
-  address?: string;
-  showAmount?: boolean;
-}) {
-  const owed = amountOwedAtDoor(pickup);
-  const band = bandForDate(pickup.pickup_date);
-  const tone = toneForBand(band);
-  const isOverdue = band === 'overdue';
+export function JobRow({ pickup, today = todayInIst() }: { pickup: AgentPickup; today?: string }) {
+  const starts = notDueYetReason(pickup);
 
   return (
     <Link
       href={`/agent/pickup/${pickup.id}`}
-      className={cn('flex items-center gap-3 px-4 py-3', tone.row)}
+      className="flex items-center gap-3 p-4"
       data-testid={`job-row-${pickup.order_no}`}
     >
       <span className="flex-1 min-w-0">
-        <span className="block text-base font-bold leading-[1.2] text-[#1B2A41] truncate">
-          {pickup.origin_address?.full_name ?? 'Unknown sender'}
+        <span className="block text-[19px] font-bold tracking-[0.02em] text-[#1B2A41]">
+          {pickup.order_no}
         </span>
-        {address && (
-          <span className="block text-[13px] font-medium text-[#475569] truncate mt-0.5">
-            {address}
+
+        <span className="flex items-center gap-[9px] mt-2.5">
+          <MapPin className="w-[18px] h-[18px] shrink-0 text-[#94A3B8]" strokeWidth={1.5} />
+          <span className="min-w-0 truncate text-base font-semibold text-[#1B2A41]">
+            {streetLine(pickup)}
           </span>
-        )}
-        <span
-          className={cn(
-            'block font-mono text-[10.5px] tracking-[0.06em] mt-1',
-            isOverdue ? 'font-bold' : 'font-semibold',
-            tone.meta,
-          )}
-        >
-          {meta}
+        </span>
+
+        <span className="flex items-center gap-[9px] mt-1.5">
+          <CalendarDays className="w-[18px] h-[18px] shrink-0 text-[#94A3B8]" strokeWidth={1.5} />
+          <span className="min-w-0 truncate text-base font-semibold text-[#475569]">
+            {starts ?? dateValue(pickup)}
+          </span>
         </span>
       </span>
 
-      {showAmount && owed !== null && (
-        <span className="shrink-0 bg-[#F2A123] px-[7px] py-1 font-mono text-xs font-bold text-[#1B2A41] tabular-nums">
-          ₹{money(owed)}
-        </span>
-      )}
-      <ChevronRight className="w-4 h-4 shrink-0 text-[#94A3B8]" strokeWidth={2.5} />
+      <ChevronRight className="w-5 h-5 shrink-0 text-[#94A3B8]" strokeWidth={1.5} />
     </Link>
   );
 }
+
+/** The `Weight` icon, re-exported so screens do not each import it separately. */
+export { Package as WeightIcon };

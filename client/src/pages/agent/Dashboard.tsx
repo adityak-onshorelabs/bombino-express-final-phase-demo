@@ -1,46 +1,52 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
+import { Loader2, ChevronLeft, ChevronRight, MapPin, Clock, Wallet } from 'lucide-react';
 import { Link } from 'wouter';
-import { useQuery } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AgentShell } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
 import { ActiveJobPanel } from '@/components/agent/ActiveJobCard';
-import { JobRow, money, rowMeta, streetLine } from '@/components/agent/PickupCard';
+import { PanelAction } from '@/components/agent/ActionButtons';
+import {
+  JobCard,
+  NumberStrip,
+  houseLine,
+  money,
+  statusWord,
+  timeValue,
+  weightLabel,
+} from '@/components/agent/PickupCard';
 import { bandForDate, isTodaysWork } from '@/lib/agentGrouping';
-import { useAppStore } from '@/lib/store';
 import {
   useAvailablePickups,
   useMyPickups,
   useCollections,
+  useOrderAction,
+  type PickupEntry,
 } from '@/hooks/useAgentPickups';
-import {
-  PICKUP_SLOTS,
-  slotWindowState,
-  todayInIst,
-  dayOfWeekForDate,
-  DAY_NAMES,
-} from '@shared/pickupSlots';
+import { todayInIst } from '@shared/pickupSlots';
 
 /**
- * The agent's home: one dated sheet, ranked.
+ * The agent's home. Three things and nothing else.
  *
- *   WORKING NOW — the job furthest along, the one physically in their hands
- *   NEXT UP     — the rest of today's work, as compact rows
- *   LEDGER      — cash in the bag, windows left in the shift
+ *   NEW JOBS  — free work, as a swipeable rail
+ *   DOING NOW — the job furthest along, the one physically in their hands
+ *   CASH      — one amber bar with what is in the bag
  *
- * The two-pill selector is gone. An agent should not have to choose between
- * "what I'm doing" and "what's available": both are facts about their shift and
- * both belong on the page. The queue itself lives on Calls, which the figure
- * strip links to and the nav badge counts.
+ * The rail leads. What an idle agent opens this screen for is work to take, and
+ * a job they are already holding is one they can also reach from My jobs — so
+ * the free queue gets the first screenful and the job in hand follows it, past
+ * the fold. Long is fine; the screen scrolls.
  *
- * Anything dated forward is deliberately absent. A pickup booked for Thursday
- * is not today's work and appears under Scheduled in My jobs; putting it on the
- * home screen is what made "today" meaningless.
+ * The screen carries no title at all. The date sits in the top bar, and the
+ * two bands name themselves — a heading over them said nothing that was not
+ * already on the screen.
  *
- * The figure strip is a strip of facts, not stat tiles — no boxes, no borders,
- * no charts. PRODUCT.md rules out the analytics register on this surface: the
- * agent needs the next action, and three counts are context for it.
+ * There is no list of the agent's other jobs here. That is My jobs, and its nav
+ * badge counts them — a second list on this screen made two screens of one, and
+ * a job that appeared in both read as two jobs.
+ *
+ * The stats strip is gone too: three figures at the top of a screen are an
+ * analytics register, and an agent needs the next action.
  */
 
 /** Furthest along wins when several jobs are held — that one is in their hands. */
@@ -50,114 +56,206 @@ const PROGRESS_RANK: Record<string, number> = {
   agent_accepted: 1,
 };
 
-/** `9–11`, short enough for a figure label. */
-function compactWindow(startHour: number, endHour: number): string {
-  const h = (n: number): number => n % 12 || 12;
-  return `${h(startHour)}–${h(endHour)}`;
-}
+/** One card plus the gap: the rail moves exactly one job per arrow press. */
+const RAIL_CARD = 286;
+const RAIL_STEP = RAIL_CARD + 12;
 
-/** `Tuesday, 12 Aug` — the screen's title is the date, because the shift is. */
-function dateTitle(today: string): string {
-  const when = new Date(`${today}T00:00:00Z`).toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-  });
-  return `${DAY_NAMES[dayOfWeekForDate(today)]}, ${when}`;
-}
+/**
+ * The free queue as a horizontal rail.
+ *
+ * Cards rather than rows because a job being offered has to show enough to
+ * decide on — where, when, how heavy — and because a rail keeps the whole queue
+ * inside one screenful however long it is.
+ *
+ * Two scrolling traps, both hit in review and both encoded here:
+ *
+ *   - `scroll-snap-type: x mandatory` silently swallows a backward programmatic
+ *     scroll in Chromium, which leaves the Back arrow looking dead while Next
+ *     works. `proximity` does not.
+ *   - Scroll to an absolute clamped target, not a relative offset, or the arrow
+ *     drifts out of step with the cards at the ends of the rail.
+ */
+function NewJobsRail({
+  entries,
+  today,
+  onTake,
+  pendingId,
+  disabled,
+}: {
+  entries: PickupEntry[];
+  today: string;
+  onTake: (orderId: string, action: string) => void;
+  pendingId?: string;
+  disabled: boolean;
+}) {
+  const rail = useRef<HTMLDivElement>(null);
 
-/** One fact in the header strip: figure over label, nothing around it. */
-function Figure({ value, label, href }: { value: string; label: string; href?: string }) {
-  const body = (
-    <>
-      <span className="font-mono text-xl font-bold leading-none text-[#1B2A41] tabular-nums">
-        {value}
-      </span>
-      <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.12em] text-[#64748B]">
-        {label}
-      </span>
-    </>
-  );
-
-  if (href) {
-    return (
-      <Link
-        href={href}
-        className="flex flex-col gap-[3px]"
-        data-testid={`figure-${label.toLowerCase().replace(/\s+/g, '-')}`}
-      >
-        {body}
-      </Link>
-    );
-  }
+  const step = (dir: 1 | -1): void => {
+    const el = rail.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    el.scrollTo({ left: Math.max(0, Math.min(max, el.scrollLeft + dir * RAIL_STEP)) });
+  };
 
   return (
-    <span
-      className="flex flex-col gap-[3px]"
-      data-testid={`figure-${label.toLowerCase().replace(/\s+/g, '-')}`}
-    >
-      {body}
-    </span>
-  );
-}
+    <section data-testid="section-new-jobs">
+      <div className="flex items-center gap-2.5 mb-3">
+        <h2 className="text-xs font-bold uppercase tracking-[0.14em] text-[#64748B] shrink-0">
+          New jobs
+        </h2>
+        {/* The one count on this screen, and it counts the cards beside it. */}
+        {entries.length > 0 && (
+          <span
+            className="bg-[#F2A123] px-[7px] py-[2px] text-xs font-bold leading-[1.4] text-[#1B2A41]"
+            data-testid="count-new-jobs"
+          >
+            {entries.length}
+          </span>
+        )}
 
-/** Mono 9.5 label over a mono 22 figure, in a white panel. Two of these. */
-function LedgerTile({ label, value, href }: { label: string; value: string; href?: string }) {
-  const testId = `tile-${label.toLowerCase().replace(/\s+/g, '-')}`;
-  const className = 'flex-1 bg-white border border-[#E2E8F0]! rounded-[4px] px-3.5 py-3';
-  const body = (
-    <>
-      <p className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-[#64748B]">
-        {label}
-      </p>
-      <p className="font-mono text-[22px] font-bold leading-none text-[#1B2A41] tabular-nums mt-[5px]">
-        {value}
-      </p>
-    </>
-  );
+        {/* Joined pair, so they read as one control rather than two buttons.
+            Hidden when there is nothing to scroll — two dead arrows over an
+            empty band read as a broken screen. */}
+        <span className={cn('flex shrink-0 ml-auto', entries.length === 0 && 'hidden')}>
+          <button
+            type="button"
+            onClick={() => step(-1)}
+            aria-label="Previous job"
+            className="w-10 h-9 grid place-items-center border border-[#CBD5E1]! bg-white active:bg-[#EEF2F6]"
+            data-testid="button-rail-back"
+          >
+            <ChevronLeft className="w-[19px] h-[19px] text-[#1B2A41]" strokeWidth={1.5} />
+          </button>
+          <button
+            type="button"
+            onClick={() => step(1)}
+            aria-label="Next job"
+            className="w-10 h-9 grid place-items-center border border-l-0 border-[#CBD5E1]! bg-white active:bg-[#EEF2F6]"
+            data-testid="button-rail-next"
+          >
+            <ChevronRight className="w-[19px] h-[19px] text-[#1B2A41]" strokeWidth={1.5} />
+          </button>
+        </span>
+      </div>
 
-  return href ? (
-    <Link href={href} className={className} data-testid={testId}>
-      {body}
-    </Link>
-  ) : (
-    <div className={className} data-testid={testId}>
-      {body}
-    </div>
-  );
-}
+      {entries.length === 0 ? (
+        <JobCard testId="empty-new-jobs">
+          <p className="px-4 py-6 text-[17px] font-medium text-[#334155]">
+            No new jobs right now.
+          </p>
+        </JobCard>
+      ) : (
+      <>
+      {/* Bleeds the screen's padding so a card can sit half off the edge — the
+          cut card is what says the rail scrolls.
+          `scroll-pl-5` is not optional: a snap point aligns to the scroll
+          container's padding box, so without it the browser immediately
+          scrolls the 20px of left padding away and the first card sits flush
+          against the edge of the phone. */}
+      <div
+        ref={rail}
+        className="no-scrollbar flex gap-3 overflow-x-auto snap-x scroll-pl-5 -mx-5 px-5"
+        data-testid="rail-new-jobs"
+      >
+        {entries.map((entry) => {
+          const pickup = entry.order;
+          const late = bandForDate(pickup.pickup_date, today) === 'overdue';
+          const take = entry.availableActions.find((a) => a.action === 'claim');
+          const edge = late ? 'border-[#FECACA]!' : 'border-[#E8EDF2]!';
 
-/** Said plainly, once. No illustration, no encouragement (PRODUCT.md). */
-function PanelEmpty({ children }: { children: string }) {
-  return <p className="px-4 py-5 text-sm font-medium text-[#334155]">{children}</p>;
+          return (
+            <JobCard
+              key={pickup.id}
+              late={late}
+              className="shrink-0 snap-start"
+              testId={`rail-card-${pickup.order_no}`}
+            >
+              <div style={{ width: RAIL_CARD - 2 }}>
+                <NumberStrip
+                  orderNo={pickup.order_no}
+                  word={statusWord(pickup, today)}
+                  late={late}
+                  compact
+                />
+
+                <Link
+                  href={`/agent/pickup/${pickup.id}`}
+                  className="block"
+                  data-testid={`link-rail-${pickup.order_no}`}
+                >
+                  <span className="flex items-start gap-[11px] p-3.5">
+                    <MapPin
+                      className={cn(
+                        'w-5 h-5 shrink-0 mt-px',
+                        late ? 'text-[#B91C1C]' : 'text-[#F2A123]',
+                      )}
+                      strokeWidth={1.5}
+                    />
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[17px] font-bold leading-[1.3] text-[#1B2A41] truncate">
+                        {houseLine(pickup)}
+                      </span>
+                      <span className="block text-[15px] font-medium text-[#475569] truncate mt-[3px]">
+                        {pickup.origin_address?.city ?? '—'}
+                      </span>
+                    </span>
+                  </span>
+
+                  <span className={cn('flex items-center gap-[11px] px-3.5 py-3 border-t', edge)}>
+                    <Clock
+                      className={cn(
+                        'w-5 h-5 shrink-0',
+                        late ? 'text-[#B91C1C]' : 'text-[#F2A123]',
+                      )}
+                      strokeWidth={1.5}
+                    />
+                    <span
+                      className={cn(
+                        'text-lg font-bold truncate',
+                        late ? 'text-[#B91C1C]' : 'text-[#1B2A41]',
+                      )}
+                    >
+                      {timeValue(pickup, today)}
+                    </span>
+                    <span className="ml-auto shrink-0 text-base font-semibold text-[#475569]">
+                      {weightLabel(pickup)}
+                    </span>
+                  </span>
+                </Link>
+
+                {take && (
+                  <PanelAction
+                    label="Take job"
+                    height={60}
+                    onClick={() => onTake(pickup.id, take.action)}
+                    pending={pendingId === pickup.id}
+                    disabled={disabled}
+                    className={cn('border-t', edge)}
+                    testId={`button-take-${pickup.order_no}`}
+                  />
+                )}
+              </div>
+            </JobCard>
+          );
+        })}
+      </div>
+      </>
+      )}
+    </section>
+  );
 }
 
 export default function Dashboard() {
   const { data: available, isLoading: loadingAvailable } = useAvailablePickups();
   const { data: mine, isLoading: loadingMine } = useMyPickups();
   const { data: collections } = useCollections();
-  const { user } = useAppStore();
+  const action = useOrderAction();
 
   const today = todayInIst();
-  const todayDow = dayOfWeekForDate(today);
-  const { data: weeklyPattern } = useQuery({
-    queryKey: ['/api/agent/availability'],
-    queryFn: async (): Promise<Record<number, string[]>> => {
-      const res = await fetch('/api/agent/availability', {
-        credentials: 'include',
-        cache: 'no-store',
-      });
-      if (!res.ok) throw new Error('Could not load schedule');
-      const body = (await res.json()) as { availability: Record<number, string[]> };
-      return body.availability ?? {};
-    },
-    staleTime: 0,
-  });
-
-  const todaySlots = weeklyPattern?.[todayDow] ?? [];
   const isLoading = loadingAvailable || loadingMine;
 
   // Today's jobs, and only today's. A held job dated forward is a commitment,
-  // not work, and lives under Scheduled in My jobs.
+  // not work, and lives under Later in My jobs.
   //
   // Furthest along leads, because that is the parcel physically in their hands.
   // Only then does lateness break the tie: two jobs both merely accepted are
@@ -181,149 +279,96 @@ export default function Dashboard() {
       });
   }, [mine, today]);
 
-  const openCalls = available?.length ?? 0;
+  /**
+   * Free jobs live enough to matter today — late first, then today's, then the
+   * undated. Not the whole queue: jobs three days out are what New is for.
+   */
+  const freeJobs = useMemo(() => {
+    const rank: Record<string, number> = { overdue: 0, today: 1, undated: 2, scheduled: 3 };
+    return (available ?? [])
+      .filter((e) => isTodaysWork(e, today))
+      .sort((a, b) => {
+        const byBand =
+          rank[bandForDate(a.order.pickup_date, today)] -
+          rank[bandForDate(b.order.pickup_date, today)];
+        if (byBand !== 0) return byBand;
+        // Both fields sort as plain strings (`YYYY-MM-DD`, `HH:MM-HH:MM`), which
+        // is calendar then clock order.
+        const byDate = (a.order.pickup_date ?? '').localeCompare(b.order.pickup_date ?? '');
+        if (byDate !== 0) return byDate;
+        const bySlot = (a.order.pickup_slot ?? '').localeCompare(b.order.pickup_slot ?? '');
+        if (bySlot !== 0) return bySlot;
+        return new Date(a.order.created_at).getTime() - new Date(b.order.created_at).getTime();
+      });
+  }, [available, today]);
 
   /**
-   * Everything else the agent is on the hook for, held or not.
+   * Taking a job says nothing on success: it leaves the rail and appears under
+   * Doing now, which is a louder answer than any confirmation.
    *
-   * Two sources on purpose:
-   *
-   *   Every job they hold, whatever its date — minus the one leading the screen.
-   *   A pickup accepted for Thursday is not today's work, but it is work they
-   *   have taken, and a home screen that hides it until Thursday morning is a
-   *   home screen an agent cannot plan from. Dated rows carry their date in the
-   *   meta line, so nothing here reads as due now that is not.
-   *
-   *   Unclaimed calls due today or already late. Not the whole queue — an agent
-   *   deciding what to pick up next needs the jobs that are live, and the rest
-   *   is what Calls is for.
-   *
-   * Both kinds link to the same job sheet, which offers Accept on one and the
-   * lifecycle action on the other, so the row does not need to branch.
+   * A failure still has to be said. 409 is the expected outcome of a lost race,
+   * not a malfunction.
    */
-  const nextUp = useMemo(() => {
-    const rank: Record<string, number> = { overdue: 0, today: 1, undated: 2, scheduled: 3 };
-    const leadId = liveJobs[0]?.order.id;
-    return [
-      ...(mine ?? []).filter((e) => e.order.id !== leadId),
-      ...(available ?? []).filter((e) => isTodaysWork(e, today)),
-    ].sort((a, b) => {
-      const byBand =
-        rank[bandForDate(a.order.pickup_date, today)] -
-        rank[bandForDate(b.order.pickup_date, today)];
-      if (byBand !== 0) return byBand;
-      // Inside the scheduled band the date is what separates them; both fields
-      // sort as plain strings (`YYYY-MM-DD`, `HH:MM-HH:MM`), which is calendar
-      // then clock order.
-      const byDate = (a.order.pickup_date ?? '').localeCompare(b.order.pickup_date ?? '');
-      if (byDate !== 0) return byDate;
-      const bySlot = (a.order.pickup_slot ?? '').localeCompare(b.order.pickup_slot ?? '');
-      if (bySlot !== 0) return bySlot;
-      return new Date(a.order.created_at).getTime() - new Date(b.order.created_at).getTime();
-    });
-  }, [liveJobs, mine, available, today]);
-
-  /** "3 more today" is a lie once a Thursday job is in the list. */
-  const nextUpAllToday = nextUp.every(
-    (e) => bandForDate(e.order.pickup_date, today) !== 'scheduled',
-  );
-
-  // The shift's windows, in clock order, with the one running now called out.
-  const windows = useMemo(() => {
-    const ordered = PICKUP_SLOTS.filter((s) => todaySlots.includes(s.value));
-    const states = ordered.map((s) => slotWindowState(s.value, today));
-    const activeIndex = states.indexOf('active');
-    const nextIndex = states.indexOf('upcoming');
-    const shown = activeIndex >= 0 ? activeIndex : nextIndex;
-
-    return {
-      total: ordered.length,
-      left: states.filter((s) => s !== 'past').length,
-      figure: shown >= 0 ? compactWindow(ordered[shown].startHour, ordered[shown].endHour) : '—',
-      label: activeIndex >= 0 ? 'Window now' : shown >= 0 ? 'Window next' : 'No window',
-    };
-  }, [todaySlots, today]);
+  const failure = action.error
+    ? action.error.status === 409
+      ? 'Someone else took it'
+      : action.error.message
+    : null;
 
   return (
-    <AgentShell
-      title={dateTitle(today)}
-      titleRight={
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[#64748B] shrink-0">
-          {user?.fullName ?? 'Pickup agent'}
-        </span>
-      }
-      headerExtra={
-        <div className="flex gap-6">
-          <Figure value={String(liveJobs.length).padStart(2, '0')} label="In hand" />
-          <Figure
-            value={String(openCalls).padStart(2, '0')}
-            label="Open calls"
-            href="/agent/available"
-          />
-          <Figure value={windows.figure} label={windows.label} />
-        </div>
-      }
-    >
+    <AgentShell gap={22}>
       {isLoading ? (
-        <div className="flex items-center justify-center gap-2 py-20 text-[#64748B]">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span className="text-sm font-semibold">Loading…</span>
+        <div className="flex items-center justify-center gap-2.5 py-20 text-[#64748B]">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-[17px] font-semibold">Loading…</span>
         </div>
       ) : (
-        <div className="flex flex-col gap-[18px]">
+        <>
+          {failure && (
+            <p
+              className="bg-white border border-[#B91C1C]! px-4 py-3.5 text-[15px] font-bold text-[#B91C1C]"
+              data-testid="claim-error"
+            >
+              {failure}
+            </p>
+          )}
+
+          <NewJobsRail
+            entries={freeJobs}
+            today={today}
+            onTake={(orderId, actionName) => action.mutate({ orderId, action: actionName })}
+            pendingId={action.isPending ? action.variables?.orderId : undefined}
+            disabled={action.isPending}
+          />
+
           <section>
-            <BandHeader label="Working now" testId="band-working-now" />
+            <BandHeader label="Doing now" testId="band-doing-now" />
             {liveJobs.length > 0 ? (
               <ActiveJobPanel entry={liveJobs[0]} />
             ) : (
-              <div className="bg-white border border-[#E2E8F0]! rounded-[4px]">
-                <PanelEmpty>
-                  {nextUp.length > 0
-                    ? 'Nothing in hand yet. Take one of the jobs below to start.'
-                    : openCalls > 0
-                      ? `Nothing in hand. ${openCalls} call${openCalls === 1 ? '' : 's'} waiting on Calls, none due today.`
-                      : 'Nothing in hand. New calls appear here as customers book them.'}
-                </PanelEmpty>
-              </div>
+              <JobCard>
+                <p className="px-4 py-6 text-[17px] font-medium text-[#334155]">
+                  {freeJobs.length > 0 ? 'Take a job above to start.' : 'No jobs yet.'}
+                </p>
+              </JobCard>
             )}
           </section>
 
-          {nextUp.length > 0 && (
-            <section>
-              <BandHeader
-                label={`Next up · ${nextUp.length} more${nextUpAllToday ? ' today' : ''}`}
-                testId="band-next-up"
-              />
-              <div className="bg-white border border-[#E2E8F0]! rounded-[4px] overflow-hidden">
-                {nextUp.map((entry, i) => (
-                  <div
-                    key={entry.order.id}
-                    className={cn(i < nextUp.length - 1 && 'border-b border-[#E2E8F0]!')}
-                  >
-                    <JobRow
-                      pickup={entry.order}
-                      address={streetLine(entry.order)}
-                      meta={rowMeta(entry.order, today)}
-                    />
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          <div className="flex gap-2.5">
-            <LedgerTile
-              label="Cash in bag"
-              value={`₹${money(collections?.totals.cash ?? 0)}`}
-              href="/agent/collections"
-            />
-            <LedgerTile
-              label="Windows left"
-              value={windows.total > 0 ? `${windows.left} of ${windows.total}` : 'Day off'}
-              href="/agent/schedule"
-            />
+          <div
+            className="flex items-center justify-between gap-3 bg-[#F2A123] p-4"
+            data-testid="bar-cash-with-you"
+          >
+            <span className="flex items-center gap-2.5">
+              <Wallet className="w-[21px] h-[21px] text-[#1B2A41]" strokeWidth={1.5} />
+              <span className="text-[13px] font-bold uppercase tracking-[0.1em] text-[#1B2A41]">
+                Cash with you
+              </span>
+            </span>
+            <span className="text-[25px] font-bold leading-none text-[#1B2A41]">
+              ₹{money(collections?.totals.cash ?? 0)}
+            </span>
           </div>
-        </div>
+        </>
       )}
     </AgentShell>
   );

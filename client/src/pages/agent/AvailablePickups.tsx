@@ -1,67 +1,42 @@
 import { Loader2 } from 'lucide-react';
+import { Link } from 'wouter';
 import { cn } from '@/lib/utils';
 import { AgentShell } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
 import { PanelAction } from '@/components/agent/ActionButtons';
-import {
-  JobEntry,
-  JobRow,
-  amountOwedAtDoor,
-  money,
-  windowLabel,
-} from '@/components/agent/PickupCard';
-import { BAND_LABEL, groupByDate, toneForBand } from '@/lib/agentGrouping';
+import { JobCard, JobEntry } from '@/components/agent/PickupCard';
+import { BAND_LABEL, bandForEntry } from '@/lib/agentGrouping';
 import {
   useAvailablePickups,
   useOrderAction,
   type PickupEntry,
 } from '@/hooks/useAgentPickups';
+import { todayInIst } from '@shared/pickupSlots';
 
 /**
- * Jobs nobody has claimed, banded by when they are due.
+ * Jobs nobody has taken, in two bands: Late, then Today.
  *
- * Flat FIFO order was right for fairness and wrong for reading: an agent
- * scanning for work today had to read the date on every job to find out whether
- * it was even relevant, and a job overdue since yesterday sat wherever the
- * queue happened to put it. Bands answer that before the agent reads a line.
+ * Only two. Jobs three days out are not what an agent scans here — they are
+ * still reachable from My jobs once taken, and from a direct link. The subtitle
+ * counts what renders, never what the endpoint returned, or the number lies.
  *
  * Within a band the queue is still oldest-first, so nothing rots at the bottom
- * of the list — the fairness the FIFO ordering existed for is untouched.
+ * of the list — the FIFO fairness the server orders by is untouched.
  *
- * One Accept button per band, on the job at the top of it. That is the job most
- * likely to be taken, it keeps the one-tap accept a queue needs, and it stops
- * the column turning into a wall of identical 56px buttons — which is what
- * happens when every job carries its own and none of them reads as the next
- * one.
+ * Every job is a full card and every card carries its own `Take job`. The v2
+ * pass put one button per band, on the job at the top, to stop the column
+ * turning into a wall of identical buttons — but at v4's scale each card is
+ * plainly its own object, and an agent who wanted the second job had to open it
+ * to take it. One decision per card, taken where the card is.
  */
-
-/** "just now" / "12 min ago" / "2 hr ago" — how stale this call is. */
-function shortAge(iso: string): string {
-  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
-  if (!Number.isFinite(mins) || mins < 1) return 'just now';
-  if (mins < 60) return `${mins} min ago`;
-  return `${Math.floor(mins / 60)} hr ago`;
-}
-
-/** `4–6 PM · POWAI · ₹2,400 DUE` — enough to decide by, in one mono line. */
-function callMeta(entry: PickupEntry, withDate: boolean): string {
-  const owed = amountOwedAtDoor(entry.order);
-  return [
-    windowLabel(entry.order, withDate),
-    entry.order.origin_address?.city?.toUpperCase(),
-    owed !== null ? `₹${money(owed)} DUE` : 'PREPAID',
-  ]
-    .filter(Boolean)
-    .join(' · ');
-}
-
 export default function AvailablePickups() {
   const { data: pickups, isLoading, isError, refetch } = useAvailablePickups();
   const action = useOrderAction();
+  const today = todayInIst();
 
   /**
-   * Accepting says nothing on success: the job leaves this list and appears in
-   * My jobs, which is a louder answer than any confirmation. The agent surface
+   * Taking a job says nothing on success: it leaves this list and appears in My
+   * jobs, which is a louder answer than any confirmation. The agent surface
    * carries no toasts at all (see `SurfaceToaster` in App.tsx).
    *
    * A failure still has to be said, and is said at the top of the list — a
@@ -71,136 +46,112 @@ export default function AvailablePickups() {
     action.mutate({ orderId, action: actionName });
   };
 
-  // 409 is the expected outcome of a lost race, not a malfunction — say so
-  // plainly rather than showing a generic failure.
+  // 409 is the expected outcome of a lost race, not a malfunction.
   const failure = action.error
     ? action.error.status === 409
-      ? 'Someone got there first. This list has been refreshed.'
+      ? 'Someone else took it'
       : action.error.message
     : null;
 
-  const bands = groupByDate(pickups ?? []);
-  const count = pickups?.length ?? 0;
+  // Late and today only. Undated jobs ride with today: they have no date to
+  // push them into a band, and they are still work nobody has taken.
+  const late: PickupEntry[] = [];
+  const now: PickupEntry[] = [];
+  for (const entry of pickups ?? []) {
+    const band = bandForEntry(entry, today);
+    if (band === 'overdue') late.push(entry);
+    else if (band === 'today' || band === 'undated') now.push(entry);
+  }
+  const shown = late.length + now.length;
+
+  const bands = [
+    { key: 'overdue' as const, entries: late },
+    { key: 'today' as const, entries: now },
+  ].filter((b) => b.entries.length > 0);
 
   return (
-    <AgentShell
-      title="Open calls"
-      subtitle={
-        count === 0 ? 'Nothing unclaimed' : `${count} unclaimed · oldest first`
-      }
-    >
+    <AgentShell title="New jobs" meta={shown === 0 ? 'None free' : `${shown} free`}>
       {failure && (
-        <div
-          className="bg-white border border-[#B91C1C]! rounded-[4px] px-4 py-3 mb-4"
+        <p
+          className="bg-white border border-[#B91C1C]! px-4 py-3.5 text-[15px] font-bold text-[#B91C1C]"
           data-testid="claim-error"
         >
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-[#B91C1C]">
-            {failure}
-          </p>
-        </div>
+          {failure}
+        </p>
       )}
 
       {isLoading && (
-        <div className="flex items-center justify-center gap-2 py-16 text-[#64748B]">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span className="text-sm font-semibold">Loading…</span>
+        <div className="flex items-center justify-center gap-2.5 py-16 text-[#64748B]">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-[17px] font-semibold">Loading…</span>
         </div>
       )}
 
       {isError && (
-        <div className="bg-white border border-[#E2E8F0]! rounded-[4px] px-4 py-5">
-          <p className="text-sm font-medium text-[#334155]">
-            Could not load calls. Check your connection and try again.
-          </p>
+        <JobCard>
+          <p className="px-4 pt-5 text-[17px] font-medium text-[#334155]">Could not load.</p>
           <button
             type="button"
             onClick={() => void refetch()}
-            className="mt-3 h-11 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-[#1B2A41]"
+            className="h-14 px-4 text-[17px] font-bold text-[#1B2A41]"
             data-testid="button-retry-available"
           >
-            Retry
+            Try again
           </button>
-        </div>
+        </JobCard>
       )}
 
-      {!isLoading && !isError && count === 0 && (
-        <div
-          className="bg-white border border-[#E2E8F0]! rounded-[4px] px-4 py-5"
-          data-testid="empty-available"
-        >
-          <p className="text-sm font-medium text-[#334155]">
-            New jobs appear here as customers book them.
-          </p>
-        </div>
+      {!isLoading && !isError && shown === 0 && (
+        <JobCard testId="empty-available">
+          <p className="px-4 py-6 text-[17px] font-medium text-[#334155]">No jobs free now.</p>
+        </JobCard>
       )}
 
-      {!isLoading && !isError && bands.length > 0 && (
-        <div className="flex flex-col gap-4">
-          {bands.map(({ band, entries }) => {
-            const tone = toneForBand(band);
-            const isOverdue = band === 'overdue';
-            // Scheduled work is nobody's next tap: it is read, not claimed on
-            // the spot, so that band is rows only.
-            const lead = band === 'scheduled' ? null : entries[0];
-            const rows = lead ? entries.slice(1) : entries;
-            const accept = lead?.availableActions.find((a) => a.action === 'claim');
+      {!isLoading &&
+        !isError &&
+        bands.map(({ key, entries }) => {
+          const isLate = key === 'overdue';
+          const edge = isLate ? 'border-[#FECACA]!' : 'border-[#D8DFE7]!';
 
-            return (
-              <section key={band}>
-                <BandHeader
-                  label={BAND_LABEL[band]}
-                  count={entries.length}
-                  band={band}
-                  testId={`band-${band}`}
-                />
-                <div className={cn('border rounded-[4px] overflow-hidden', tone.panel)}>
-                  {lead && (
-                    <JobEntry
-                      pickup={lead.order}
-                      amount="due"
-                      eyebrow={
-                        isOverdue ? undefined : `Unclaimed · ${shortAge(lead.order.created_at)}`
-                      }
-                    >
-                      {accept && (
+          return (
+            <section key={key}>
+              <BandHeader label={BAND_LABEL[key]} band={key} testId={`band-${key}`} />
+
+              {/* Separate cards, 14px apart. One panel of hairlined entries read
+                  as a single long job at this scale. */}
+              <div className="flex flex-col gap-3.5">
+                {entries.map((entry) => {
+                  const take = entry.availableActions.find((a) => a.action === 'claim');
+
+                  return (
+                    <JobCard key={entry.order.id} late={isLate}>
+                      {/* The body is a link, the button is not — a button inside
+                          an anchor is invalid markup and an ambiguous tap. */}
+                      <Link
+                        href={`/agent/pickup/${entry.order.id}`}
+                        className="block"
+                        data-testid={`link-job-${entry.order.order_no}`}
+                      >
+                        <JobEntry pickup={entry.order} today={today} />
+                      </Link>
+
+                      {take && (
                         <PanelAction
-                          label="Accept this job"
-                          onClick={() => handleAccept(lead.order.id, accept.action)}
-                          pending={
-                            action.isPending && action.variables?.orderId === lead.order.id
-                          }
+                          label="Take job"
+                          onClick={() => handleAccept(entry.order.id, take.action)}
+                          pending={action.isPending && action.variables?.orderId === entry.order.id}
                           disabled={action.isPending}
-                          className={cn(
-                            'border-t',
-                            isOverdue ? 'border-[#FECACA]!' : 'border-[#E2E8F0]!',
-                          )}
-                          testId={`button-accept-${lead.order.order_no}`}
+                          className={cn('border-t', edge)}
+                          testId={`button-take-${entry.order.order_no}`}
                         />
                       )}
-                    </JobEntry>
-                  )}
-
-                  {rows.map((entry, i) => (
-                    <div
-                      key={entry.order.id}
-                      className={cn(
-                        (lead || i > 0) && 'border-t',
-                        isOverdue ? 'border-[#FECACA]!' : 'border-[#E2E8F0]!',
-                      )}
-                    >
-                      <JobRow
-                        pickup={entry.order}
-                        meta={callMeta(entry, band !== 'today')}
-                        showAmount={false}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </section>
-            );
-          })}
-        </div>
-      )}
+                    </JobCard>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
     </AgentShell>
   );
 }

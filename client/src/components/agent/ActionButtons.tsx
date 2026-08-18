@@ -28,7 +28,10 @@ const MONEY_ACTION = 'collect_payment';
 
 /** Square corners, no radius: buttons on this surface are stamped, not soft. */
 const BUTTON_BASE =
-  'h-14 flex items-center justify-center gap-2 transition-colors duration-150 active:scale-[0.98] disabled:opacity-60';
+  'flex items-center justify-center gap-2.5 transition-colors duration-150 active:scale-[0.98] disabled:opacity-60';
+
+/** The fixed bar's buttons. Cards use 64 — see `PanelAction`. */
+const BAR_HEIGHT = 'h-[60px]';
 
 /**
  * The job sheet's fixed action bar.
@@ -45,6 +48,7 @@ export function ActionBar({
   onAction,
   pendingAction,
   disabled = false,
+  trailing,
 }: {
   actions: AvailableAction[];
   /** Puts the amount in the money button's label, as the design does. */
@@ -53,8 +57,14 @@ export function ActionBar({
   /** Action in flight, so only its own button shows a spinner. */
   pendingAction?: string | null;
   disabled?: boolean;
+  /**
+   * A fixed control that shares the primary row — the `Problem` escape hatch.
+   * Passed in rather than declared here because it is not a lifecycle action
+   * and this component must keep holding no lifecycle knowledge.
+   */
+  trailing?: React.ReactNode;
 }) {
-  if (actions.length === 0) return null;
+  if (actions.length === 0 && !trailing) return null;
 
   const moneyAction = actions.find((a) => a.action === MONEY_ACTION);
   const rest = actions.filter((a) => a.action !== MONEY_ACTION);
@@ -67,34 +77,36 @@ export function ActionBar({
           type="button"
           onClick={() => onAction(moneyAction.action)}
           disabled={disabled || pendingAction === moneyAction.action}
-          className={cn(BUTTON_BASE, 'w-full bg-[#F2A123] text-base font-bold text-[#1B2A41]')}
+          className={cn(BUTTON_BASE, BAR_HEIGHT, 'w-full bg-[#F2A123] text-xl font-bold text-[#1B2A41]')}
           data-testid={`button-action-${moneyAction.action}`}
         >
           {pendingAction === moneyAction.action ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : typeof owed === 'number' ? (
-            `Collect ₹${money(owed)}`
+            `Take ₹${money(owed)}`
           ) : (
             moneyAction.label
           )}
         </button>
       )}
 
-      {primary && (
+      {(primary || trailing) && (
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => onAction(primary.action)}
-            disabled={disabled || pendingAction === primary.action}
-            className={cn(BUTTON_BASE, 'flex-1 bg-[#1B2A41] text-[15px] font-bold text-white')}
-            data-testid={`button-action-${primary.action}`}
-          >
-            {pendingAction === primary.action ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              primary.label
-            )}
-          </button>
+          {primary && (
+            <button
+              type="button"
+              onClick={() => onAction(primary.action)}
+              disabled={disabled || pendingAction === primary.action}
+              className={cn(BUTTON_BASE, BAR_HEIGHT, 'flex-1 bg-[#1B2A41] text-[19px] font-bold text-white')}
+              data-testid={`button-action-${primary.action}`}
+            >
+              {pendingAction === primary.action ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                primary.label
+              )}
+            </button>
+          )}
 
           {secondary.map(({ action, label }) => (
             <button
@@ -104,7 +116,8 @@ export function ActionBar({
               disabled={disabled || pendingAction === action}
               className={cn(
                 BUTTON_BASE,
-                'min-w-[104px] px-3 border border-[#CBD5E1]! bg-white text-[15px] font-semibold text-[#1B2A41]',
+                BAR_HEIGHT,
+                'min-w-[112px] px-3 border border-[#CBD5E1]! bg-white text-[19px] font-semibold text-[#1B2A41]',
               )}
               data-testid={`button-action-${action}`}
             >
@@ -115,6 +128,13 @@ export function ActionBar({
               )}
             </button>
           ))}
+
+          {/* 112px beside a primary, as the design has it. On its own it fills
+              the row instead — a lone 112px button pinned to the left edge
+              reads as a layout fault rather than a deliberate escape hatch. */}
+          {trailing && (
+            <div className={cn(BAR_HEIGHT, primary ? 'w-[112px]' : 'flex-1')}>{trailing}</div>
+          )}
         </div>
       )}
     </>
@@ -135,6 +155,7 @@ export function PanelAction({
   pending = false,
   disabled = false,
   arrow = false,
+  height = 64,
   className,
   testId,
 }: {
@@ -144,6 +165,8 @@ export function PanelAction({
   disabled?: boolean;
   /** The amber arrow, for a lifecycle step rather than a claim. */
   arrow?: boolean;
+  /** 64 in a full card, 60 on a rail card. Nothing else. */
+  height?: 60 | 64;
   className?: string;
   testId?: string;
 }) {
@@ -154,7 +177,8 @@ export function PanelAction({
       disabled={disabled || pending}
       className={cn(
         BUTTON_BASE,
-        'w-full bg-[#1B2A41] text-[15px] font-bold tracking-[0.01em] text-white',
+        'w-full bg-[#1B2A41] text-[19px] font-bold tracking-[0.01em] text-white',
+        height === 60 ? 'h-[60px]' : 'h-16',
         className,
       )}
       data-testid={testId}
@@ -164,7 +188,7 @@ export function PanelAction({
       ) : (
         <>
           {label}
-          {arrow && <ArrowRight className="w-4 h-4 text-[#F2A123]" strokeWidth={2.5} />}
+          {arrow && <ArrowRight className="w-[18px] h-[18px] text-[#F2A123]" strokeWidth={2.5} />}
         </>
       )}
     </button>

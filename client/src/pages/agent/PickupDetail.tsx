@@ -1,105 +1,82 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useRoute } from 'wouter';
-import { Loader2, Phone, Navigation } from 'lucide-react';
+import { Loader2, Phone, Navigation, MapPin, Clock, Package, Globe, CreditCard } from 'lucide-react';
 import { AgentJobSheet } from '@/components/agent/AgentShell';
 import { ActionBar } from '@/components/agent/ActionButtons';
 import { CollectPaymentSheet } from '@/components/agent/CollectPaymentSheet';
 import {
-  agentStatusLabel,
+  FactRow,
   amountOwedAtDoor,
-  eyebrowText,
+  areaLine,
+  houseLine,
   money,
   notDueYetReason,
+  statusWord,
+  timeValue,
   weightLabel,
-  windowLabel,
 } from '@/components/agent/PickupCard';
 import { todayInIst } from '@shared/pickupSlots';
-import { bandForDate } from '@/lib/agentGrouping';
 import { docketItem, type OrderConsignee } from '@/lib/orderDetail';
-import { HandoverOtpSheet } from '@/components/agent/HandoverOtpSheet';
-import {
-  useAvailablePickups,
-  useMyPickups,
-  useOrderAction,
-  useRegenerateHandoverCode,
-} from '@/hooks/useAgentPickups';
+import { HandoverOtpSheet, type HandoverOtpKind } from '@/components/agent/HandoverOtpSheet';
+import { useAvailablePickups, useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';
 import type { AgentPickup } from '@/hooks/useAgentPickups';
-import type { PaymentMethod, PaymentStatus } from '@shared/orderContract';
 
 /**
- * One job, as a single sheet.
+ * One job, as a single white sheet under a navy bar carrying its number.
  *
- * Four stacked bordered cards became one document: the sender appears once, at
- * the top, at the size an agent reads from a doorstep; then the two things they
- * do with a phone; then the docket, which is every field ops would print. The
- * duplication the old screen carried — the card's name and address, then a
- * "Collect from" card repeating both — is gone.
+ * The customer appears once, at the top, at the size an agent reads from a
+ * doorstep; then the two things they do with a phone; then four fields, which
+ * is everything ops would print. Nothing is said twice and nothing is
+ * explained — the labels are one word each.
  *
  * Reads from the two cached lists rather than a per-order endpoint: both are
  * already scoped by the server, and this avoids a second round trip on a phone
  * that may be on bad network.
  *
- * Both lists, not just `mine`: the dashboard and Calls link unclaimed jobs
- * straight here, so a job the agent has not taken yet must resolve too. The
- * buttons come from the server either way, so an unclaimed job simply offers
- * Accept and then carries on down the same sheet once claimed.
+ * Both lists, not just `mine`: Today and New link free jobs straight here, so a
+ * job the agent has not taken yet must resolve too. The buttons come from the
+ * server either way, so a free job simply offers Take job and then carries on
+ * down the same sheet.
  *
- * A consequence worth knowing: when the agent marks `received_at_hub` the
- * server drops the job from `mine`, and it is in neither list. That is the
- * handoff working, not an error — we redirect back.
+ * A consequence worth knowing: when the agent hands over at the hub the server
+ * drops the job from `mine`, and it is in neither list. That is the handoff
+ * working, not an error — but it is also the one moment the agent most needs
+ * telling, so the sheet holds the returned order and reports the close rather
+ * than letting the redirect swallow it. Everything else that vanishes (a
+ * cancellation, a job taken back) still redirects.
  */
 
-const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
-  pay_now: 'PAY NOW',
-  pay_at_pickup: 'PAY AT PICKUP',
-  pay_at_dropoff: 'PAY AT HUB',
-  cod: 'COD',
-};
+/** The office, for the `Problem` button. No endpoint behind it, by design. */
+const OFFICE_PHONE = '+912266400000';
 
-const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
-  pending: 'UNPAID',
-  paid: 'PAID',
-  partially_paid: 'PART PAID',
-  refund_due: 'REFUND DUE',
-  failed: 'FAILED',
-};
+/**
+ * The two actions that need a code, and which handover each one checks.
+ *
+ * Both are the agent typing in a number somebody else is holding — the customer
+ * at the door, the hub at the counter. Neither number is anywhere in this app.
+ */
+const OTP_ACTIONS = {
+  mark_picked_up: 'pickup',
+  mark_received_at_hub: 'hub',
+} as const satisfies Record<string, HandoverOtpKind>;
 
-/** `12 Aug` — for prose, not for the mono docket. */
-function dayMonth(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+type OtpAction = keyof typeof OTP_ACTIONS;
+
+function isOtpAction(action: string): action is OtpAction {
+  return action in OTP_ACTIONS;
 }
 
-/** `ON THE WAY · TODAY` — state, then when it is owed. */
-function sheetEyebrow(pickup: AgentPickup, today: string): string {
-  const band = bandForDate(pickup.pickup_date, today);
-  if (band === 'overdue') return eyebrowText(pickup, today);
-  if (band === 'today') return `${agentStatusLabel(pickup.status)} · today`;
-  if (!pickup.pickup_date) return agentStatusLabel(pickup.status);
-  return `${agentStatusLabel(pickup.status)} · ${dayMonth(`${pickup.pickup_date}T00:00:00Z`)}`;
-}
-
-/** Where the parcel is going, from the booking's consignee blob. */
+/** `Edison, NJ · USA` — where the parcel is going, from the booking. */
 function destination(pickup: AgentPickup): string {
   const c = (pickup.consignee ?? null) as OrderConsignee | null;
   if (!c) return '—';
   const place = [c.city, c.state].filter(Boolean).join(', ');
-  const country = c.country_name ?? c.country_code;
-  return [place, country].filter(Boolean).join(' · ').toUpperCase() || '—';
-}
-
-/** One label/value line of the docket. */
-function DocketRow({ label, value, last = false }: { label: string; value: string; last?: boolean }) {
-  return (
-    <div
-      className={`flex justify-between gap-4 py-[9px] ${last ? '' : 'border-b border-[#EEF2F6]!'}`}
-      data-testid={`docket-${label.toLowerCase().replace(/\s+/g, '-')}`}
-    >
-      <span className="font-mono text-[11px] font-medium uppercase tracking-[0.08em] text-[#64748B]">
-        {label}
-      </span>
-      <span className="font-mono text-[13px] font-semibold text-right text-[#1B2A41]">{value}</span>
-    </div>
-  );
+  // `UNITED STATES` comes back shouting from the booking payload; the agent
+  // surface shouts nothing that is not a label.
+  const country = c.country_name
+    ? c.country_name.replace(/\S+/g, (w) => w[0] + w.slice(1).toLowerCase())
+    : c.country_code;
+  return [place, country].filter(Boolean).join(' · ') || '—';
 }
 
 export default function PickupDetail() {
@@ -108,7 +85,7 @@ export default function PickupDetail() {
   const mine = useMyPickups();
   const available = useAvailablePickups();
   const action = useOrderAction();
-  const regenerate = useRegenerateHandoverCode();
+  const today = todayInIst();
 
   const entry =
     mine.data?.find((p) => p.order.id === params?.id) ??
@@ -120,28 +97,41 @@ export default function PickupDetail() {
   // holds the job is not worth an error screen.
   const isError = (mine.isError || available.isError) && !entry;
 
-  // The job left both queues (handed to ops, or cancelled). Go back rather
-  // than sitting on a screen with nothing on it.
+  // The order as the server returned it from a completed hub handover. Set once
+  // and never cleared: the job has left both lists by then, and this is the only
+  // copy of it the screen has. Declared up here because the redirect below reads
+  // it.
+  const [handedOver, setHandedOver] = useState<AgentPickup | null>(null);
+
+  // The job left both queues (handed over, or cancelled). Go back rather than
+  // sitting on a screen with nothing on it.
   //
-  // Suppressed while either list is in flight: claiming removes the job from
+  // Suppressed while either list is in flight: taking a job removes it from
   // `available` and adds it to `mine`, and if those two refetches land a beat
   // apart there is a moment where neither list has it. Redirecting on that
-  // would throw the agent off the job they just accepted.
+  // would throw the agent off the job they just took.
+  //
+  // Also suppressed once the hub handover lands. The job leaves both lists at
+  // exactly that moment, and that departure is the thing being reported — this
+  // is the one disappearance the agent should be shown rather than moved past.
   const settling = mine.isFetching || available.isFetching;
-  const vanished = !isLoading && !settling && !isError && !entry;
+  const vanished = !isLoading && !settling && !isError && !entry && !handedOver;
   useEffect(() => {
     if (vanished) setLocation('/agent/mine', { replace: true });
   }, [vanished, setLocation]);
 
   // Where "back" goes depends on where the job actually is, not on where the
   // agent happened to tap in from.
-  const isUnclaimed = !!entry && !mine.data?.some((p) => p.order.id === entry.order.id);
-  const backHref = isUnclaimed ? '/agent/available' : '/agent/mine';
-  const backLabel = isUnclaimed ? 'Calls' : 'My jobs';
+  const isFree = !!entry && !mine.data?.some((p) => p.order.id === entry.order.id);
+  const backHref = isFree ? '/agent/available' : '/agent/mine';
+  const backLabel = isFree ? 'New jobs' : 'My jobs';
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [receipt, setReceipt] = useState<{ txnId: string | null; amount: number } | null>(null);
-  const [otpOpen, setOtpOpen] = useState(false);
+  // Which handover the OTP sheet is collecting a code for. Null means closed —
+  // one piece of state rather than an `open` flag beside a `kind`, so the two
+  // cannot disagree about which code the agent is being asked for.
+  const [otpAction, setOtpAction] = useState<OtpAction | null>(null);
   // Anything that failed and is not the handover code, shown above the action
   // bar. This surface has no toasts (see `SurfaceToaster` in App.tsx), so a
   // failure that is not written onto the screen is a failure nobody sees.
@@ -156,9 +146,14 @@ export default function PickupDetail() {
       { orderId: order.id, action: actionName, payload },
       {
         onSuccess: (result) => {
-          if (actionName === 'mark_picked_up') {
-            setOtpOpen(false);
+          if (isOtpAction(actionName)) {
+            setOtpAction(null);
             setOtpError(null);
+          }
+          // The last thing the agent does with this parcel. Hold what came back
+          // so the screen can say so — see `handedOver` above.
+          if (actionName === 'mark_received_at_hub') {
+            setHandedOver(result.order);
           }
           if (result.warning) {
             // The action landed but its history row did not — surfaced rather
@@ -166,43 +161,40 @@ export default function PickupDetail() {
             console.warn('[PickupDetail]', result.warning);
           }
           if (result.receipt) {
-            // Hold the sheet open and flip it to the receipt. A transaction id
-            // the customer may ask to see must not disappear on a timer.
+            // Hold the sheet open and flip it to the amount taken.
             setReceipt(result.receipt);
             return;
           }
-          // Nothing announces success. The sheet re-renders with the new
-          // status in its eyebrow and the next action in its bar, which is the
-          // same fact told where the agent is already looking.
+          // Nothing announces success. The sheet re-renders with the new status
+          // word in its bar and the next action underneath, which is the same
+          // fact told where the agent is already looking.
           setActionError(null);
         },
         onError: (err) => {
           // A rejected code belongs in the sheet, next to the field being
           // retyped — not somewhere the agent has to look away to read.
-          if (actionName === 'mark_picked_up') {
+          if (isOtpAction(actionName)) {
             setOtpError(err.message);
             return;
           }
-          setActionError(
-            err.status === 409 ? 'This job has moved on. Go back and refresh.' : err.message,
-          );
+          setActionError(err.status === 409 ? 'This job moved on' : err.message);
         },
       },
     );
   };
 
-  // Two actions need input before they can fire: money needs an amount and a
-  // mode, pickup needs the customer's code. Both open a sheet. Everything else
-  // is a single decisive tap.
+  // Three actions need input before they can fire: money needs an amount and a
+  // mode, and the two handovers each need the code the other party is holding.
+  // All open a sheet. Everything else is a single decisive tap.
   const handleAction = (actionName: string): void => {
     if (actionName === 'collect_payment') {
       setReceipt(null);
       setSheetOpen(true);
       return;
     }
-    if (actionName === 'mark_picked_up') {
+    if (isOtpAction(actionName)) {
       setOtpError(null);
-      setOtpOpen(true);
+      setOtpAction(actionName);
       return;
     }
     runAction(actionName);
@@ -210,15 +202,6 @@ export default function PickupDetail() {
 
   const owed = order ? amountOwedAtDoor(order) : null;
   const address = order?.origin_address;
-  const fullAddress = [
-    address?.address_line_1,
-    address?.address_line_2,
-    address?.city,
-    address?.state,
-    address?.pincode,
-  ]
-    .filter(Boolean)
-    .join(', ');
   const mapsQuery = [address?.address_line_1, address?.city, address?.pincode]
     .filter(Boolean)
     .join(', ');
@@ -229,13 +212,17 @@ export default function PickupDetail() {
     <AgentJobSheet
       backHref={backHref}
       backLabel={backLabel}
-      orderNo={order?.order_no}
+      orderNo={handedOver?.order_no ?? order?.order_no}
+      statusWord={
+        handedOver ? 'At hub' : order ? statusWord(order, today) : undefined
+      }
       actionBar={
-        order && entry ? (
+        // Nothing is left to press on a parcel that is with the hub.
+        handedOver ? undefined : order && entry ? (
           <>
             {actionError && (
               <p
-                className="px-4 py-2.5 border-b border-[#E2E8F0]! font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-[#B91C1C] bg-white"
+                className="pb-1 text-[15px] font-bold text-[#B91C1C] bg-white"
                 data-testid="action-error"
               >
                 {actionError}
@@ -247,153 +234,157 @@ export default function PickupDetail() {
               pendingAction={action.isPending ? action.variables?.action ?? null : null}
               disabled={action.isPending}
               onAction={handleAction}
+              trailing={
+                <a
+                  href={`tel:${OFFICE_PHONE}`}
+                  className="w-full h-full flex items-center justify-center border border-[#CBD5E1]! bg-white text-[19px] font-semibold text-[#1B2A41]"
+                  data-testid="button-problem"
+                >
+                  Problem
+                </a>
+              }
             />
           </>
         ) : undefined
       }
     >
-      {isLoading && (
-        <div className="flex items-center justify-center gap-2 py-16 text-[#64748B]">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span className="text-sm font-semibold">Loading…</span>
+      {/* The job is closed. Said plainly, once, and it stays said — the lists
+          have already dropped it, so there is nothing behind this to go back
+          to. No tick, no celebration: it is a receipt, not a reward. */}
+      {handedOver && (
+        <div className="px-5 pt-6">
+          <div className="border border-[#D8DFE7]! p-5" data-testid="block-handed-over">
+            <span className="block text-[13px] font-bold uppercase tracking-[0.1em] text-[#64748B]">
+              Given to hub
+            </span>
+            <p className="text-[28px] font-bold leading-none tracking-[0.02em] text-[#1B2A41] mt-3">
+              {handedOver.order_no}
+            </p>
+            <p className="text-[17px] font-medium leading-[1.45] text-[#334155] mt-3">
+              Off your list.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLocation('/agent/mine', { replace: true })}
+            className="mt-5 h-[60px] w-full bg-[#1B2A41] text-xl font-bold text-white"
+            data-testid="button-back-to-jobs"
+          >
+            My jobs
+          </button>
         </div>
       )}
 
-      {isError && (
-        <p className="px-4 py-8 text-sm font-medium text-[#334155]">
-          Could not load this job. Check your connection and try again.
-        </p>
+      {!handedOver && isLoading && (
+        <div className="flex items-center justify-center gap-2.5 py-16 text-[#64748B]">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-[17px] font-semibold">Loading…</span>
+        </div>
       )}
 
-      {order && entry && (
+      {!handedOver && isError && (
+        <p className="px-5 py-8 text-[17px] font-medium text-[#334155]">Could not load.</p>
+      )}
+
+      {!handedOver && order && entry && (
         <>
-          <div className="px-4 pt-[18px] pb-4 border-b border-[#E2E8F0]!">
-            <span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#1B2A41]">
-              {sheetEyebrow(order, todayInIst())}
-            </span>
-            <p className="text-[26px] font-extrabold tracking-[-0.02em] leading-[1.1] text-[#1B2A41] mt-1.5">
-              {address?.full_name ?? 'Unknown sender'}
-            </p>
-            <p className="text-[15px] font-medium leading-[1.45] text-[#334155] mt-1.5">
-              {fullAddress || 'Address unavailable'}
-            </p>
-          </div>
+          <p className="px-5 pt-5 pb-[18px] text-[28px] font-bold tracking-[-0.02em] leading-[1.15] text-[#1B2A41]">
+            {address?.full_name ?? 'No name'}
+          </p>
+
+          {/* One fact per row, labelled and iconed. Amber on what the agent
+              needs next — where, and when — grey on what they read once. */}
+          <FactRow
+            size="sheet"
+            icon={MapPin}
+            tone="amber"
+            label="Place"
+            value={houseLine(order)}
+            second={areaLine(order)}
+            className="border-t border-[#E8EDF2]!"
+          />
+          <FactRow
+            size="sheet"
+            icon={Clock}
+            tone="amber"
+            label="Time"
+            value={timeValue(order, today)}
+            className="border-t border-[#E8EDF2]!"
+          />
+          <FactRow
+            size="sheet"
+            icon={Package}
+            label="Weight"
+            value={weightLabel(order)}
+            right={{ label: 'Boxes', value: String(pieces?.number_of_boxes ?? '—') }}
+            className="border-t border-[#E8EDF2]!"
+          />
+          <FactRow
+            size="sheet"
+            icon={Globe}
+            label="Goes to"
+            value={destination(order)}
+            className="border-t border-[#E8EDF2]!"
+          />
 
           {/* The two things done with a phone, one hairline apart. */}
-          <div className="flex border-b border-[#E2E8F0]!">
+          <div className="flex border-t border-[#E8EDF2]!">
             {address?.phone ? (
               <a
                 href={`tel:${address.phone}`}
-                className="flex-1 h-[60px] flex items-center justify-center gap-2 border-r border-[#E2E8F0]!"
+                className="flex-1 h-[68px] flex items-center justify-center gap-2.5 bg-[#15803D]"
                 data-testid="button-call-sender"
               >
-                <Phone className="w-[18px] h-[18px] text-[#1B2A41]" strokeWidth={2} />
-                <span className="text-[15px] font-semibold text-[#1B2A41]">Call sender</span>
+                <Phone className="w-[21px] h-[21px] text-white" strokeWidth={1.5} />
+                <span className="text-[19px] font-bold text-white">Call</span>
               </a>
             ) : (
               <span
-                className="flex-1 h-[60px] flex items-center justify-center border-r border-[#E2E8F0]! font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-[#94A3B8]"
+                className="flex-1 h-[68px] flex items-center justify-center border-r border-[#E8EDF2]! text-[17px] font-semibold text-[#94A3B8]"
                 data-testid="no-phone"
               >
-                No phone on file
+                No phone
               </span>
             )}
             <a
               href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`}
               target="_blank"
               rel="noreferrer"
-              className="flex-1 h-[60px] flex items-center justify-center gap-2"
+              className="flex-1 h-[68px] flex items-center justify-center gap-2.5 border-l border-[#E8EDF2]!"
               data-testid="button-navigate"
             >
-              <Navigation className="w-[18px] h-[18px] text-[#1B2A41]" strokeWidth={2} />
-              <span className="text-[15px] font-semibold text-[#1B2A41]">Directions</span>
+              <Navigation className="w-[21px] h-[21px] text-[#1B2A41]" strokeWidth={1.5} />
+              <span className="text-[19px] font-semibold text-[#1B2A41]">Map</span>
             </a>
-          </div>
-
-          {/* Every field ops would print, once, in the order they read it. */}
-          <div className="px-4 pt-4 pb-1">
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[#64748B] mb-2.5">
-              The docket
-            </p>
-            <DocketRow label="Window" value={windowLabel(order, true)} />
-            <DocketRow label="Booked weight" value={weightLabel(order)} />
-            <DocketRow label="Pieces" value={pieces?.number_of_boxes ?? '—'} />
-            <DocketRow label="Destination" value={destination(order)} />
-            <DocketRow
-              label="Payment"
-              value={`${PAYMENT_METHOD_LABEL[order.payment_method]} · ${
-                PAYMENT_STATUS_LABEL[order.payment_status]
-              }`}
-              last
-            />
           </div>
 
           {owed !== null && (
             <div
-              className="mx-4 mt-3 mb-4 bg-[#F2A123] px-4 py-3.5 flex items-center justify-between gap-3"
-              data-testid="block-collect-cash"
+              className="mx-5 mt-[18px] mb-5 bg-[#F2A123] p-4 flex items-center justify-between gap-3"
+              data-testid="field-take-money"
             >
-              <span>
-                <span className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#1B2A41]">
-                  Collect at door
-                </span>
-                <span className="block font-mono text-[11px] font-medium text-[#1B2A41]/75 mt-[3px]">
-                  Booked {dayMonth(order.created_at)} · not yet paid
+              <span className="flex items-center gap-2.5">
+                <CreditCard className="w-[21px] h-[21px] text-[#1B2A41]" strokeWidth={1.5} />
+                <span className="text-[13px] font-bold uppercase tracking-[0.1em] text-[#1B2A41]">
+                  Take money
                 </span>
               </span>
-              <span className="font-mono text-[26px] font-bold leading-none text-[#1B2A41] tabular-nums">
+              <span className="text-[28px] font-bold leading-none text-[#1B2A41]">
                 ₹{money(owed)}
               </span>
             </div>
           )}
 
           {/* The server withholds start_pickup until the pickup date and sends
-              no actions, so the bar is empty. Say why — an agent holding a job
-              with no button and no reason reads it as a fault. */}
+              no actions, so the bar is empty. Say when — an agent holding a job
+              with no button and no date reads it as a fault. */}
           {notDueYet && (
-            <div
-              className="mx-4 mt-3 mb-4 border-t border-[#E2E8F0]! pt-3.5"
+            <p
+              className="mx-5 mt-[18px] mb-5 border-t border-[#E8EDF2]! pt-4 text-[17px] font-bold text-[#1B2A41]"
               data-testid="not-due-yet"
             >
-              <p className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-[#1B2A41]">
-                {notDueYet}
-              </p>
-              <p className="text-sm font-medium text-[#334155] mt-1">
-                You can start this pickup on the day.
-              </p>
-            </div>
-          )}
-
-          {/* The agent's own code, for the counter. This is the one handover
-              number the agent is allowed to see — it tests ops, not them. The
-              parcel is in their bag and there is no button left to press: the
-              job moves when ops types this in. */}
-          {order.status === 'picked_up' && (
-            <div
-              className="mx-4 mt-3 mb-4 border-2 border-[#1B2A41] px-4 py-4"
-              data-testid="block-hub-code"
-            >
-              <span className="block font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#1B2A41]">
-                Hand over at the hub
-              </span>
-              <p className="font-mono text-[34px] font-bold leading-none tracking-[0.16em] text-[#1B2A41] tabular-nums mt-2.5">
-                {entry.handover?.code ?? '——————'}
-              </p>
-              <p className="text-[13px] font-medium leading-[1.45] text-[#334155] mt-2.5">
-                {entry.handover?.code
-                  ? 'Read this out at the counter. The job clears from your list once the hub enters it.'
-                  : 'No code yet. Pull to refresh, or ask the counter to complete it for you.'}
-              </p>
-              <button
-                type="button"
-                onClick={() => regenerate.mutate(order.id)}
-                disabled={regenerate.isPending}
-                className="mt-3 h-11 w-full border border-[#CBD5E1]! bg-white text-[14px] font-semibold text-[#1B2A41] disabled:opacity-60"
-                data-testid="button-regenerate-hub-code"
-              >
-                {regenerate.isPending ? 'Getting a new code…' : 'Get a new code'}
-              </button>
-            </div>
+              {notDueYet}
+            </p>
           )}
 
           <CollectPaymentSheet
@@ -408,17 +399,22 @@ export default function PickupDetail() {
             onConfirm={(payload) => runAction('collect_payment', payload)}
           />
 
-          <HandoverOtpSheet
-            open={otpOpen}
-            onOpenChange={(next) => {
-              setOtpOpen(next);
-              if (!next) setOtpError(null);
-            }}
-            pickup={order}
-            isPending={action.isPending}
-            error={otpError}
-            onConfirm={(payload) => runAction('mark_picked_up', payload)}
-          />
+          {otpAction && (
+            <HandoverOtpSheet
+              open
+              onOpenChange={(next) => {
+                if (!next) {
+                  setOtpAction(null);
+                  setOtpError(null);
+                }
+              }}
+              pickup={order}
+              kind={OTP_ACTIONS[otpAction]}
+              isPending={action.isPending}
+              error={otpError}
+              onConfirm={(payload) => runAction(otpAction, payload)}
+            />
+          )}
         </>
       )}
     </AgentJobSheet>

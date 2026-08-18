@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Check, ChevronUp, ChevronDown } from 'lucide-react';
+import { Loader2, Check, ChevronUp, ChevronRight } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
-import { parseApiErrorMessage } from '@/lib/apiError';
 import { cn } from '@/lib/utils';
 import { AgentShell } from '@/components/agent/AgentShell';
+import { JobCard } from '@/components/agent/PickupCard';
 import {
   PICKUP_SLOTS,
-  PICKUP_SLOT_VALUES,
   isPickupSlot,
   DAY_NAMES_SHORT,
   WEEK_ORDER,
@@ -19,18 +18,17 @@ import {
 /**
  * The agent's working week, set once and repeating.
  *
- * One panel, seven rows, one of them open. Collapsed rows still show their
- * windows as mono text, so nothing is hidden — expanding is for editing, not
- * for reading, which is why the whole week fits on one screen without a
- * day-picker strip in front of it.
+ * One card, seven rows, one of them open. A collapsed row shows a count, not
+ * the windows themselves — the count is what tells an agent whether a day needs
+ * their attention, and the windows listed on seven rows are a wall of text
+ * nobody reads.
  *
- * Every edit sends the entire week in one request, so a bulk action is a single
- * write that cannot half-apply.
+ * Every edit sends the entire week in one request, so a save cannot half-apply.
  *
- * `Day off` is not a button. Clearing all the slots is the same act, and the
- * row's own summary already says "Day off" when they are clear — a button that
- * duplicates a gesture is a third way to do the same thing and one more target
- * to mis-tap with gloves on.
+ * `All day` and `Copy Mon–Fri` are gone, and so is `Day off`. Each was a second
+ * way to do something tapping the slots already does, and each was one more
+ * target to mis-tap with gloves on. Clearing every slot is a day off, and the
+ * collapsed row says `Off`.
  *
  * The save state is the one place emerald appears on this surface. It is not a
  * status colour: it marks that a write landed, which is the only reassurance
@@ -44,11 +42,9 @@ const AVAILABILITY_KEY = ['/api/agent/availability'] as const;
 
 type WeekPattern = Record<number, PickupSlot[]>;
 
-/** Windows in clock order, however they came back from the server. */
-function slotSummary(slots: PickupSlot[]): string {
-  return PICKUP_SLOTS.filter((s) => slots.includes(s.value))
-    .map((s) => s.label.replace(/\s*(AM|PM)\s*/gi, '').replace(/\s+/g, ''))
-    .join(' · ');
+/** `9 – 11` — the slot with its meridiem stripped, so two fit on a row. */
+function slotChipLabel(label: string): string {
+  return label.replace(/\s*(AM|PM)\s*/gi, ' ').replace(/\s*–\s*/g, ' – ').trim();
 }
 
 export default function Schedule() {
@@ -88,18 +84,14 @@ export default function Schedule() {
     // No optimistic update: an agent who believes they are rostered when the
     // save failed is exactly the failure this screen exists to prevent.
     onSuccess: () => queryClient.invalidateQueries({ queryKey: AVAILABILITY_KEY }),
-    // Reported by the "Not saved" indicator in the header rather than a toast:
-    // the agent surface has none (see `SurfaceToaster` in App.tsx).
+    // Reported by the indicator beside the title rather than a toast: the agent
+    // surface has none (see `SurfaceToaster` in App.tsx).
     onError: () => {
       void queryClient.invalidateQueries({ queryKey: AVAILABILITY_KEY });
     },
   });
 
   const pattern: WeekPattern = data ?? {};
-  const daysOn = WEEK_ORDER.filter((d) => (pattern[d]?.length ?? 0) > 0).length;
-  // Explicit accumulator type: WEEK_ORDER is a readonly tuple of literals, so
-  // reduce would otherwise infer the accumulator as one of those literals.
-  const totalWindows = WEEK_ORDER.reduce<number>((n, d) => n + (pattern[d]?.length ?? 0), 0);
 
   const toggleSlot = (dow: number, slot: PickupSlot): void => {
     const current = pattern[dow] ?? [];
@@ -109,51 +101,29 @@ export default function Schedule() {
     save.mutate({ ...pattern, [dow]: next });
   };
 
-  const setDay = (dow: number, slots: PickupSlot[]): void => {
-    save.mutate({ ...pattern, [dow]: slots });
-  };
-
-  const copyToWeekdays = (dow: number): void => {
-    // Mon-Fri only. Weekends are a separate decision and copying onto them
-    // silently would be the wrong default.
-    const source = pattern[dow] ?? [];
-    const next: WeekPattern = { ...pattern };
-    for (const d of [1, 2, 3, 4, 5]) next[d] = [...source];
-    // No confirmation: five weekday rows change under the agent's thumb, which
-    // is the confirmation.
-    save.mutate(next);
-  };
-
   return (
     <AgentShell
       title="My week"
-      subtitle={
-        totalWindows === 0
-          ? 'No windows set'
-          : `${totalWindows} window${totalWindows === 1 ? '' : 's'} across ${daysOn} day${daysOn === 1 ? '' : 's'}`
-      }
-      titleRight={
+      sub="Tap the times you can work."
+      gap={16}
+      meta={
         save.isPending ? (
           <span
-            className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[#64748B] shrink-0"
+            className="text-[13px] font-bold uppercase tracking-[0.08em] text-[#64748B] shrink-0"
             data-testid="indicator-saving"
           >
             Saving
           </span>
         ) : save.isError ? (
-          // Replaces the toast this surface no longer has. It sits where
-          // "Saved" would, because that is where an agent already looks to
-          // check the roster stuck — and a roster that silently did not save
-          // is what this screen exists to prevent.
           <span
-            className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-[#B91C1C] shrink-0"
+            className="text-[13px] font-bold uppercase tracking-[0.08em] text-[#B91C1C] shrink-0"
             data-testid="indicator-not-saved"
           >
             Not saved
           </span>
         ) : data ? (
           <span
-            className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[#15803D] shrink-0"
+            className="text-[13px] font-bold uppercase tracking-[0.08em] text-[#15803D] shrink-0"
             data-testid="indicator-saved"
           >
             Saved
@@ -162,145 +132,123 @@ export default function Schedule() {
       }
     >
       {isLoading && (
-        <div className="flex items-center justify-center gap-2 py-20 text-[#64748B]">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span className="text-sm font-semibold">Loading…</span>
+        <div className="flex items-center justify-center gap-2.5 py-20 text-[#64748B]">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span className="text-[17px] font-semibold">Loading…</span>
         </div>
       )}
 
       {isError && (
-        <div className="bg-white border border-[#E2E8F0]! rounded-[4px] px-4 py-5">
-          <p className="text-sm font-medium text-[#334155]">
-            Could not load your schedule. Check your connection and try again.
-          </p>
+        <JobCard>
+          <p className="px-4 pt-5 text-[17px] font-medium text-[#334155]">Could not load.</p>
           <button
             type="button"
             onClick={() => void refetch()}
-            className="mt-3 h-11 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-[#1B2A41]"
+            className="h-14 px-4 text-[17px] font-bold text-[#1B2A41]"
             data-testid="button-retry-schedule"
           >
-            Retry
+            Try again
           </button>
-        </div>
+        </JobCard>
       )}
 
       {data && (
-        <div className="flex flex-col gap-3.5">
-          <div className="bg-white border border-[#E2E8F0]! rounded-[4px] overflow-hidden">
-            {WEEK_ORDER.map((dow, i) => {
-              const slots = pattern[dow] ?? [];
-              const isOpen = openDay === dow;
-              const isToday = dow === todayDow;
-              const off = slots.length === 0;
-              const last = i === WEEK_ORDER.length - 1;
+        <JobCard>
+          {WEEK_ORDER.map((dow, i) => {
+            const slots = pattern[dow] ?? [];
+            const isOpen = openDay === dow;
+            const isToday = dow === todayDow;
+            const off = slots.length === 0;
+            const last = i === WEEK_ORDER.length - 1;
 
-              return (
-                <div
-                  key={dow}
-                  className={cn(
-                    !last && 'border-b border-[#E2E8F0]!',
-                    isOpen && 'bg-[#F8FAFC]',
-                  )}
-                  data-testid={`day-${dow}`}
+            return (
+              <div
+                key={dow}
+                className={cn(
+                  !last && 'border-b border-[#E8EDF2]!',
+                  isOpen && 'bg-[#F6F8FA]',
+                )}
+                data-testid={`day-${dow}`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setOpenDay(isOpen ? null : dow)}
+                  aria-expanded={isOpen}
+                  className="w-full flex items-center gap-3.5 px-4 py-[19px] text-left"
+                  data-testid={`button-day-${dow}`}
                 >
-                  <button
-                    type="button"
-                    onClick={() => setOpenDay(isOpen ? null : dow)}
-                    aria-expanded={isOpen}
-                    className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
-                    data-testid={`button-day-${dow}`}
+                  <span
+                    className={cn(
+                      'w-[52px] shrink-0 text-lg font-bold',
+                      off && !isOpen ? 'text-[#94A3B8]' : 'text-[#1B2A41]',
+                    )}
                   >
+                    {DAY_NAMES_SHORT[dow]}
+                  </span>
+
+                  {isOpen && isToday ? (
+                    <span className="flex-1 text-[13px] font-bold uppercase tracking-[0.1em] text-[#F2A123]">
+                      Today
+                    </span>
+                  ) : isOpen ? (
+                    <span className="flex-1" />
+                  ) : (
                     <span
                       className={cn(
-                        'w-11 shrink-0 font-mono text-xs font-bold uppercase tracking-[0.1em]',
-                        off && !isOpen ? 'text-[#94A3B8]' : 'text-[#1B2A41]',
+                        'flex-1 min-w-0 truncate text-[17px] font-medium',
+                        off ? 'text-[#94A3B8]' : 'text-[#475569]',
                       )}
                     >
-                      {DAY_NAMES_SHORT[dow]}
+                      {off ? 'Off' : `${slots.length} ${slots.length === 1 ? 'time' : 'times'}`}
                     </span>
-
-                    {isOpen ? (
-                      <span className="flex-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-[#F2A123]">
-                        {isToday ? 'Today · editing' : 'Editing'}
-                      </span>
-                    ) : (
-                      <span
-                        className={cn(
-                          'flex-1 min-w-0 truncate font-mono text-xs font-medium',
-                          off ? 'text-[#94A3B8]' : 'text-[#475569]',
-                        )}
-                      >
-                        {off ? 'Day off' : slotSummary(slots)}
-                      </span>
-                    )}
-
-                    {isOpen ? (
-                      <ChevronUp className="w-4 h-4 shrink-0 text-[#1B2A41]" strokeWidth={2.5} />
-                    ) : (
-                      <ChevronDown className="w-4 h-4 shrink-0 text-[#94A3B8]" strokeWidth={2.5} />
-                    )}
-                  </button>
-
-                  {isOpen && (
-                    <div className="grid grid-cols-2 gap-2 px-4 pb-3.5">
-                      {PICKUP_SLOTS.map((slot) => {
-                        const on = slots.includes(slot.value);
-                        return (
-                          <button
-                            key={slot.value}
-                            type="button"
-                            disabled={save.isPending}
-                            onClick={() => toggleSlot(dow, slot.value)}
-                            aria-pressed={on}
-                            className={cn(
-                              'h-[52px] flex items-center justify-center gap-[7px] font-mono text-[13px] font-semibold',
-                              'transition-colors duration-150 active:scale-[0.98] disabled:opacity-60',
-                              on
-                                ? 'bg-[#1B2A41] text-white'
-                                : 'bg-white border border-[#CBD5E1]! text-[#1B2A41]',
-                            )}
-                            data-testid={`button-slot-${dow}-${slot.value}`}
-                          >
-                            {on && (
-                              <Check
-                                className="w-[15px] h-[15px] shrink-0 text-[#F2A123]"
-                                strokeWidth={3}
-                              />
-                            )}
-                            {slot.label.replace(/\s*–\s*/g, '–')}
-                          </button>
-                        );
-                      })}
-
-                      <button
-                        type="button"
-                        disabled={save.isPending}
-                        onClick={() => setDay(dow, [...PICKUP_SLOT_VALUES])}
-                        className="h-11 bg-white border border-[#E2E8F0]! font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-[#1B2A41] active:scale-[0.98] transition-transform disabled:opacity-60"
-                        data-testid={`button-all-day-${dow}`}
-                      >
-                        All day
-                      </button>
-                      <button
-                        type="button"
-                        disabled={save.isPending}
-                        onClick={() => copyToWeekdays(dow)}
-                        className="h-11 bg-white border border-[#E2E8F0]! font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-[#1B2A41] active:scale-[0.98] transition-transform disabled:opacity-60"
-                        data-testid={`button-copy-${dow}`}
-                      >
-                        Copy Mon–Fri
-                      </button>
-                    </div>
                   )}
-                </div>
-              );
-            })}
-          </div>
 
-          <p className="text-[13.5px] font-medium leading-[1.5] text-[#475569]">
-            Customers can only book a window you work. Changes save as you tap.
-          </p>
-        </div>
+                  {isOpen ? (
+                    <ChevronUp className="w-5 h-5 shrink-0 text-[#1B2A41]" strokeWidth={1.5} />
+                  ) : (
+                    <ChevronRight
+                      className={cn('w-5 h-5 shrink-0', off ? 'text-[#CBD5E1]' : 'text-[#94A3B8]')}
+                      strokeWidth={1.5}
+                    />
+                  )}
+                </button>
+
+                {isOpen && (
+                  <div className="grid grid-cols-2 gap-2.5 px-4 pb-[18px]">
+                    {PICKUP_SLOTS.map((slot) => {
+                      const on = slots.includes(slot.value);
+                      return (
+                        <button
+                          key={slot.value}
+                          type="button"
+                          disabled={save.isPending}
+                          onClick={() => toggleSlot(dow, slot.value)}
+                          aria-pressed={on}
+                          className={cn(
+                            'h-[62px] flex items-center justify-center gap-[9px] text-[19px]',
+                            'transition-colors duration-150 active:scale-[0.98] disabled:opacity-60',
+                            on
+                              ? 'bg-[#1B2A41] font-bold text-white'
+                              : 'bg-white border border-[#CBD5E1]! font-semibold text-[#1B2A41]',
+                          )}
+                          data-testid={`button-slot-${dow}-${slot.value}`}
+                        >
+                          {on && (
+                            <Check
+                              className="w-[17px] h-[17px] shrink-0 text-[#F2A123]"
+                              strokeWidth={2}
+                            />
+                          )}
+                          {slotChipLabel(slot.label)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </JobCard>
       )}
     </AgentShell>
   );

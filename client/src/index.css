@@ -32,8 +32,8 @@
   --radius: 0.75rem;
   /* BottomNav: h-16 row + safe-area inset (see .pb-nav, ShipmentDetails strip offset). */
   --nav-stack: calc(4rem + env(safe-area-inset-bottom, 0px));
-  /* AgentNav is its own bar at 66px, not the 64px customer one (see .pb-agent-nav). */
-  --agent-nav-stack: calc(66px + env(safe-area-inset-bottom, 0px));
+  /* AgentNav is its own bar at 70px, not the 64px customer one (see .pb-agent-nav). */
+  --agent-nav-stack: calc(70px + env(safe-area-inset-bottom, 0px));
 
   /* Placeholder ink.
    *
@@ -158,6 +158,32 @@ textarea::placeholder {
 /* Scroll clearance above the agent bar. */
 .pb-agent-nav {
   padding-bottom: var(--agent-nav-stack);
+}
+
+/* The agent surface's typeface.
+ *
+ * Poppins and Geist Mono are dropped here and here only — the agent found them
+ * "weird" and asked for something generic, and the mono figures bought nothing
+ * an agent reads. The customer app keeps Poppins, so this is scoped to the
+ * agent roots (AgentShell, AgentJobSheet, and the sheets, which portal out of
+ * them).
+ *
+ * `tabular-nums` stays: amounts, times and order numbers have to align down a
+ * column whatever face they are set in. */
+.agent-surface {
+  font-family: system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Horizontal rails (the agent home's New jobs) scroll by swipe and by their own
+   arrow buttons; a scrollbar under them is noise on a touch surface. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 /* The agent job sheet's fixed action bar sits directly on top of the nav. */

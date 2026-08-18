@@ -23,84 +23,31 @@ import type { PickupEntry } from '@/hooks/useAgentPickups';
 
 export type DateBand = 'overdue' | 'today' | 'scheduled' | 'undated';
 
-/** Render order. Most urgent first; undated last because it is an anomaly. */
-export const DATE_BANDS: readonly DateBand[] = ['overdue', 'today', 'scheduled', 'undated'];
-
-export const BAND_LABEL: Record<DateBand, string> = {
-  overdue: 'Overdue',
-  today: 'Today',
-  scheduled: 'Scheduled',
-  undated: 'No date set',
-};
-
 /**
- * Colour by urgency, under the agent surface's colour law.
- *
- * Three meanings and no more: amber is money, navy is a state change the agent
- * commits, red on `#FEF2F2` is late. Everything else is grey. So the only band
- * that carries a hue is overdue — a promise already broken, and red already
- * means "wrong" everywhere else in the app.
- *
- * Today and Scheduled are separated by the weight of their band head and by
- * position, never by a border colour or a fill. A coloured border on a job due
- * today would spend a signal the agent needs for cash.
- *
- * Contrast: `#B91C1C` on `#FEF2F2` clears 7:1 and `#1B2A41` on white clears
- * 13:1 — both hold up in the direct sunlight PRODUCT.md assumes.
+ * One or two short words, per the v2 vocabulary. "Overdue" and "Scheduled" were
+ * the two longest words on the surface and neither is how an agent says it.
  */
-export interface BandTone {
-  /** Panel fill + hairline for a band that owns its own panel. */
-  panel: string;
-  /** Compact row fill inside a shared panel. */
-  row: string;
-  /** The status eyebrow above a job's name. */
-  eyebrow: string;
-  /** The mono meta line under a job's name. */
-  meta: string;
-  /** The band head label. */
-  head: string;
-  /** The hairline that fills the rest of the band head row. */
-  rule: string;
-}
-
-const BAND_TONE: Record<DateBand, BandTone> = {
-  overdue: {
-    panel: 'bg-[#FEF2F2] border-[#FECACA]!',
-    row: 'bg-[#FEF2F2]',
-    eyebrow: 'text-[#B91C1C]',
-    meta: 'text-[#B91C1C]',
-    head: 'text-[#B91C1C]',
-    rule: 'bg-[#FECACA]',
-  },
-  today: {
-    panel: 'bg-white border-[#E2E8F0]!',
-    row: 'bg-white',
-    eyebrow: 'text-[#1B2A41]',
-    meta: 'text-[#64748B]',
-    head: 'text-[#1B2A41]',
-    rule: 'bg-[#CBD5E1]',
-  },
-  scheduled: {
-    panel: 'bg-white border-[#E2E8F0]!',
-    row: 'bg-white',
-    eyebrow: 'text-[#64748B]',
-    meta: 'text-[#64748B]',
-    head: 'text-[#64748B]',
-    rule: 'bg-[#E2E8F0]',
-  },
-  undated: {
-    panel: 'bg-white border-[#E2E8F0]!',
-    row: 'bg-white',
-    eyebrow: 'text-[#64748B]',
-    meta: 'text-[#64748B]',
-    head: 'text-[#64748B]',
-    rule: 'bg-[#E2E8F0]',
-  },
+export const BAND_LABEL: Record<DateBand, string> = {
+  overdue: 'Late',
+  today: 'Today',
+  scheduled: 'Later',
+  undated: 'No date',
 };
 
-export function toneForBand(band: DateBand): BandTone {
-  return BAND_TONE[band];
-}
+/*
+ * The BAND_TONE table that used to live here is gone.
+ *
+ * It handed each band a panel fill, a row fill, an eyebrow, a meta and a rule
+ * colour, from back when a band was one panel of hairlined rows and the band
+ * head carried a hairline of its own. In v4 a job is a card that owns its own
+ * border, and there is exactly one thing a band still changes: whether it is
+ * late. `bandForDate(...) === 'overdue'` is that whole rule, read directly by
+ * the cards, and a lookup table for one boolean was five ways to get it wrong.
+ *
+ * The colour law itself has not moved: amber is money and the agent's next
+ * concern, navy is a state change they commit, `#B91C1C` on `#FEF2F2` is late,
+ * and everything else is grey.
+ */
 
 export function bandForDate(pickupDate: string | null, today = todayInIst()): DateBand {
   if (!pickupDate) return 'undated';
@@ -113,43 +60,13 @@ export function bandForEntry(entry: PickupEntry, today = todayInIst()): DateBand
   return bandForDate(entry.order.pickup_date, today);
 }
 
-/**
- * Split a list into its bands, each internally sorted.
- *
- * Overdue runs oldest first — the longest-broken promise leads. Everything
- * else runs by date then by booking time, so the next thing due is at the top
- * of its band.
+/*
+ * `groupByDate` used to live here, splitting a list into all four bands at
+ * once. Every screen now shows two bands and names them itself — New shows Late
+ * and Today, My jobs shows Today and Later — because which bands a screen shows
+ * turned out to be a decision about that screen rather than a property of the
+ * list. The server already returns each list in the order the bands want.
  */
-export function groupByDate(
-  entries: PickupEntry[],
-  today = todayInIst(),
-): { band: DateBand; entries: PickupEntry[] }[] {
-  const buckets: Record<DateBand, PickupEntry[]> = {
-    overdue: [],
-    today: [],
-    scheduled: [],
-    undated: [],
-  };
-
-  for (const entry of entries) {
-    buckets[bandForEntry(entry, today)].push(entry);
-  }
-
-  const byDateThenBooking = (a: PickupEntry, b: PickupEntry): number => {
-    const dateDelta = (a.order.pickup_date ?? '').localeCompare(b.order.pickup_date ?? '');
-    if (dateDelta !== 0) return dateDelta;
-    return new Date(a.order.created_at).getTime() - new Date(b.order.created_at).getTime();
-  };
-
-  buckets.overdue.sort(byDateThenBooking);
-  buckets.today.sort(byDateThenBooking);
-  buckets.scheduled.sort(byDateThenBooking);
-  buckets.undated.sort(byDateThenBooking);
-
-  return DATE_BANDS.map((band) => ({ band, entries: buckets[band] })).filter(
-    (g) => g.entries.length > 0,
-  );
-}
 
 /**
  * Held jobs that count as today's work.

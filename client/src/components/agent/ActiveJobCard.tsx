@@ -4,43 +4,45 @@ import { cn } from '@/lib/utils';
 import { PanelAction } from '@/components/agent/ActionButtons';
 import {
   CollectStrip,
-  HubCodeStrip,
+  JobCard,
   JobEntry,
-  agentStatusLabel,
   amountOwedAtDoor,
-  notDueYetMeta,
+  notDueYetReason,
 } from '@/components/agent/PickupCard';
-import {
-  useOrderAction,
-  useRegenerateHandoverCode,
-  type PickupEntry,
-} from '@/hooks/useAgentPickups';
+import { useOrderAction, type PickupEntry } from '@/hooks/useAgentPickups';
+import { bandForDate } from '@/lib/agentGrouping';
+import { todayInIst } from '@shared/pickupSlots';
 
 /**
- * A job the agent can work right now, with the next move on the row it belongs
- * to.
+ * The job in hand, with the next move on the row it belongs to.
  *
- * The full entry — status, name, address, window — then the amber amount if
- * money is owed at the door, then a full-bleed action row split `112px | 1fr`:
- * Call, and whatever the server says comes next.
+ * Number strip, name, then Place / Time / Weight as three labelled fact rows;
+ * then the amber amount if money is owed at the door; then a full-bleed action
+ * row split `116px | 1fr`: Call, and whatever the server says comes next.
  *
- * Used by Today for the job in hand and by My jobs for everything due today or
- * already late. Those two screens showed the same job in two registers before —
- * actionable on one, an inert summary on the other — which left an agent looking
- * at a late job on My jobs with no way to work it. One card, one answer.
+ * Call is filled green. It is the one control here that does not change the
+ * job's state — it reaches a person — and an agent stood at a wrong gate needs
+ * to find it without reading. Green is used nowhere else on this surface except
+ * the schedule's `Saved`, so it cannot be confused with money (amber), a state
+ * change (navy) or lateness (red).
+ *
+ * Used by Today for the one job leading the screen. My jobs shows plain entries
+ * instead — the v2 pass took the buttons off that list so it reads as a list,
+ * and every job there opens onto One job, which carries the full action bar.
  *
  * Two things deliberately do NOT fire from here:
  *
- *   Money. `collect_payment` needs an amount and a mode, so the button carries
- *   the label and opens the job sheet, where the collect sheet lives.
+ *   Anything needing input. Money needs an amount and a mode; a handover needs
+ *   the other party's code. Those carry their label and open the job sheet,
+ *   where the sheets live. `requiresPayload` on the action is what decides it,
+ *   so a new gated action needs no change here.
  *
  *   A job that is not due yet. The server withholds `start_pickup` until the
- *   pickup date and sends no actions; the card says why rather than showing a
- *   dead row, because "nothing to do here" on a job you are holding reads as a
- *   fault.
+ *   pickup date and sends no actions; the card says when it starts rather than
+ *   showing a dead row.
  *
- * The body links to the job sheet — the docket, the full address and Directions
- * are all there, and an agent standing at a gate needs them.
+ * The body links to the job sheet — the fields, the full address and Map are
+ * all there, and an agent standing at a gate needs them.
  */
 
 /** Actions whose input lives on the job sheet, not on a summary card. */
@@ -48,12 +50,11 @@ const NEEDS_THE_SHEET = new Set(['collect_payment']);
 
 export function ActiveJobCard({ entry }: { entry: PickupEntry }) {
   const action = useOrderAction();
-  const regenerate = useRegenerateHandoverCode();
 
   const order = entry.order;
   const owed = amountOwedAtDoor(order);
   const next = entry.availableActions[0];
-  const notDueYet = notDueYetMeta(order);
+  const notDueYet = notDueYetReason(order);
   const phone = order.origin_address?.phone;
   const isClaim = next?.action === 'claim';
   const opensSheet = !!next && (next.requiresPayload || NEEDS_THE_SHEET.has(next.action));
@@ -77,8 +78,8 @@ export function ActiveJobCard({ entry }: { entry: PickupEntry }) {
   const failure = action.error
     ? action.error.status === 409
       ? isClaim
-        ? 'Another agent took this job.'
-        : 'This job has moved on — pull to refresh.'
+        ? 'Someone else took it'
+        : 'This job moved on'
       : action.error.message
     : null;
 
@@ -87,28 +88,16 @@ export function ActiveJobCard({ entry }: { entry: PickupEntry }) {
       {/* The body is a link, the action row is not — a button inside an anchor
           is invalid markup and, on a phone, an ambiguous tap. */}
       <Link href={href} className="block" data-testid={`link-job-${order.order_no}`}>
-        <JobEntry pickup={order} amount="strip" />
+        <JobEntry pickup={order} facts="split" />
       </Link>
 
       {owed !== null && <CollectStrip amount={owed} />}
-
-      {/* Only on jobs already in the bag — the server attaches `handover` for
-          `picked_up` and nothing else, so this needs no status check of its
-          own. Sits below the money and above the action row: the agent reads
-          it out at the counter, then presses the button underneath it. */}
-      {entry.handover && (
-        <HubCodeStrip
-          code={entry.handover.code}
-          onGenerate={() => regenerate.mutate(order.id)}
-          pending={regenerate.isPending}
-        />
-      )}
 
       {/* Red means late everywhere else on this surface; it means failed here,
           and only ever sits directly above the button that failed. */}
       {failure && (
         <p
-          className="border-t border-[#E2E8F0]! px-4 py-2.5 font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-[#B91C1C]"
+          className="border-t border-[#E8EDF2]! px-4 py-3 text-[13px] font-bold uppercase tracking-[0.1em] text-[#B91C1C]"
           data-testid="job-action-error"
         >
           {failure}
@@ -116,28 +105,23 @@ export function ActiveJobCard({ entry }: { entry: PickupEntry }) {
       )}
 
       {notDueYet ? (
-        <div className="border-t border-[#E2E8F0]! px-4 py-3.5" data-testid="not-due-yet">
-          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-[#1B2A41]">
-            {notDueYet}
-          </p>
-          <p className="text-[13px] font-medium text-[#475569] mt-1">
-            You can start this pickup on the day
-          </p>
+        <div className="border-t border-[#E8EDF2]! px-4 py-4" data-testid="not-due-yet">
+          <p className="text-[17px] font-bold text-[#1B2A41]">{notDueYet}</p>
         </div>
       ) : (
-        <div className="flex border-t border-[#E2E8F0]!">
+        <div className="flex border-t border-[#D8DFE7]!">
           {phone ? (
             <a
               href={`tel:${phone}`}
-              className="w-28 h-14 flex items-center justify-center gap-[7px] border-r border-[#E2E8F0]!"
+              className="w-[116px] h-16 flex items-center justify-center gap-2.5 bg-[#15803D]"
               data-testid="link-call-sender"
             >
-              <Phone className="w-[17px] h-[17px] text-[#1B2A41]" strokeWidth={2} />
-              <span className="text-[13px] font-semibold text-[#1B2A41]">Call</span>
+              <Phone className="w-5 h-5 text-white" strokeWidth={1.5} />
+              <span className="text-lg font-bold text-white">Call</span>
             </a>
           ) : (
             <span
-              className="w-28 h-14 flex items-center justify-center border-r border-[#E2E8F0]! font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-[#94A3B8]"
+              className="w-[116px] h-16 flex items-center justify-center border-r border-[#D8DFE7]! text-[15px] font-semibold text-[#94A3B8]"
               data-testid="no-phone"
             >
               No phone
@@ -148,7 +132,7 @@ export function ActiveJobCard({ entry }: { entry: PickupEntry }) {
             opensSheet ? (
               <Link
                 href={href}
-                className="flex-1 h-14 bg-[#1B2A41] flex items-center justify-center gap-2 text-[15px] font-bold tracking-[0.01em] text-white"
+                className="flex-1 h-16 bg-[#1B2A41] flex items-center justify-center gap-2 text-[19px] font-bold text-white"
                 data-testid="link-open-job"
               >
                 {next.label}
@@ -166,7 +150,7 @@ export function ActiveJobCard({ entry }: { entry: PickupEntry }) {
           ) : (
             <Link
               href={href}
-              className="flex-1 h-14 bg-[#1B2A41] flex items-center justify-center text-[15px] font-bold text-white"
+              className="flex-1 h-16 bg-[#1B2A41] flex items-center justify-center text-[19px] font-bold text-white"
               data-testid="link-open-job"
             >
               Open job
@@ -180,14 +164,14 @@ export function ActiveJobCard({ entry }: { entry: PickupEntry }) {
 
 /** The same card as its own panel, for a screen showing exactly one. */
 export function ActiveJobPanel({ entry, className }: { entry: PickupEntry; className?: string }) {
+  // The card takes the late ground when the job is late, the same as every
+  // other card on the surface — the red strip alone left it reading as a normal
+  // job wearing a red hat.
+  const late = bandForDate(entry.order.pickup_date, todayInIst()) === 'overdue';
+
   return (
-    <div
-      className={cn(
-        'bg-white border border-[#E2E8F0]! rounded-[4px] overflow-hidden',
-        className,
-      )}
-    >
+    <JobCard late={late} className={className}>
       <ActiveJobCard entry={entry} />
-    </div>
+    </JobCard>
   );
 }
