@@ -542,7 +542,7 @@ export default function OrderDetails() {
               style={{ color: BRAND_NAVY }}
               data-testid="text-handover-code"
             >
-              {handover.code ?? '——————'}
+              {handover.code ?? '————'}
             </p>
 
             <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed">

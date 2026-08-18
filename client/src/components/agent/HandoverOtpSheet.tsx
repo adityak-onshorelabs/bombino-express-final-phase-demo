@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { type AgentPickup } from '@/hooks/useAgentPickups';
 
 /**
- * A six-digit code somebody else is holding, typed in by the agent.
+ * A four-digit code somebody else is holding, typed in by the agent.
  *
  * Two handovers use this sheet, at the two ends of a job:
  *
@@ -26,7 +26,16 @@ import { type AgentPickup } from '@/hooks/useAgentPickups';
  * devices tried.
  */
 
-const OTP_LENGTH = 6;
+/**
+ * What a fresh code is, and the most the field will take.
+ *
+ * Codes are four digits now. The field still accepts six because a code issued
+ * before that change is unchanged on its owner's screen, and an agent typing
+ * one out at a counter must not be stopped at the fourth character. Confirm
+ * enables at four — see `complete`.
+ */
+const OTP_LENGTH = 4;
+const OTP_MAX_LENGTH = 6;
 
 export type HandoverOtpKind = 'pickup' | 'hub';
 
@@ -43,14 +52,14 @@ const COPY: Record<
 > = {
   pickup: {
     title: 'Ask for the code',
-    body: (sender) => `${sender} has a 6-digit code in their app.`,
+    body: (sender) => `${sender} has a 4-digit code in their app.`,
     field: 'Pickup code',
     confirm: 'Picked up',
     hint: 'No code? They can make a new one. Phone dead? Call the office.',
   },
   hub: {
     title: 'Ask the hub for the code',
-    body: () => 'The counter has a 6-digit code on their screen.',
+    body: () => 'The counter has a 4-digit code on their screen.',
     field: 'Hub code',
     confirm: 'Given to hub',
     hint: 'The hub can make a new one if this stops working.',
@@ -91,7 +100,7 @@ export function HandoverOtpSheet({
     }
   }, [open]);
 
-  const complete = otp.length === OTP_LENGTH;
+  const complete = otp.length >= OTP_LENGTH;
 
   const submit = (): void => {
     if (!complete || isPending) return;
@@ -124,13 +133,13 @@ export function HandoverOtpSheet({
           <input
             ref={inputRef}
             value={otp}
-            onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, OTP_LENGTH))}
+            onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, OTP_MAX_LENGTH))}
             onKeyDown={(e) => {
               if (e.key === 'Enter') submit();
             }}
             inputMode="numeric"
             autoComplete="one-time-code"
-            placeholder="——————"
+            placeholder="————"
             aria-label={copy.field}
             className={cn(
               'w-full h-[70px] text-center text-[34px] font-bold tracking-[0.3em]',

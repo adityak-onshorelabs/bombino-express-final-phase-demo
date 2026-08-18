@@ -17,6 +17,14 @@
  * able to open the app and read the same number out. What limits abuse is the
  * attempt counter: five wrong guesses locks the code until whoever owns it
  * regenerates, which is a deliberate act by the person holding the parcel.
+ *
+ * THE COUNTER IS THE CONTROL, NOT THE LENGTH. Four digits is 10,000 codes and
+ * five guesses buys a 1-in-2,000 chance of hitting one before the code locks —
+ * against a parcel, read out loud, in front of the person who owns it. Six
+ * digits made that 1-in-200,000 and cost two extra characters typed on a
+ * doorstep with gloves on, which is the failure mode that actually happens.
+ * Never raise `HANDOVER_MAX_ATTEMPTS` to compensate for anything: at four
+ * digits it is the only thing between this and a brute force.
  */
 
 import crypto from "crypto";
@@ -27,7 +35,20 @@ export type HandoverKind = "pickup" | "hub" | "dropoff";
 /** Wrong guesses tolerated before the code must be regenerated. */
 export const HANDOVER_MAX_ATTEMPTS = 5;
 
-const CODE_LENGTH = 6;
+/** What a verifier may type. Exported so the API validates the same range. */
+export const HANDOVER_CODE_PATTERN = /^\d{4,6}$/;
+
+/**
+ * Digits in a newly issued code.
+ *
+ * `MIN_CODE_LENGTH` is what verification still accepts, because codes already
+ * sitting in the table were issued at six and their owners are reading them off
+ * a screen right now. Anything longer than an issued code cannot match, so this
+ * only widens what may be typed, never what may be minted.
+ */
+const CODE_LENGTH = 4;
+const MIN_CODE_LENGTH = 4;
+const MAX_CODE_LENGTH = 6;
 
 export type HandoverCode = {
   id: string;
@@ -63,7 +84,7 @@ function logSupabaseError(
 }
 
 /**
- * Six digits, uniformly distributed, including leading zeros.
+ * Four digits, uniformly distributed, including leading zeros.
  *
  * `randomInt` rather than `Math.random` for the same reason the auth OTP uses
  * it: this is a credential, however short-lived, and a predictable one is
@@ -194,12 +215,19 @@ export async function verifyCode(input: {
     return { ok: false, reason: "locked", attemptsLeft: 0 };
   }
 
-  // Compare in constant time. The window is small and the secret is six digits,
-  // but a timing-variable compare on a credential is the kind of thing that is
-  // free to get right and embarrassing to explain.
+  // Compare in constant time. The window is small and the secret is four
+  // digits, but a timing-variable compare on a credential is the kind of thing
+  // that is free to get right and embarrassing to explain.
+  //
+  // `timingSafeEqual` throws on a length mismatch, so the lengths are compared
+  // first and a wrong-length guess is simply a mismatch — it still costs an
+  // attempt, which is what stops length probing being free.
   const submitted = input.submitted.trim();
   const expected = String(data.code);
+  const plausible =
+    submitted.length >= MIN_CODE_LENGTH && submitted.length <= MAX_CODE_LENGTH;
   const matches =
+    plausible &&
     submitted.length === expected.length &&
     crypto.timingSafeEqual(Buffer.from(submitted), Buffer.from(expected));
 

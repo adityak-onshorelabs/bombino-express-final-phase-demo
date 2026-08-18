@@ -61,6 +61,7 @@ import {
   getCodeForOwner,
   issueCode,
   verifyCode,
+  HANDOVER_CODE_PATTERN,
   type HandoverKind,
 } from "./handoverCodes.js";
 import { ensureDbUser, requireRole, requireUser } from "./routeGuards.js";
@@ -1996,9 +1997,11 @@ export async function registerRoutes(
               // otherwise surfaces zod's bare "Required", which is what an
               // agent would have been shown at a doorstep.
               otp: z
-                .string({ required_error: "Enter the 6-digit code" })
+                .string({ required_error: "Enter the code" })
                 .trim()
-                .regex(/^\d{6}$/, "Enter the 6-digit code"),
+                // 4-6: new codes are four digits, but one issued before that
+                // change is still on somebody's screen. See handoverCodes.ts.
+                .regex(HANDOVER_CODE_PATTERN, "Enter the 4-digit code"),
             })
             .safeParse(parsed.data.payload ?? {});
           if (!otpBody.success) {
