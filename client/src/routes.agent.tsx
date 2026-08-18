@@ -5,6 +5,7 @@ import MyPickups from '@/pages/agent/MyPickups';
 import PickupDetail from '@/pages/agent/PickupDetail';
 import Collections from '@/pages/agent/Collections';
 import Schedule from '@/pages/agent/Schedule';
+import Profile from '@/pages/agent/Profile';
 import NotFound from '@/pages/not-found';
 
 /**
@@ -28,6 +29,9 @@ export function AgentRoutes() {
       <Route path="/agent/pickup/:id" component={PickupDetail} />
       <Route path="/agent/collections" component={Collections} />
       <Route path="/agent/schedule" component={Schedule} />
+      {/* Not in the nav — the bar is full at five tabs. Reached from the person
+          icon in the top bar. */}
+      <Route path="/agent/profile" component={Profile} />
       <Route component={NotFound} />
     </Switch>
   );
