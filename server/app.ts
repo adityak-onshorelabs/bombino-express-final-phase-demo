@@ -25,6 +25,7 @@ if (typeof setDefaultResultOrder === "function") {
 }
 import express, { type Express, type Request, Response, NextFunction } from "express";
 import session from "express-session";
+import cookieSession from "cookie-session";
 import { registerRoutes } from "./routes.js";
 import { assertDatabaseUrl, getPgPoolConfig } from "./pgPoolConfig.js";
 import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode.js";
@@ -133,6 +134,13 @@ async function buildPgSessionStore(): Promise<session.Store | undefined> {
       })
     );
 
+    // Prove the connection before handing this back. `new PgStore` never talks
+    // to the database, so a wrong DATABASE_URL produces a store that looks fine
+    // and fails on every read — which is indistinguishable, from the browser,
+    // from having no session at all. Better to find out here and fall through
+    // to cookies.
+    await pool.query("select 1");
+
     const store = new PgStore({
       pool,
       tableName: "session",
@@ -227,6 +235,73 @@ function requestLogger(req: Request, res: Response, next: NextFunction) {
 }
 
 /**
+ * Sessions with no server behind them: the whole session rides in a signed
+ * cookie.
+ *
+ * The last resort, and on a serverless host usually the right one. Redis and
+ * Postgres both have to be reachable and correctly credentialed; a cookie has
+ * to be nothing. Since Vercel hands each request to whichever container it
+ * likes, a store that needs neither is the only one that cannot silently
+ * degrade into "signed in, then bounced back to the login page".
+ *
+ * Two things to know about it:
+ *
+ *   · The payload is signed, not encrypted. The browser can read it. That is
+ *     fine for a user id and a role; it means an ITD bearer token in
+ *     `itdToken` would be readable too, which is why this is the fallback and
+ *     not the default — an environment with real ITD logins should give Redis
+ *     or Postgres a working URL and get a server-side store.
+ *   · Cookies cap at ~4KB. The session here is a user record and two ids, well
+ *     inside that.
+ *
+ * `cookie-session` gives a plain object where `express-session` gives a Session
+ * instance, so `save`, `destroy` and `sessionID` are shimmed onto it — eight
+ * call sites use them and none should have to care which store is underneath.
+ * They are defined non-enumerable so they never end up serialised into the
+ * cookie.
+ */
+function cookieBackedSession(): express.RequestHandler {
+  const inner = cookieSession({
+    name: "bombino.sid",
+    keys: [process.env.SESSION_SECRET ?? "dev-secret"],
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+  });
+
+  return (req, res, next) => {
+    inner(req, res, () => {
+      const bag = req.session as unknown as Record<string, unknown> | null;
+
+      if (bag && typeof bag.save !== "function") {
+        // Nothing to flush: cookie-session writes the header on response end.
+        Object.defineProperty(bag, "save", {
+          value: (cb?: (err?: unknown) => void) => cb?.(null),
+          enumerable: false,
+        });
+        Object.defineProperty(bag, "destroy", {
+          value: (cb?: (err?: unknown) => void) => {
+            (req as unknown as { session: unknown }).session = null;
+            cb?.(null);
+          },
+          enumerable: false,
+        });
+      }
+
+      if (!req.sessionID) {
+        Object.defineProperty(req, "sessionID", {
+          value: "cookie",
+          configurable: true,
+        });
+      }
+
+      next();
+    });
+  };
+}
+
+/**
  * Build the app. Call once per process and reuse the result.
  *
  * The `httpServer` is created but never listened on here. `registerRoutes`
@@ -252,32 +327,29 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
 
   const sessionStore = await buildSessionStore();
 
-  // Neither Redis nor Postgres: MemoryStore, which is per-process. On a
-  // long-lived server that is merely lossy across restarts; on serverless it is
-  // broken — every invocation gets an empty store and the user is bounced back
-  // to the sign-in page. Reaching here means DATABASE_URL is unusable too.
-  if (!sessionStore) {
-    console.warn(
-      "[session] using MemoryStore — no Redis and no usable DATABASE_URL. " +
-        "Sessions live in this process only; on serverless, logins will not stick.",
+  if (sessionStore) {
+    app.use(
+      session({
+        store: sessionStore,
+        secret: process.env.SESSION_SECRET ?? "dev-secret",
+        resave: false,
+        saveUninitialized: false,
+        rolling: true,
+        cookie: {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        },
+      }),
     );
+  } else {
+    // No Redis, no Postgres. MemoryStore would "work" and then lose the session
+    // on the next request to a different container, which looks like a bug in
+    // the login page rather than a missing service. The cookie always works.
+    console.log("[session] no server store available — using signed cookies");
+    app.use(cookieBackedSession());
   }
-
-  app.use(
-    session({
-      ...(sessionStore ? { store: sessionStore } : {}),
-      secret: process.env.SESSION_SECRET ?? "dev-secret",
-      resave: false,
-      saveUninitialized: false,
-      rolling: true,
-      cookie: {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      },
-    }),
-  );
 
   warnIfPaymentsTestModeEnabled();
 
