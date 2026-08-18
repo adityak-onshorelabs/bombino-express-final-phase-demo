@@ -22,7 +22,11 @@ import type {
   OrderStatus,
   Role,
 } from "../shared/orderContract.js";
-import { isPaymentSatisfied, roleSatisfies } from "../shared/orderContract.js";
+import {
+  hasOpenCancellationRequest,
+  isPaymentSatisfied,
+  roleSatisfies,
+} from "../shared/orderContract.js";
 import { todayInIst } from "../shared/pickupSlots.js";
 
 /**
@@ -139,17 +143,31 @@ export const TRANSITIONS: readonly Transition[] = [
     role: "agent",
     to: "picked_up",
     label: "Mark picked up",
+    // The customer's handover code. Without it an agent can mark a parcel
+    // collected from the pavement outside.
+    requiresPayload: true,
     // Cannot leave the doorstep with the cash uncollected.
     guard: (order, ctx) => isOwningAgent(order, ctx) && !owesAtPickup(order),
   },
   {
+    // The agent closes their own job, but not on their own say-so: the hub code
+    // is on ops' console and appears nowhere in the agent app, so typing it is
+    // proof the agent reached the counter and someone there read it out.
+    //
+    // The verifier is the agent and the owner is ops — the reverse of the
+    // pickup, and the same rule (`handoverCodes.ts`: never return a code to the
+    // party that types it in). Ops still has `override_handover` below for a
+    // dead phone.
+    //
+    // This is the last thing the agent does with the parcel: `received_at_hub`
+    // has no `role: agent` row, so the job leaves their queue the moment it
+    // lands.
     from: "picked_up",
     action: "mark_received_at_hub",
     role: "agent",
     to: "received_at_hub",
-    label: "Mark received at hub",
-    // Terminal for the agent: no row below has `from: received_at_hub` and
-    // `role: agent`, so the job leaves their queue here and ops takes over.
+    label: "Hand over at hub",
+    requiresPayload: true,
     guard: isOwningAgent,
   },
 
@@ -162,6 +180,38 @@ export const TRANSITIONS: readonly Transition[] = [
     role: "admin",
     to: "received_at_hub",
     label: "Mark received",
+    // The customer's dropoff code, read from their app at the counter. Same
+    // shape as the pickup handover, different pair of hands.
+    requiresPayload: true,
+  },
+
+  // ── Handover override (ops) ────────────────────────────────────────────
+  // One row per OTP-gated step, each landing where the gated action would
+  // have. A dead phone must not strand a parcel — but only ops can wave it
+  // through, and every use writes an `order_events` row naming them.
+  {
+    from: "out_for_pickup",
+    action: "override_handover",
+    role: "admin",
+    to: "picked_up",
+    label: "Complete without code",
+    requiresPayload: true,
+  },
+  {
+    from: "picked_up",
+    action: "override_handover",
+    role: "admin",
+    to: "received_at_hub",
+    label: "Complete without code",
+    requiresPayload: true,
+  },
+  {
+    from: "awaiting_dropoff",
+    action: "override_handover",
+    role: "admin",
+    to: "received_at_hub",
+    label: "Complete without code",
+    requiresPayload: true,
   },
   {
     from: "received_at_hub",
@@ -202,13 +252,65 @@ export const TRANSITIONS: readonly Transition[] = [
   },
 
   // ── Cancellation ───────────────────────────────────────────────────────
-  // Only before the parcel is physically with us. Once it is at the hub,
-  // cancelling is an ops conversation, not a button.
+  //
+  // Two different verbs, deliberately asymmetric.
+  //
+  // The customer *requests*. They do not cancel: by the time they change their
+  // mind an agent may already be riding to their door, money may have moved,
+  // and the decision has costs the customer cannot see. So their button writes
+  // a request and nothing else — the order does not move (`to: null`) and the
+  // agent keeps working it until ops says otherwise.
+  //
+  // Ops *cancels*. They see the request on the board and act on it, or they
+  // cancel without one when the customer phones in. The request is a signal,
+  // not a precondition — gating ops on it would strand every order cancelled
+  // over the phone, which is most of them.
+  //
+  // Both stop before the parcel is physically with us. Once it is at the hub,
+  // cancelling is a conversation, not a button.
   ...(
     ["pickup_requested", "awaiting_dropoff", "agent_accepted"] as const
   ).flatMap((from): Transition[] => [
-    { from, action: "cancel", role: "customer", to: "cancelled", label: "Cancel order" },
+    {
+      from,
+      action: "request_cancellation",
+      role: "customer",
+      // No status change. The request is a note on the order, not a move.
+      to: null,
+      label: "Request cancellation",
+      // Optional reason.
+      requiresPayload: true,
+      // Asking twice is not a second request, and a button that stays live
+      // after it has been pressed reads as one that did nothing.
+      guard: (order) => !hasOpenCancellationRequest(order),
+    },
+    // Two `cancel` rows, same effect, different words. `availableActions`
+    // dedupes by action name and keeps the first match, so ops reads "Approve
+    // cancellation" when they are answering a customer and "Cancel order" when
+    // they are acting on their own. The ops console renders `label` verbatim
+    // and needs no code for this.
+    {
+      from,
+      action: "cancel",
+      role: "admin",
+      to: "cancelled",
+      label: "Approve cancellation",
+      guard: hasOpenCancellationRequest,
+    },
     { from, action: "cancel", role: "admin", to: "cancelled", label: "Cancel order" },
+    {
+      from,
+      action: "reject_cancellation",
+      role: "admin",
+      // The order does not move — declining a request means it carries on
+      // exactly as it was, which is the entire point.
+      to: null,
+      label: "Decline cancellation",
+      // Optional note, shown to the customer.
+      requiresPayload: true,
+      // Nothing to decline without an open request.
+      guard: hasOpenCancellationRequest,
+    },
   ]),
 ] as const;
 

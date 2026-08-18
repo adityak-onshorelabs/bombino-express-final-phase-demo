@@ -206,6 +206,183 @@ export async function getOrderByNumberForUser(
   return { ...toOrder(row), origin_address: row.origin_address ?? null };
 }
 
+/**
+ * Record a customer's request that their order be cancelled.
+ *
+ * Writes `metadata.cancellation_request` and moves nothing else. The order
+ * keeps its status, the agent keeps the job, and ops decides — see the
+ * cancellation block in `orderLifecycle.ts` for why the customer only asks.
+ *
+ * Read-then-write, unavoidably: `metadata` is a whole jsonb value to PostgREST,
+ * so merging a key means reading the object first. That mirrors what A4 already
+ * does (`attachRazorpayOrderId`), and the same caveat applies — a concurrent
+ * write to a *different* metadata key can be lost. Acceptable here because the
+ * competing writers are a payment attempt and a cancellation request on the
+ * same order within the same instant, and the losing key is recoverable from
+ * `order_events`. Promote to `jsonb_set` in a Postgres function if that stops
+ * being true.
+ *
+ * The preconditions that matter are still in the WHERE clause: the caller must
+ * own the order and it must still be in a status a request makes sense from.
+ *
+ * @returns the updated order, or null when the order moved on, is not theirs,
+ *          or the DB errored — all of which mean "your request did not land"
+ */
+export async function recordCancellationRequest(input: {
+  orderId: string;
+  userId: string;
+  expectedStatuses: readonly string[];
+  reason: string | null;
+}): Promise<Order | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data: current, error: readError } = await client
+    .from("orders")
+    .select("metadata")
+    .eq("id", input.orderId)
+    .eq("user_id", input.userId)
+    .maybeSingle();
+
+  if (readError) {
+    logSupabaseError("recordCancellationRequest:read", readError);
+    return null;
+  }
+  if (!current) return null;
+
+  const metadata = {
+    ...((current.metadata as Record<string, unknown> | null) ?? {}),
+    cancellation_request: {
+      requested_at: new Date().toISOString(),
+      requested_by: input.userId,
+      reason: input.reason,
+    },
+  };
+
+  const { data, error } = await client
+    .from("orders")
+    .update({ metadata, updated_at: new Date().toISOString() })
+    .eq("id", input.orderId)
+    .eq("user_id", input.userId)
+    // A parcel already collected cannot be un-requested into existence. If the
+    // agent moved it between the guard and here, the request is refused rather
+    // than written against a status nobody will act on.
+    .in("status", [...input.expectedStatuses])
+    .select(ORDER_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("recordCancellationRequest:update", error);
+    return null;
+  }
+  if (!data) return null;
+  return toOrder(data as unknown as OrderRow);
+}
+
+/**
+ * Ops answering a request: approved or declined.
+ *
+ * Approval is recorded *alongside* the status move, not instead of it — the
+ * order row stays the truth about being cancelled (see `cancellationState`),
+ * and this only records who decided and when, which is the first thing anyone
+ * asks a week later.
+ *
+ * A decline moves nothing. The order carries on and the customer may ask again,
+ * because `cancellationState` reads a rejected request as closed.
+ *
+ * Same read-then-write caveat as `recordCancellationRequest`. Deliberately not
+ * guarded on status: ops approving a cancellation flips the status first, so by
+ * the time this runs the order is already `cancelled` and any status
+ * precondition here would reject its own caller.
+ *
+ * @returns true when the decision was written; false on a missing order or a
+ *          DB error. Never fatal to the caller — the decision itself already
+ *          landed in `orders.status` and `order_events`.
+ */
+export async function markCancellationRequestDecided(input: {
+  orderId: string;
+  decision: "approved" | "rejected";
+  decidedBy: string;
+  note: string | null;
+}): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  const { data: current, error: readError } = await client
+    .from("orders")
+    .select("metadata")
+    .eq("id", input.orderId)
+    .maybeSingle();
+
+  if (readError) {
+    logSupabaseError("markCancellationRequestDecided:read", readError);
+    return false;
+  }
+  if (!current) return false;
+
+  const metadata = (current.metadata as Record<string, unknown> | null) ?? {};
+  const request = metadata.cancellation_request;
+  // Ops cancelling an order nobody asked about. There is no request to decide,
+  // and inventing one would put words in the customer's mouth.
+  if (!request || typeof request !== "object" || Array.isArray(request)) return false;
+
+  const { error } = await client
+    .from("orders")
+    .update({
+      metadata: {
+        ...metadata,
+        cancellation_request: {
+          ...(request as Record<string, unknown>),
+          status: input.decision,
+          decided_at: new Date().toISOString(),
+          decided_by: input.decidedBy,
+          decision_note: input.note,
+        },
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.orderId);
+
+  if (error) {
+    logSupabaseError("markCancellationRequestDecided:update", error);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Every order of this customer's that cancellation has touched — asked about,
+ * declined, or cancelled outright.
+ *
+ * A separate query rather than a filter over `listOrdersByUserId` because the
+ * predicate is a jsonb key, and pulling every order to the client to test it
+ * there would send a customer's whole history to render one short list.
+ *
+ * `metadata` is selected here and nowhere else in the list projections: this is
+ * the one screen whose entire subject lives inside it.
+ */
+export async function listCancellationOrdersByUserId(
+  userId: string
+): Promise<OrderRow[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .select(ORDER_COLUMNS)
+    .eq("user_id", userId)
+    // Either a request was made, or the order is cancelled — ops can cancel
+    // without a request, and the customer still needs to see that it happened.
+    .or("metadata->cancellation_request.not.is.null,status.eq.cancelled")
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    logSupabaseError("listCancellationOrdersByUserId", error);
+    return null;
+  }
+  return (data ?? []) as OrderRow[];
+}
+
 export type OrderEventRow = {
   id: string;
   order_id: string;

@@ -15,9 +15,10 @@
  */
 
 import { useState } from 'react';
-import { useRoute, useLocation } from 'wouter';
+import { useRoute, useLocation, Link } from 'wouter';
 import {
   ArrowLeft,
+  ArrowRight,
   AlertTriangle,
   Check,
   Copy,
@@ -30,11 +31,22 @@ import {
   User,
   Wallet,
 } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, parseISO, isValid } from 'date-fns';
 import { BottomNav } from '@/components/BottomNav';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { getOrderStatusTone } from '@/lib/orderStatus';
 import { apiRequest } from '@/lib/queryClient';
 import { payForOrder } from '@/lib/razorpay';
@@ -42,7 +54,6 @@ import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
-  fetchOrderDetail,
   formatDeclaredValue,
   formatDimensions,
   formatInr,
@@ -52,8 +63,12 @@ import {
   paymentMethodLabel,
   paymentStatusLabel,
   type OrderDetailEvent,
-  type OrderDetailResponse,
 } from '@/lib/orderDetail';
+import {
+  ORDER_HISTORY_KEY,
+  orderDetailKey,
+  useCustomerOrderDetail,
+} from '@/hooks/useCustomerOrders';
 
 const BRAND_NAVY = 'lab(34.0831 -9.57756 -27.7093)';
 
@@ -252,29 +267,72 @@ export default function OrderDetails() {
 
   const orderNo = params?.orderNo ? decodeURIComponent(params.orderNo) : '';
 
-  const { data, isLoading, isFetching, error } = useQuery<OrderDetailResponse>({
-    queryKey: ['/api/orders', orderNo],
-    queryFn: () => fetchOrderDetail(orderNo),
-    enabled: !!orderNo,
-    retry: false,
-  });
+  // Polls every 20s while the order can still move, and stops at dispatched or
+  // cancelled. This screen is where a customer waits out a pickup, so an agent
+  // accepting the job has to land here without a reload.
+  const { data, isLoading, isFetching, error } = useCustomerOrderDetail(orderNo);
 
-  const cancelMutation = useMutation({
+  /**
+   * The customer asks; ops decides.
+   *
+   * This does not cancel anything and must never say it did — the order stays
+   * live, the agent still comes, and the parcel is only off once ops acts. See
+   * the cancellation block in `server/orderLifecycle.ts`.
+   */
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+
+  const requestCancelMutation = useMutation({
     mutationFn: async (orderId: string) => {
+      const reason = cancelReason.trim();
       const res = await apiRequest('POST', `/api/orders/${orderId}/actions`, {
-        action: 'cancel',
+        action: 'request_cancellation',
+        ...(reason ? { payload: { reason } } : {}),
       });
       return res.json() as Promise<{ order: { status: string } }>;
     },
     onSuccess: () => {
-      toast({ title: 'Order cancelled', description: `${orderNo} has been cancelled.` });
+      setCancelOpen(false);
+      setCancelReason('');
+      toast({
+        title: 'Cancellation requested',
+        description: `We have passed ${orderNo} to our team. Your pickup stands until they confirm.`,
+      });
       void queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+      // The list is keyed separately (it merges orders with ITD shipments), so
+      // it does not fall out of the prefix invalidation above.
+      void queryClient.invalidateQueries({ queryKey: ORDER_HISTORY_KEY });
     },
     onError: (err: unknown) => {
       toast({
-        title: 'Could not cancel',
+        title: 'Could not send that request',
         description:
-          err instanceof Error ? err.message : 'This order could not be cancelled.',
+          err instanceof Error ? err.message : 'Your request could not be sent.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  /**
+   * A fresh handover code, when the one on screen has been locked by wrong
+   * guesses or never wrote at all.
+   *
+   * The server picks which code the caller is entitled to from the order's
+   * state — this sends no kind, so a customer can never ask for the agent's.
+   */
+  const regenerateHandover = useMutation({
+    mutationFn: async (orderId: string) => {
+      const res = await apiRequest('POST', `/api/orders/${orderId}/handover-code`);
+      return res.json() as Promise<{ handover: { kind: string; code: string } }>;
+    },
+    onSuccess: () => {
+      toast({ title: 'New code ready', description: 'Read out the code shown on this screen.' });
+      void queryClient.invalidateQueries({ queryKey: orderDetailKey(orderNo) });
+    },
+    onError: (err: unknown) => {
+      toast({
+        title: 'Could not get a new code',
+        description: err instanceof Error ? err.message : 'Please try again.',
         variant: 'destructive',
       });
     },
@@ -308,6 +366,7 @@ export default function OrderDetails() {
     // Even a failure refetches: the webhook may have settled the order while
     // the browser was deciding it had not.
     void queryClient.invalidateQueries({ queryKey: ['/api/orders', orderNo] });
+    void queryClient.invalidateQueries({ queryKey: ORDER_HISTORY_KEY });
   };
 
   const handleBack = () => {
@@ -374,12 +433,22 @@ export default function OrderDetails() {
     );
   }
 
-  const { order, customerStatus, agent, events, payments, availableActions } = data;
+  const {
+    order,
+    customerStatus,
+    agent,
+    events,
+    payments,
+    availableActions,
+    cancellationRequest,
+    handover,
+  } = data;
   const items = order.items;
   const consignee = order.consignee;
   const origin = order.origin_address;
   const isPickup = order.pickup_request === 1;
-  const canCancel = availableActions.some((a) => a.action === 'cancel');
+  const canRequestCancel = availableActions.some((a) => a.action === 'request_cancellation');
+  const cancelPending = cancellationRequest?.pending ?? false;
 
   const originLine = [origin?.city, origin?.state].filter(Boolean).join(', ');
   const destLine = [consignee?.city, consignee?.country_name].filter(Boolean).join(', ');
@@ -450,6 +519,63 @@ export default function OrderDetails() {
           )}
         </p>
 
+        {/* ─── Handover code ────────────────────────────────────────────
+            High on the page, because this is what the customer opens the app
+            to find while somebody stands in front of them waiting. Set in the
+            same mono the agent's screen uses, spaced so it can be read out
+            loud without losing a digit. */}
+        {handover && (
+          <div
+            className="mt-4 rounded-xl border-2 p-4"
+            style={{ borderColor: BRAND_NAVY }}
+            data-testid="card-handover-code"
+          >
+            <p
+              className="text-[11px] font-bold tracking-[0.12em] uppercase"
+              style={{ color: BRAND_NAVY }}
+            >
+              {handover.kind === 'pickup' ? 'Pickup code' : 'Drop-off code'}
+            </p>
+
+            <p
+              className="font-mono text-[34px] font-bold leading-none tracking-[0.16em] tabular-nums mt-2.5"
+              style={{ color: BRAND_NAVY }}
+              data-testid="text-handover-code"
+            >
+              {handover.code ?? '————'}
+            </p>
+
+            <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed">
+              {handover.locked
+                ? 'This code has been entered wrongly too many times. Generate a new one before handing the parcel over.'
+                : handover.code
+                  ? handover.kind === 'pickup'
+                    ? 'Read this out to the agent when they arrive. Do not share it with anyone else — it is what proves the parcel went to us.'
+                    : 'Read this out at the Bombino hub counter when you drop your parcel off.'
+                  : 'No code has been generated yet. Tap below to get one.'}
+            </p>
+
+            <Button
+              variant="outline"
+              className="mt-3 w-full h-10 rounded-lg"
+              disabled={regenerateHandover.isPending}
+              onClick={() => regenerateHandover.mutate(order.id)}
+              data-testid="button-regenerate-handover"
+            >
+              {regenerateHandover.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Getting a new code
+                </>
+              ) : handover.code ? (
+                'Get a new code'
+              ) : (
+                'Generate code'
+              )}
+            </Button>
+          </div>
+        )}
+
         {/* Not yet a docket. Said once, here, rather than as a toast the
             customer has to dismiss to see anything at all. */}
         {!order.awb_no && (
@@ -458,6 +584,29 @@ export default function OrderDetails() {
             and an AWB is issued. Until then, the updates below are the full
             picture.
           </p>
+        )}
+
+        {/* The handover. An AWB means this record has stopped being the live
+            one — the carrier scans live at /shipment/:awb, and this screen
+            keeps only the booking history. Previously the number appeared as
+            one more read-only field two thirds of the way down the page, with
+            nothing to say it was now the thing to follow. */}
+        {order.awb_no && (
+          <Link
+            href={`/shipment/${encodeURIComponent(order.awb_no)}`}
+            className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2.5 transition-colors hover:bg-green-100"
+            data-testid="link-track-awb"
+          >
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-green-900">
+                Shipped — live tracking is open
+              </span>
+              <span className="block text-[11px] text-green-800/80 mt-0.5">
+                AWB <span className="font-mono font-semibold">{order.awb_no}</span>
+              </span>
+            </span>
+            <ArrowRight className="w-4 h-4 text-green-800 shrink-0" aria-hidden />
+          </Link>
         )}
 
         {data.warning && (
@@ -684,31 +833,131 @@ export default function OrderDetails() {
           )}
         </Section>
 
-        {/* ─── Cancel ──────────────────────────────────────────────────── */}
-        {canCancel && (
+        {/* ─── Cancellation ────────────────────────────────────────────── */}
+        {/* A request already with the team. Deliberately not styled as a
+            success: nothing has been cancelled yet, and the pickup stands. */}
+        {cancelPending && (
+          <div
+            className="mt-8 pt-6 border-t border-border"
+            data-testid="banner-cancellation-pending"
+          >
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-semibold text-amber-900">
+                Cancellation requested
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-amber-800">
+                Our team is reviewing your request
+                {cancellationRequest?.requestedAt
+                  ? ` from ${niceDate(cancellationRequest.requestedAt)}`
+                  : ''}
+                . Until they confirm, this order is still going ahead — please keep
+                your parcel ready.
+              </p>
+              {cancellationRequest?.reason && (
+                <p className="mt-2 text-xs italic text-amber-800">
+                  “{cancellationRequest.reason}”
+                </p>
+              )}
+              <Link
+                href="/orders"
+                className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-amber-900 underline underline-offset-2"
+              >
+                Track this in My Orders
+                <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* Declined. The order is unchanged and the customer may ask again —
+            the request button below reappears, because `hasOpenCancellationRequest`
+            reads a rejected request as closed. */}
+        {cancellationRequest?.state === 'rejected' && (
+          <div
+            className="mt-8 pt-6 border-t border-border"
+            data-testid="banner-cancellation-declined"
+          >
+            <div className="rounded-lg border border-red-100 bg-red-50 p-4">
+              <p className="text-sm font-semibold text-red-900">Cancellation declined</p>
+              <p className="mt-1 text-xs leading-relaxed text-red-800">
+                {cancellationRequest.decisionNote ??
+                  'Our team could not cancel this order. It is still going ahead as booked.'}
+              </p>
+              <a
+                href="tel:+912266400000"
+                className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-red-900 underline underline-offset-2"
+              >
+                <Phone className="w-3 h-3" />
+                Call the Bombino team
+              </a>
+            </div>
+          </div>
+        )}
+
+        {canRequestCancel && (
           <div className="mt-8 pt-6 border-t border-border">
             <Button
               variant="outline"
               className="w-full h-11 rounded-lg border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-              disabled={cancelMutation.isPending}
-              onClick={() => cancelMutation.mutate(order.id)}
-              data-testid="button-cancel-order"
+              onClick={() => setCancelOpen(true)}
+              data-testid="button-request-cancellation"
             >
-              {cancelMutation.isPending ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Cancelling
-                </>
-              ) : (
-                'Cancel this order'
-              )}
+              Request cancellation
             </Button>
             <p className="mt-2 text-[11px] text-muted-foreground text-center">
-              You can cancel until an agent collects your parcel.
+              You can ask us to cancel until an agent collects your parcel. Our
+              team confirms every cancellation.
             </p>
           </div>
         )}
       </div>
+
+      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Request cancellation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This sends {orderNo} to our team to review. It is not cancelled yet —
+              your pickup stands until they confirm.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-2">
+            <Label htmlFor="cancel-reason" className="text-xs text-muted-foreground">
+              Reason (optional)
+            </Label>
+            <Textarea
+              id="cancel-reason"
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value.slice(0, 300))}
+              placeholder="Tell us why, so the team can act on it faster"
+              className="min-h-20 resize-none"
+              data-testid="input-cancellation-reason"
+            />
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={requestCancelMutation.isPending}>
+              Keep my order
+            </AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={requestCancelMutation.isPending}
+              onClick={() => requestCancelMutation.mutate(order.id)}
+              data-testid="button-confirm-cancellation-request"
+            >
+              {requestCancelMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Sending
+                </>
+              ) : (
+                'Send request'
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PageShell>
   );
 }

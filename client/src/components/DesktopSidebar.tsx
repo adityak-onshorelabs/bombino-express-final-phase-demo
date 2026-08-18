@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, type ComponentType } from 'react';
+﻿import { useMemo, type ComponentType } from 'react';
 import {
   Home,
   BadgeDollarSign,
@@ -16,11 +16,15 @@ import bombinoLogo from '@/assets/bombino-logo.png';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { apiRequest } from '@/lib/queryClient';
+import { useUnreadNotificationCount } from '@/hooks/useCustomerOrders';
 
 const MAIN_NAV = [
   { label: 'Home', icon: Home, path: '/home' },
   { label: 'Rates', icon: BadgeDollarSign, path: '/rates' },
   { label: 'Create Shipment', icon: Send, path: '/create' },
+  // Cancellations deliberately absent: they live as a tab inside My Orders,
+  // because a cancellation is something that happened to an order rather than
+  // a separate part of the app.
   { label: 'My Orders', icon: PackageSearch, path: '/orders' },
   { label: 'Track', icon: MapPin, path: '/track' },
 ] as const;
@@ -67,36 +71,9 @@ function NavItem({
 export function DesktopSidebar() {
   const [location] = useLocation();
   const { isLoggedIn, user, logout } = useAppStore();
-  const [unreadCount, setUnreadCount] = useState(0);
-
-  useEffect(() => {
-    if (!isLoggedIn) {
-      setUnreadCount(0);
-      return;
-    }
-
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch('/api/notifications/unread-count', {
-          credentials: 'include',
-        });
-        if (cancelled) return;
-        if (!res.ok) {
-          setUnreadCount(0);
-          return;
-        }
-        const data = (await res.json()) as { count?: number };
-        setUnreadCount(typeof data.count === 'number' ? data.count : 0);
-      } catch {
-        if (!cancelled) setUnreadCount(0);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoggedIn]);
+  // Shares the polled notification list with the mobile header — see the note
+  // on `useUnreadNotificationCount`. One query, two badges, always in step.
+  const unreadCount = useUnreadNotificationCount(isLoggedIn);
 
   const initials = useMemo(() => {
     if (user?.fullName?.trim()) {

@@ -46,15 +46,13 @@ export function surfaceForRole(role: string | undefined): Surface {
  * Paths every role may reach regardless of surface — auth, legal, and the
  * splash redirector. Without this an agent could never reach /login to sign
  * out of a bad session.
+ *
+ * `/profile` is deliberately NOT here. It is the customer's account page — KYC
+ * upload, username, the customer nav — and an agent who reached it got all of
+ * that wrapped in the wrong app. They have their own at `/agent/profile`, and
+ * landing on this path now bounces them home.
  */
-const SURFACE_AGNOSTIC = new Set([
-  '/',
-  '/login',
-  '/signup',
-  '/onboarding',
-  '/privacy',
-  '/profile',
-]);
+const SURFACE_AGNOSTIC = new Set(['/', '/login', '/signup', '/onboarding', '/privacy']);
 
 export function isSurfaceAgnostic(path: string): boolean {
   return SURFACE_AGNOSTIC.has(path);

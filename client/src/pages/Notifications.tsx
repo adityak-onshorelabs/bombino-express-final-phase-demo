@@ -1,23 +1,14 @@
-﻿import { useEffect, useState, useCallback } from 'react';
-import { useLocation } from 'wouter';
+﻿import { useLocation } from 'wouter';
 import { ArrowLeft, Bell, AlertTriangle, Info, LogIn } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-
-interface ApiNotification {
-  id: string;
-  user_id: string;
-  type: string | null;
-  title: string | null;
-  body: string | null;
-  data: { awb?: string } | null;
-  is_read: boolean | null;
-  read_at: string | null;
-  shipment_id: string | null;
-  created_at: string;
-}
+import {
+  useMarkNotificationRead,
+  useNotifications,
+  type CustomerNotification as ApiNotification,
+} from '@/hooks/useCustomerOrders';
 
 function parseNotifData(raw: unknown): { awb?: string } {
   if (!raw || typeof raw !== 'object') return {};
@@ -30,54 +21,25 @@ export default function Notifications() {
   const [, setLocation] = useLocation();
   const { isLoggedIn } = useAppStore();
 
-  const [items, setItems] = useState<ApiNotification[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, isLoading } = useNotifications(isLoggedIn);
+  const markRead = useMarkNotificationRead();
 
-  const loadNotifications = useCallback(async () => {
-    if (!isLoggedIn) {
-      setItems([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fetch('/api/notifications', { credentials: 'include' });
-      if (!res.ok) {
-        setItems([]);
-        return;
-      }
-      const data = (await res.json()) as ApiNotification[];
-      setItems(Array.isArray(data) ? data : []);
-    } catch {
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [isLoggedIn]);
+  const items: ApiNotification[] = data ?? [];
+  const loading = isLoggedIn && isLoading;
 
-  useEffect(() => {
-    void loadNotifications();
-  }, [loadNotifications]);
-
-  const handleNotificationClick = async (n: ApiNotification) => {
-    const data = parseNotifData(n.data);
-    try {
-      const res = await fetch(`/api/notifications/${n.id}/read`, {
-        method: 'PATCH',
-        credentials: 'include',
-      });
-      if (res.ok) {
-        setItems((prev) =>
-          prev.map((x) =>
-            x.id === n.id ? { ...x, is_read: true, read_at: new Date().toISOString() } : x
-          )
-        );
-        if (data.awb) {
-          setLocation(`/shipment/${encodeURIComponent(data.awb)}`);
-        }
-      }
-    } catch {
-      /* ignore */
+  /**
+   * Navigate first, then mark read.
+   *
+   * The old order waited on the PATCH and navigated only if it succeeded, so a
+   * flaky network left a tap doing nothing at all. Marking read is bookkeeping;
+   * getting to the shipment is what the customer pressed for. The mutation is
+   * optimistic, so the dot clears either way and rolls back if the write fails.
+   */
+  const handleNotificationClick = (n: ApiNotification) => {
+    const parsed = parseNotifData(n.data);
+    if (!n.is_read) markRead.mutate(n.id);
+    if (parsed.awb) {
+      setLocation(`/shipment/${encodeURIComponent(parsed.awb)}`);
     }
   };
 

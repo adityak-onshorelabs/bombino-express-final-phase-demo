@@ -18,7 +18,7 @@ import { BottomNav } from '@/components/BottomNav';
 import { StatusBadge } from '@/components/StatusBadge';
 import { TrackingTimeline } from '@/components/TrackingTimeline';
 import type { TrackingEvent } from '@/lib/mockData';
-import { getStatusLabel, getStatusColor } from '@/lib/awbStatus';
+import { getStatusLabel, getStatusColor, isAwbStatusFinal } from '@/lib/awbStatus';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -60,6 +60,26 @@ interface ITDTrackingResult {
 export type TrackingResponse =
   | { results: ITDTrackingResult[]; fromCache: false; lastTrackedAt: string }
   | { fromCache: true; lastTrackedAt: string; currentStatus: string; message: string };
+
+/**
+ * The carrier's latest scan state, across both response shapes.
+ *
+ * Mirrors how the badge picks `rawStateForBadge` further down — the last docket
+ * event wins, then the docket's own Status field. Used to decide whether this
+ * shipment is still worth polling; null means "cannot tell", which is treated
+ * as still moving.
+ */
+function latestScanState(data: TrackingResponse | undefined): string | null {
+  if (!data) return null;
+  if (data.fromCache) return data.currentStatus?.trim() || null;
+  const result = data.results?.[0];
+  if (!result) return null;
+  const events = result.docket_events ?? [];
+  const last = events.length > 0 ? events[events.length - 1] : undefined;
+  return (
+    last?.event_state?.trim() || getDocketValue(result.docket_info ?? [], 'Status') || null
+  );
+}
 
 // ─── Small helpers ──────────────────────────────────────────────────────────
 function getDocketValue(docketInfo: [string, string][], label: string): string {
@@ -378,6 +398,19 @@ export default function ShipmentDetails() {
     },
     enabled: !!awb,
     retry: false,
+    // Carrier scans arrive while the customer is watching. The global default
+    // is `staleTime: Infinity`, which on a tracking screen means the page was
+    // only ever as fresh as the moment it was opened.
+    //
+    // Two minutes, not twenty seconds: each call is a round trip to ITD, and a
+    // parcel does not change state faster than that. Stops once ITD has said
+    // its last word (`isAwbStatusFinal`) — a delivered parcel is not going to
+    // move again, and this screen is one people leave open.
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchInterval: (query) =>
+      isAwbStatusFinal(latestScanState(query.state.data)) ? false : 120_000,
   });
 
   // Which printables this shipment actually has — invoice and postal label are

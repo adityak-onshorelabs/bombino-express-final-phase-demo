@@ -17,7 +17,12 @@
  *                                a different thing entirely)
  */
 
-import type { OrderStatus, PaymentMethod, PaymentStatus } from '@shared/orderContract';
+import type {
+  CancellationState,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+} from '@shared/orderContract';
 
 // ── Wire types ────────────────────────────────────────────────────────────
 
@@ -98,6 +103,41 @@ export interface OrderDetailPayment {
   collectedByName: string | null;
 }
 
+/**
+ * A cancellation the customer has asked for.
+ *
+ * `pending` is the whole point: a request does not cancel anything. Ops decides,
+ * and until they do the order carries on — the agent still comes, and the page
+ * must say that rather than implying the parcel is off.
+ */
+export interface OrderDetailCancellationRequest {
+  state: CancellationState;
+  requestedAt: string;
+  reason: string | null;
+  decidedAt: string | null;
+  /** Ops' words when they declined. Null on an approval. */
+  decisionNote: string | null;
+  pending: boolean;
+}
+
+/**
+ * The customer's handover code for this order.
+ *
+ * `pickup` is read out to the agent at the door; `dropoff` is read out at the
+ * hub counter. The agent's own `hub` code never appears here — the customer has
+ * no part in that handover.
+ *
+ * `code` may be null while `kind` is set: the handover is due but no code is on
+ * file, which is the one moment the page must offer to generate one rather than
+ * silently showing nothing.
+ */
+export interface OrderDetailHandover {
+  kind: 'pickup' | 'dropoff';
+  code: string | null;
+  /** Too many wrong attempts. A fresh code is the only way forward. */
+  locked: boolean;
+}
+
 export interface OrderDetailResponse {
   order: OrderDetailOrder;
   customerStatus: string;
@@ -105,6 +145,8 @@ export interface OrderDetailResponse {
   events: OrderDetailEvent[];
   payments: OrderDetailPayment[];
   availableActions: { action: string; label: string; requiresPayload?: boolean }[];
+  cancellationRequest: OrderDetailCancellationRequest | null;
+  handover: OrderDetailHandover | null;
   warning?: string;
 }
 

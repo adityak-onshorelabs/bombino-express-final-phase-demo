@@ -8,7 +8,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from '@/components/AppLayout';
 import { SurfaceGuard } from '@/components/SurfaceGuard';
 import { AgentRoutes } from './routes.agent';
-import { OpsRoutes } from './routes.ops';
 import { surfaceForPath } from '@/lib/surface';
 
 import Splash from "@/pages/Splash";
@@ -62,19 +61,35 @@ function CustomerRouter() {
  * desktop sidebar, no top bar and no support FAB, so it renders outside
  * `AppLayout` entirely rather than trying to opt out of its parts.
  *
- * `SurfaceGuard` sits above agent and ops (and the customer app) and bounces
- * anyone onto their own surface. It is cosmetic — the real enforcement is
- * `requireRole` on the server.
+ * `SurfaceGuard` sits above both and bounces anyone onto their own surface.
+ * It is cosmetic — the real enforcement is `requireRole` on the server.
  */
+/**
+ * Toasts, everywhere except the agent app.
+ *
+ * The agent surface is worked one-handed, outdoors, often mid-conversation with
+ * a customer, and a card sliding over the top of the screen there is something
+ * to dismiss rather than something to read. Its screens already say what
+ * happened where the agent is looking: the job's status changes on the card
+ * they just pressed, a rejected handover code appears under the field being
+ * retyped, and a collection receipt holds its own sheet open.
+ *
+ * Not merely hidden — `Toaster` is not mounted at all on `/agent/*`, so a
+ * stray `toast()` call from a shared component costs nothing and shows nothing.
+ * Calls left in the agent code are inert by design; see the note in
+ * `ActiveJobCard`.
+ */
+function SurfaceToaster() {
+  const [location] = useLocation();
+  if (surfaceForPath(location) === 'agent') return null;
+  return <Toaster />;
+}
+
 function Surfaces() {
   const [location] = useLocation();
 
   if (surfaceForPath(location) === 'agent') {
     return <AgentRoutes />;
-  }
-
-  if (surfaceForPath(location) === 'ops') {
-    return <OpsRoutes />;
   }
 
   return (
@@ -116,7 +131,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Toaster />
+        <SurfaceToaster />
         <SessionWatch />
         <SurfaceGuard>
           <Surfaces />

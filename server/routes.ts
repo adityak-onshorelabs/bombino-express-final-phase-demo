@@ -38,8 +38,12 @@ import {
   insertOrderAndReturnRow,
   insertOrderEvent,
   listOrderEvents,
+  listCancellationOrdersByUserId,
   listOrdersByUserId,
   listPaymentsByOrderId,
+  markCancellationRequestDecided,
+  recordCancellationRequest,
+  toOrder,
 } from "./ordersDb.js";
 import {
   availableActions,
@@ -52,16 +56,24 @@ import {
   recordCollectedPayment,
   transitionOrderStatus,
 } from "./agentDb.js";
+import {
+  burnCodeForOverride,
+  getCodeForOwner,
+  issueCode,
+  verifyCode,
+  HANDOVER_CODE_PATTERN,
+  type HandoverKind,
+} from "./handoverCodes.js";
 import { ensureDbUser, requireRole, requireUser } from "./routeGuards.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
-import { registerOpsRoutes } from "./routes/ops.js";
 import {
-  handleMarkReceivedDropoff,
-  handleSettle,
-  handleWeigh,
-} from "./opsActions.js";
-import { deriveCustomerStatus, isInternalOnlyStatus, isRole } from "../shared/orderContract.js";
+  cancellationState,
+  deriveCustomerStatus,
+  isInternalOnlyStatus,
+  isRole,
+  readCancellationRequest,
+} from "../shared/orderContract.js";
 import type { Order, OrderStatus, Role } from "../shared/orderContract.js";
 import { PICKUP_SLOT_VALUES } from "../shared/pickupSlots.js";
 import {
@@ -116,7 +128,6 @@ import {
   toKycSummary,
 } from "../shared/kyc.js";
 import { validateGstin } from "../shared/gstin.js";
-import { isIndiaHubId } from "../shared/hubs.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
   SUPPORT_CHAT_MAX_CONTENT_LENGTH,
@@ -154,10 +165,6 @@ export async function registerRoutes(
   // Razorpay (A4). Self-contained: gateway order, verify, webhook. The webhook
   // is unauthenticated by design — its signature is its authentication.
   registerPaymentRoutes(app);
-
-  // Ops console (3A/3B). Board + detail reads; writes go through the uniform
-  // action endpoint below.
-  registerOpsRoutes(app);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -392,15 +399,8 @@ export async function registerRoutes(
 
   const signupCompanySchema = z.object({
     phone: phoneSchema,
-    company_name: z.string().trim().min(1, "Company name is required").max(120),
+    company_name: z.string().trim().min(1, "Company name is required"),
     gstin: z.string().trim().length(15, "GST number must be 15 characters"),
-    email: z.string().trim().email("Enter a valid email").max(120),
-    address: z.string().trim().min(1, "Address is required").max(200),
-    pincode: z.string().trim().regex(/^\d{6}$/, "Enter a 6-digit pincode"),
-    city: z.string().trim().min(1, "City is required").max(80),
-    state: z.string().trim().min(1, "State is required").max(80),
-    contact_person: z.string().trim().max(80).optional().default(""),
-    hub_id: z.coerce.number().int().refine(isIndiaHubId, "Select a valid hub"),
   });
 
   // POST /api/auth/signup/company
@@ -410,18 +410,7 @@ export async function registerRoutes(
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
       return;
     }
-    const {
-      phone,
-      company_name,
-      gstin: rawGstin,
-      email,
-      address,
-      pincode,
-      city,
-      state,
-      contact_person,
-      hub_id,
-    } = parsed.data;
+    const { phone, company_name, gstin: rawGstin } = parsed.data;
     const gstin = rawGstin.toUpperCase();
 
     const gstinCheck = validateGstin(gstin);
@@ -446,7 +435,7 @@ export async function registerRoutes(
     const row = await upsertItdUserAndReturnId({
       itd_customer_id: itdCustomerId,
       itd_customer_code: itdCustomerId,
-      email,
+      email: "",
       full_name: company_name,
       username: phone,
       role: "customer",
@@ -464,22 +453,11 @@ export async function registerRoutes(
     let addCustomerResponse: unknown = null;
     let addCustomerError: string | null = null;
     try {
-      const addCustomerResult = await withTimeout(
-        itdClient.addCustomer({
-          name: company_name,
-          contact_no: phone,
-          gst_number: gstin,
-          email,
-          address,
-          pincode,
-          city,
-          state,
-          contact_person: contact_person || undefined,
-          hub_id,
-        }),
-        ITD_LINK_TIMEOUT_MS,
-        "ITD addCustomer"
-      );
+      const addCustomerResult = await itdClient.addCustomer({
+        name: company_name,
+        contact_no: phone,
+        gst_number: gstin,
+      });
       itdRegistered = !!addCustomerResult.success;
       addCustomerResponse = addCustomerResult;
     } catch (err) {
@@ -499,13 +477,6 @@ export async function registerRoutes(
       itd_customer_id: itdCustomerId,
       itd_registration_attempted_at: new Date().toISOString(),
       itd_add_customer_response: addCustomerResponse,
-      email,
-      address,
-      pincode,
-      city,
-      state,
-      contact_person,
-      hub_id,
       ...(addCustomerError ? { itd_add_customer_error: addCustomerError } : {}),
     });
 
@@ -513,7 +484,7 @@ export async function registerRoutes(
       id: itdCustomerId,
       customerId: itdCustomerId,
       code: itdCustomerId,
-      email,
+      email: "",
       fullName: company_name,
       username: phone,
       role: "customer",
@@ -1795,6 +1766,14 @@ export async function registerRoutes(
       actor_user_id: req.session.dbUserId,
     });
 
+    // A drop-off has no agent and no claim, so there is no later moment to
+    // issue its code from: the customer walks into the hub whenever they like,
+    // and the code has to be on their screen before they set off. A pickup's
+    // code waits for the claim — nobody needs a code for a job no agent holds.
+    if (!isPickup) {
+      await issueCode(order.id, "dropoff");
+    }
+
     res.json({ order });
   });
 
@@ -1825,6 +1804,38 @@ export async function registerRoutes(
   // A legal request gets 501 today. When the handlers land, replace the 501
   // with the transition's effect — and put the race-prone preconditions in the
   // UPDATE's WHERE clause, not just in the guard (see orderLifecycle.ts).
+
+  /**
+   * Which handover each OTP-gated action checks.
+   *
+   * Kept as data next to the switch rather than inferred inside it, so adding a
+   * fourth handover is one line here and one transition row — the same
+   * discipline `orderLifecycle.ts` follows.
+   */
+  const HANDOVER_KIND_FOR_ACTION = {
+    mark_picked_up: "pickup",
+    mark_received_at_hub: "hub",
+    mark_received_dropoff: "dropoff",
+  } as const satisfies Record<string, HandoverKind>;
+
+  /**
+   * Whose code each handover checks, for the audit note.
+   *
+   * Not cosmetic: reading "with the hub's code" in an order's history is what
+   * tells whoever is investigating a disputed parcel which party was tested.
+   */
+  const HANDOVER_CODE_OWNER = {
+    pickup: "the customer's code",
+    hub: "the hub's code",
+    dropoff: "the customer's code",
+  } as const satisfies Record<HandoverKind, string>;
+
+  /** Which handover an ops override is waving through, by the status it acts on. */
+  const HANDOVER_KIND_FOR_STATUS: Partial<Record<OrderStatus, HandoverKind>> = {
+    out_for_pickup: "pickup",
+    picked_up: "hub",
+    awaiting_dropoff: "dropoff",
+  };
 
   /**
    * Session role → contract role. `req.session.user.role` is a free-form
@@ -1932,13 +1943,16 @@ export async function registerRoutes(
             return;
           }
           eventNote = "Pickup claimed by agent";
+          // The customer can now be told a code, and will want it visible well
+          // before the doorbell goes. Best-effort: the claim is already
+          // committed, and refusing it because a code failed to write would
+          // hand the job back to the pool for no good reason. The customer's
+          // screen offers a regenerate when there is nothing to show.
+          await issueCode(order.id, "pickup");
           break;
         }
 
-        case "start_pickup":
-        case "mark_picked_up":
-        case "mark_received_at_hub": {
-          // `transition.to` is non-null for all three — they are status moves.
+        case "start_pickup": {
           if (!transition.to) {
             res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
             return;
@@ -1963,133 +1977,277 @@ export async function registerRoutes(
           break;
         }
 
-        case "collect_payment": {
-          if (role === "agent") {
-            // Ops collection at the hub is M3's; this branch is the doorstep.
-            if (order.payment_method !== "pay_at_pickup") {
-              res.status(400).json({
-                message: "This order is not marked pay-at-pickup.",
-                code: "PAYMENT_METHOD_MISMATCH",
-              });
-              return;
-            }
-
-            const paymentBody = z
-              .object({
-                amount: z.number().positive("amount must be greater than zero"),
-                // How the money actually moved. Required: an agent handing over
-                // a parcel must have said whether they hold cash or watched a
-                // UPI transfer land, because only one of those ends up in their
-                // pouch at the end of the shift.
-                collection_mode: z.enum(["upi", "cash"], {
-                  errorMap: () => ({ message: "Choose UPI or cash" }),
-                }),
-                // UPI reference from the customer's app, if they read it out.
-                reference: z.string().trim().max(120).optional().nullable(),
-              })
-              .safeParse(parsed.data.payload ?? {});
-            if (!paymentBody.success) {
-              res.status(400).json({
-                message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
-                code: "INVALID_PAYLOAD",
-              });
-              return;
-            }
-
-            const result = await recordCollectedPayment({
-              order_id: order.id,
-              user_id: order.user_id,
-              amount: paymentBody.data.amount,
-              method: "pay_at_pickup",
-              status: "collected",
-              collection_mode: paymentBody.data.collection_mode,
-              collected_by: callerId,
-              reference: paymentBody.data.reference ?? null,
-            });
-            if (!result) {
-              res.status(502).json({
-                message: "Could not record the payment. Do not hand over the parcel.",
-                code: "PAYMENT_WRITE_FAILED",
-              });
-              return;
-            }
-
-            // Deliberately no status change — the parcel is still out_for_pickup.
-            updated = result.order ?? order;
-            eventNote = `Collected ₹${paymentBody.data.amount} at pickup (${paymentBody.data.collection_mode})`;
-            extra = {
-              payment_id: result.paymentId,
-              txn_id: result.txnId,
-              amount: paymentBody.data.amount,
-              collection_mode: paymentBody.data.collection_mode,
-            };
-            // Surfaced at the top level so the sheet can show the receipt without
-            // digging through the event metadata.
-            collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
-            break;
+        // ── OTP-gated handovers ───────────────────────────────────────────
+        // Three steps, one shape: check the code the other party read out,
+        // then move the order. The code is verified BEFORE the status write,
+        // so a wrong guess costs an attempt and changes nothing else.
+        case "mark_picked_up":
+        case "mark_received_at_hub":
+        case "mark_received_dropoff": {
+          if (!transition.to) {
+            res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
+            return;
           }
 
-          if (role === "admin" || role === "super_admin") {
-            if (order.payment_method !== "pay_at_dropoff") {
-              res.status(400).json({
-                message: "This order is not marked pay-at-drop-off.",
-                code: "PAYMENT_METHOD_MISMATCH",
-              });
-              return;
-            }
+          const kind = HANDOVER_KIND_FOR_ACTION[action];
 
-            const paymentBody = z
-              .object({
-                amount: z.number().positive("amount must be greater than zero"),
-                collection_mode: z.enum(["upi", "cash"], {
-                  errorMap: () => ({ message: "Choose UPI or cash" }),
-                }),
-                reference: z.string().trim().max(120).optional().nullable(),
-              })
-              .safeParse(parsed.data.payload ?? {});
-            if (!paymentBody.success) {
-              res.status(400).json({
-                message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
-                code: "INVALID_PAYLOAD",
-              });
-              return;
-            }
-
-            const result = await recordCollectedPayment({
-              order_id: order.id,
-              user_id: order.user_id,
-              amount: paymentBody.data.amount,
-              method: "pay_at_dropoff",
-              status: "collected",
-              collection_mode: paymentBody.data.collection_mode,
-              collected_by: callerId,
-              reference: paymentBody.data.reference ?? null,
+          const otpBody = z
+            .object({
+              // `required_error` as well as the regex message: a missing key
+              // otherwise surfaces zod's bare "Required", which is what an
+              // agent would have been shown at a doorstep.
+              otp: z
+                .string({ required_error: "Enter the code" })
+                .trim()
+                // 4-6: new codes are four digits, but one issued before that
+                // change is still on somebody's screen. See handoverCodes.ts.
+                .regex(HANDOVER_CODE_PATTERN, "Enter the 4-digit code"),
+            })
+            .safeParse(parsed.data.payload ?? {});
+          if (!otpBody.success) {
+            res.status(400).json({
+              message: otpBody.error.issues[0]?.message ?? "The handover code is required",
+              code: "OTP_REQUIRED",
             });
-            if (!result) {
-              res.status(502).json({
-                message: "Could not record the payment. Do not settle yet.",
-                code: "PAYMENT_WRITE_FAILED",
-              });
-              return;
-            }
-
-            updated = result.order ?? order;
-            eventNote = `Collected ₹${paymentBody.data.amount} at drop-off (${paymentBody.data.collection_mode})`;
-            extra = {
-              payment_id: result.paymentId,
-              txn_id: result.txnId,
-              amount: paymentBody.data.amount,
-              collection_mode: paymentBody.data.collection_mode,
-            };
-            collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
-            break;
+            return;
           }
 
-          res.status(403).json({
-            message: "You do not have permission to collect payment on this order.",
-            code: "FORBIDDEN",
+          const check = await verifyCode({
+            orderId: order.id,
+            kind,
+            submitted: otpBody.data.otp,
+            verifiedBy: callerId,
           });
-          return;
+
+          if (!check.ok) {
+            const messages: Record<typeof check.reason, string> = {
+              no_code: "There is no handover code on this order to check.",
+              locked:
+                "Too many wrong codes. Ask for a fresh code to be generated, then try again.",
+              mismatch:
+                check.attemptsLeft > 0
+                  ? `That code is not right. ${check.attemptsLeft} ${
+                      check.attemptsLeft === 1 ? "try" : "tries"
+                    } left.`
+                  : "That code is not right, and this code is now locked. Ask for a fresh one.",
+              error: "Could not check the code. Try again.",
+            };
+            res.status(check.reason === "error" ? 502 : 409).json({
+              message: messages[check.reason],
+              code: `OTP_${check.reason.toUpperCase()}`,
+              attemptsLeft: check.attemptsLeft,
+            });
+            return;
+          }
+
+          // Ownership differs by who is acting: the agent may only advance a
+          // job they hold, ops may act on anyone's.
+          updated =
+            role === "agent"
+              ? await advanceOrderStatus({
+                  orderId: order.id,
+                  agentId: callerId,
+                  expectedFrom: transition.from,
+                  to: transition.to,
+                })
+              : await transitionOrderStatus({
+                  orderId: order.id,
+                  expectedFrom: transition.from,
+                  to: transition.to,
+                });
+
+          if (!updated) {
+            // The code is already spent at this point. Saying so matters: the
+            // caller must ask for a fresh one rather than retyping the same
+            // number and being told it is wrong.
+            res.status(409).json({
+              message:
+                "This order moved on before the code was accepted. Refresh, then ask for a fresh code.",
+              code: "ORDER_STATE_CHANGED",
+            });
+            return;
+          }
+
+          eventNote = `${
+            role === "agent" ? "Agent" : "Ops"
+          } completed the ${kind} handover with ${HANDOVER_CODE_OWNER[kind]}`;
+          extra = { handover: kind, verified: true };
+
+          // The parcel is now in the agent's bag and the next handover is at the
+          // hub counter, where ops reads this number off their console. Issued
+          // here rather than at the counter so it is already on the ops screen
+          // when the agent walks up.
+          if (action === "mark_picked_up") {
+            await issueCode(order.id, "hub");
+          }
+          break;
+        }
+
+        case "override_handover": {
+          if (!transition.to) {
+            res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
+            return;
+          }
+
+          const overrideBody = z
+            .object({
+              // Required, unlike every other note in this endpoint. An
+              // override is the one action here with no check on it at all,
+              // so the reason is the only thing anyone can audit it by.
+              reason: z
+                .string({ required_error: "Say why the code could not be used" })
+                .trim()
+                .min(3, "Say why the code could not be used")
+                .max(300, "Keep the reason under 300 characters"),
+            })
+            .safeParse(parsed.data.payload ?? {});
+          if (!overrideBody.success) {
+            res.status(400).json({
+              message: overrideBody.error.issues[0]?.message ?? "A reason is required",
+              code: "REASON_REQUIRED",
+            });
+            return;
+          }
+
+          const kind = HANDOVER_KIND_FOR_STATUS[transition.from];
+
+          updated = await transitionOrderStatus({
+            orderId: order.id,
+            expectedFrom: transition.from,
+            to: transition.to,
+          });
+          if (!updated) {
+            res.status(409).json({
+              message: "This order has already moved on.",
+              code: "ORDER_STATE_CHANGED",
+            });
+            return;
+          }
+
+          // Spend the code so it cannot be used afterwards to imply the
+          // handover was verified when it was waved through.
+          if (kind) {
+            await burnCodeForOverride({
+              orderId: order.id,
+              kind,
+              overriddenBy: callerId,
+            });
+          }
+
+          eventNote = `Ops completed the ${kind ?? "handover"} without a code: ${overrideBody.data.reason}`;
+          extra = { handover: kind, override: true, reason: overrideBody.data.reason };
+          break;
+        }
+
+        case "collect_payment": {
+          // Ops collection at the hub is M3's; this branch is the doorstep.
+          if (order.payment_method !== "pay_at_pickup") {
+            res.status(400).json({
+              message: "This order is not marked pay-at-pickup.",
+              code: "PAYMENT_METHOD_MISMATCH",
+            });
+            return;
+          }
+
+          const paymentBody = z
+            .object({
+              amount: z.number().positive("amount must be greater than zero"),
+              // How the money actually moved. Required: an agent handing over
+              // a parcel must have said whether they hold cash or watched a
+              // UPI transfer land, because only one of those ends up in their
+              // pouch at the end of the shift.
+              collection_mode: z.enum(["upi", "cash"], {
+                errorMap: () => ({ message: "Choose UPI or cash" }),
+              }),
+              // UPI reference from the customer's app, if they read it out.
+              reference: z.string().trim().max(120).optional().nullable(),
+            })
+            .safeParse(parsed.data.payload ?? {});
+          if (!paymentBody.success) {
+            res.status(400).json({
+              message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
+              code: "INVALID_PAYLOAD",
+            });
+            return;
+          }
+
+          const result = await recordCollectedPayment({
+            order_id: order.id,
+            user_id: order.user_id,
+            amount: paymentBody.data.amount,
+            method: "pay_at_pickup",
+            status: "collected",
+            collection_mode: paymentBody.data.collection_mode,
+            collected_by: callerId,
+            reference: paymentBody.data.reference ?? null,
+          });
+          if (!result) {
+            res.status(502).json({
+              message: "Could not record the payment. Do not hand over the parcel.",
+              code: "PAYMENT_WRITE_FAILED",
+            });
+            return;
+          }
+
+          // Deliberately no status change — the parcel is still out_for_pickup.
+          updated = result.order ?? order;
+          eventNote = `Collected ₹${paymentBody.data.amount} at pickup (${paymentBody.data.collection_mode})`;
+          extra = {
+            payment_id: result.paymentId,
+            txn_id: result.txnId,
+            amount: paymentBody.data.amount,
+            collection_mode: paymentBody.data.collection_mode,
+          };
+          // Surfaced at the top level so the sheet can show the receipt without
+          // digging through the event metadata.
+          collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
+          break;
+        }
+
+        case "request_cancellation": {
+          const requestBody = z
+            .object({
+              // Optional, and capped: this is a note for whoever picks the
+              // request up, not a support ticket.
+              reason: z.string().trim().max(300, "Keep the reason under 300 characters")
+                .optional()
+                .nullable(),
+            })
+            .safeParse(parsed.data.payload ?? {});
+          if (!requestBody.success) {
+            res.status(400).json({
+              message: requestBody.error.issues[0]?.message ?? "Invalid request payload",
+              code: "INVALID_PAYLOAD",
+            });
+            return;
+          }
+
+          const reason = requestBody.data.reason?.trim() || null;
+
+          updated = await recordCancellationRequest({
+            orderId: order.id,
+            userId: callerId,
+            // The states a request is legal from, mirrored from the transition
+            // table so the WHERE clause re-asserts what the guard checked.
+            expectedStatuses: ["pickup_requested", "awaiting_dropoff", "agent_accepted"],
+            reason,
+          });
+          if (!updated) {
+            res.status(409).json({
+              message:
+                "This order has already moved on. Call support if you still need it cancelled.",
+              code: "ORDER_STATE_CHANGED",
+            });
+            return;
+          }
+
+          // Deliberately no status change: the order is still live and the
+          // agent is still expected to collect it until ops decides.
+          eventNote = reason
+            ? `Customer requested cancellation: ${reason}`
+            : "Customer requested cancellation";
+          extra = { reason };
+          break;
         }
 
         case "cancel": {
@@ -2097,6 +2255,9 @@ export async function registerRoutes(
             res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
             return;
           }
+          // Ops only — `orderLifecycle.ts` gives the customer no `cancel` row,
+          // so a customer reaching here has already been refused by
+          // `findTransition` above.
           updated = await transitionOrderStatus({
             orderId: order.id,
             expectedFrom: transition.from,
@@ -2109,83 +2270,95 @@ export async function registerRoutes(
             });
             return;
           }
-          eventNote = "Order cancelled";
+          // Whether ops was acting on a request or a phone call is the first
+          // thing anyone asks afterwards, so the event says which.
+          const request = readCancellationRequest(order);
+          if (request) {
+            // Best-effort: the cancellation itself is already committed above,
+            // and failing the response because an audit field did not write
+            // would tell ops the cancellation failed when it did not.
+            await markCancellationRequestDecided({
+              orderId: order.id,
+              decision: "approved",
+              decidedBy: callerId,
+              note: null,
+            });
+          }
+          eventNote = request
+            ? "Order cancelled by ops on the customer's request"
+            : "Order cancelled by ops";
+          extra = request
+            ? { requested_at: request.requested_at, requested_reason: request.reason }
+            : {};
+          break;
+        }
+
+        case "reject_cancellation": {
+          const rejectBody = z
+            .object({
+              // The customer reads this. Optional, because a decline over the
+              // phone may already have been explained.
+              note: z.string().trim().max(300, "Keep the note under 300 characters")
+                .optional()
+                .nullable(),
+            })
+            .safeParse(parsed.data.payload ?? {});
+          if (!rejectBody.success) {
+            res.status(400).json({
+              message: rejectBody.error.issues[0]?.message ?? "Invalid decision payload",
+              code: "INVALID_PAYLOAD",
+            });
+            return;
+          }
+
+          const note = rejectBody.data.note?.trim() || null;
+
+          const written = await markCancellationRequestDecided({
+            orderId: order.id,
+            decision: "rejected",
+            decidedBy: callerId,
+            note,
+          });
+          if (!written) {
+            res.status(409).json({
+              message: "There is no open cancellation request on this order.",
+              code: "NO_OPEN_REQUEST",
+            });
+            return;
+          }
+
+          // Nothing moved — that is the decision. Re-read so the response and
+          // the recomputed actions reflect the decision just written.
+          updated = (await getOrderById(order.id)) ?? order;
+          eventNote = note
+            ? `Cancellation declined by ops: ${note}`
+            : "Cancellation declined by ops";
+          extra = { note };
+
+          // The one case the customer must be told about explicitly. An
+          // approval announces itself as the order turning `cancelled`, which
+          // the block below already notifies; a decline changes nothing on
+          // screen, so without this the customer waits forever.
+          void insertOrderStatusNotification({
+            user_id: updated.user_id,
+            title: "Cancellation declined",
+            body: note
+              ? `${updated.order_no} — ${note}`
+              : `${updated.order_no} — your cancellation request was declined. Your shipment is still going ahead.`,
+            data: {
+              order_id: updated.id,
+              order_no: updated.order_no,
+              status: updated.status,
+              cancellation: "rejected",
+            },
+          });
           break;
         }
 
         default: {
-          // Ops actions — weigh, settle, mark_received_dropoff (3B).
-          // generate_docket stays 501 until 3C.
-          const mapOpsResult = (
-            r: Awaited<ReturnType<typeof handleWeigh>>
-          ): boolean => {
-            if ("error" in r) {
-              res.status(r.error.status).json({
-                message: r.error.message,
-                code: r.error.code,
-                ...(r.error.extra ?? {}),
-                availableActions: availableActions(order, role, { userId: callerId }),
-              });
-              return false;
-            }
-            updated = r.order;
-            eventNote = r.eventNote;
-            extra = r.eventMeta;
-            return true;
-          };
-
-          if (action === "mark_received_dropoff") {
-            if (!transition.to) {
-              res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
-              return;
-            }
-            const ok = mapOpsResult(
-              await handleMarkReceivedDropoff({
-                order,
-                callerId,
-                expectedFrom: transition.from,
-                to: transition.to,
-              })
-            );
-            if (!ok) return;
-            break;
-          }
-
-          if (action === "weigh") {
-            if (!transition.to) {
-              res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
-              return;
-            }
-            const ok = mapOpsResult(
-              await handleWeigh({
-                order,
-                callerId,
-                expectedFrom: transition.from,
-                to: transition.to,
-                payload: parsed.data.payload,
-              })
-            );
-            if (!ok) return;
-            break;
-          }
-
-          if (action === "settle") {
-            if (!transition.to) {
-              res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
-              return;
-            }
-            const ok = mapOpsResult(
-              await handleSettle({
-                order,
-                callerId,
-                expectedFrom: transition.from,
-                to: transition.to,
-              })
-            );
-            if (!ok) return;
-            break;
-          }
-
+          // Ops actions — weigh, settle, generate_docket, mark_received_dropoff.
+          // Authorised and legal, but the handlers are Arbaaz's (M3/M5). The
+          // 501 stays until those land.
           res.status(501).json({
             message: `"${action}" is legal for this order but not implemented yet.`,
             code: "NOT_IMPLEMENTED",
@@ -2197,14 +2370,6 @@ export async function registerRoutes(
           });
           return;
         }
-      }
-
-      if (!updated) {
-        res.status(500).json({
-          message: "Action completed without an order row.",
-          code: "NO_ORDER",
-        });
-        return;
       }
 
       // The write landed. Log it before responding — awaited, not fire-and-
@@ -2282,6 +2447,158 @@ export async function registerRoutes(
     res.json({ orders });
   });
 
+  // ── POST /api/orders/:id/handover-code — issue a fresh code ─────────────
+  //
+  // The escape hatch for the two ways a code stops working: five wrong guesses
+  // locked it, or nobody can find it because the write failed when the order
+  // moved. Only the party who *shows* the code may regenerate it — a verifier
+  // who could mint a new one would be testing themselves.
+  //
+  // The kind is derived from role and status rather than taken from the body,
+  // so a customer cannot ask for the agent's hub code by naming it.
+  app.post(
+    "/api/orders/:id/handover-code",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      const callerId = req.session.dbUserId;
+      if (!callerId) {
+        res.status(401).json({ message: "Login required" });
+        return;
+      }
+
+      const role = resolveRole(req.session.user?.role);
+      if (!role) {
+        res.status(403).json({ message: "Not allowed", code: "FORBIDDEN" });
+        return;
+      }
+
+      const order = await getOrderById(req.params.id);
+      if (!order) {
+        res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+        return;
+      }
+
+      let kind: HandoverKind | null = null;
+
+      if (role === "customer") {
+        // Ownership first: a customer regenerating someone else's code would
+        // be a denial of service on a stranger's pickup.
+        if (order.user_id !== callerId) {
+          res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+          return;
+        }
+        if (order.pickup_request === 2 && order.status === "awaiting_dropoff") {
+          kind = "dropoff";
+        } else if (
+          order.pickup_request === 1 &&
+          (order.status === "agent_accepted" || order.status === "out_for_pickup")
+        ) {
+          kind = "pickup";
+        }
+      } else if (role === "admin" || role === "super_admin") {
+        // The hub code, and only the hub code. Ops shows that one to the agent
+        // at the counter, so ops is the party entitled to refresh it.
+        //
+        // Not `dropoff`, even though it is also read at their counter: that code
+        // is the customer's and ops is the one who types it in. Not `pickup`
+        // either, for the same reason at the other end. A verifier who could
+        // mint a fresh code would be testing themselves, which is the one rule
+        // `handoverCodes.ts` exists to hold.
+        //
+        // The agent has no branch here at all any more — they type the hub code
+        // now, so the entitlement moved with the handover.
+        if (order.status === "picked_up") {
+          kind = "hub";
+        }
+      }
+
+      if (!kind) {
+        res.status(409).json({
+          message: "This order has no handover code to refresh right now.",
+          code: "NO_HANDOVER_DUE",
+        });
+        return;
+      }
+
+      const code = await issueCode(order.id, kind);
+      if (!code) {
+        res.status(502).json({
+          message: "Could not generate a new code. Try again.",
+          code: "CODE_ISSUE_FAILED",
+        });
+        return;
+      }
+
+      // Logged so a string of regenerations before a disputed handover is
+      // visible afterwards, rather than being invisible in the order's history.
+      void insertOrderEvent({
+        order_id: order.id,
+        status: order.status,
+        note: `New ${kind} handover code issued`,
+        actor_user_id: callerId,
+        metadata: { action: "regenerate_handover_code", handover: kind, role },
+      });
+
+      res.json({ handover: { kind, code, locked: false } });
+    }
+  );
+
+  // ── GET /api/orders/cancellations — the customer's cancellation screen ───
+  //
+  // MUST stay above `/api/orders/:orderNo`: Express matches in registration
+  // order, and the param route would otherwise swallow this and look up an
+  // order numbered "cancellations".
+  //
+  // One row per order cancellation has touched, in the three states the screen
+  // groups by. The state is derived server-side by `cancellationState` so the
+  // page never re-implements the rule that a cancelled order outranks whatever
+  // its metadata says.
+  app.get("/api/orders/cancellations", ensureDbUser, async (req: Request, res: Response) => {
+    const userId = req.session.dbUserId;
+    if (!userId) {
+      res.status(401).json({ message: "Login required" });
+      return;
+    }
+
+    const rows = await listCancellationOrdersByUserId(userId);
+    if (rows === null) {
+      res.status(502).json({ message: "Could not load your cancellations" });
+      return;
+    }
+
+    const orders = rows.map((row) => {
+      const order = toOrder(row);
+      const request = readCancellationRequest(order);
+      return {
+        id: order.id,
+        order_no: order.order_no,
+        status: order.status,
+        customerStatus: deriveCustomerStatus(order),
+        pickup_request: order.pickup_request,
+        pickup_date: order.pickup_date,
+        pickup_slot: order.pickup_slot,
+        quoted_amount: order.quoted_amount,
+        final_amount: order.final_amount,
+        payment_method: order.payment_method,
+        payment_status: order.payment_status,
+        created_at: order.created_at,
+        updated_at: order.updated_at,
+        cancellation: {
+          state: cancellationState(order),
+          requestedAt: request?.requested_at ?? null,
+          reason: request?.reason ?? null,
+          decidedAt: request?.decided_at ?? null,
+          // Ops' words to the customer when they declined. Null on an approval,
+          // which needs no explaining.
+          decisionNote: request?.decision_note ?? null,
+        },
+      };
+    });
+
+    res.json({ orders });
+  });
+
   // ── GET /api/orders/:orderNo — one order, in full, for its owner ─────────
   //
   // The customer's counterpart to the agent's pickup detail screen. Everything
@@ -2326,9 +2643,30 @@ export async function registerRoutes(
       return;
     }
 
-    const [rawEvents, payments] = await Promise.all([
+    /**
+     * The customer's handover code, and only the customer's.
+     *
+     * A pickup order's code is theirs to read to the agent; a drop-off order's
+     * is theirs to read at the hub counter. The `hub` code belongs to ops and
+     * must never appear here — this endpoint is the customer's.
+     *
+     * Only fetched in the statuses where the handover is actually next. Showing
+     * a code for a parcel already at the hub invites someone to read out a
+     * number that opens nothing.
+     */
+    const handoverKind: HandoverKind | null =
+      order.pickup_request === 2
+        ? order.status === "awaiting_dropoff"
+          ? "dropoff"
+          : null
+        : order.status === "agent_accepted" || order.status === "out_for_pickup"
+          ? "pickup"
+          : null;
+
+    const [rawEvents, payments, handover] = await Promise.all([
       listOrderEvents(order.id),
       listPaymentsByOrderId(order.id),
+      handoverKind ? getCodeForOwner(order.id, handoverKind) : Promise.resolve(null),
     ]);
 
     // The three internal statuses produce no customer-visible change (§2 of
@@ -2352,6 +2690,11 @@ export async function registerRoutes(
       // previous entry verbatim ("Agent on the way" twice in a row). Name what
       // actually happened instead.
       const isCollection = meta.action === "collect_payment";
+      // Same reasoning for the two cancellation verbs, which by design leave
+      // the status alone: without this the customer's own request, and ops
+      // declining it, both render as whatever the order already said.
+      const isCancellationRequest = meta.action === "request_cancellation";
+      const isCancellationDeclined = meta.action === "reject_cancellation";
       return {
         id: ev.id,
         at: ev.created_at,
@@ -2360,7 +2703,11 @@ export async function registerRoutes(
         // two different things on two screens.
         label: isCollection
           ? "Payment collected"
-          : deriveCustomerStatus({ ...order, status: ev.status as OrderStatus }),
+          : isCancellationRequest
+            ? "Cancellation requested"
+            : isCancellationDeclined
+              ? "Cancellation declined"
+              : deriveCustomerStatus({ ...order, status: ev.status as OrderStatus }),
         note: ev.note,
         action: typeof meta.action === "string" ? meta.action : null,
         actorName: actor?.full_name ?? null,
@@ -2394,8 +2741,39 @@ export async function registerRoutes(
         collectedAt: p.collected_at ?? p.created_at,
         collectedByName: p.collected_by ? contacts.get(p.collected_by)?.full_name ?? null : null,
       })),
-      // Lets the page render a Cancel button without knowing the state machine.
+      // Lets the page render its actions without knowing the state machine.
       availableActions: availableActions(order, "customer", { userId }),
+      /**
+       * `kind` is sent even when there is no code, so the page can offer a
+       * regenerate instead of silently showing nothing at the one moment the
+       * customer is standing at the door being asked for a number.
+       */
+      handover: handoverKind
+        ? {
+            kind: handoverKind,
+            code: handover?.code ?? null,
+            locked: handover?.locked ?? false,
+          }
+        : null,
+      // Surfaced as its own field rather than leaving the page to dig through
+      // `order.metadata` — the customer app has no business parsing an escape
+      // hatch that also carries gateway ids and failure blobs.
+      cancellationRequest: (() => {
+        const request = readCancellationRequest(order);
+        if (!request) return null;
+        const state = cancellationState(order);
+        return {
+          state,
+          requestedAt: request.requested_at,
+          reason: request.reason,
+          decidedAt: request.decided_at ?? null,
+          decisionNote: request.decision_note ?? null,
+          // Kept as its own field rather than left to the page to derive from
+          // `state`: "are we still waiting?" is the question the banner asks,
+          // and one boolean is harder to get wrong than a string comparison.
+          pending: state === "pending",
+        };
+      })(),
       // A failed events read is not fatal — the booking detail is still worth
       // showing — but the page must be able to say so rather than imply the
       // order has no history.

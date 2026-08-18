@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
 import { Menu, Bell } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { TopBar } from '@/components/TopBar';
+import { useUnreadNotificationCount } from '@/hooks/useCustomerOrders';
 
 interface HeaderProps {
   onMenuClick?: () => void;
@@ -10,34 +10,13 @@ interface HeaderProps {
 
 export function Header({ onMenuClick }: HeaderProps) {
   const { isLoggedIn } = useAppStore();
-  const [unreadCount, setUnreadCount] = useState(0);
 
-  useEffect(() => {
-    if (!isLoggedIn) {
-      setUnreadCount(0);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch('/api/notifications/unread-count', {
-          credentials: 'include',
-        });
-        if (cancelled) return;
-        if (!res.ok) {
-          setUnreadCount(0);
-          return;
-        }
-        const data = (await res.json()) as { count?: number };
-        setUnreadCount(typeof data.count === 'number' ? data.count : 0);
-      } catch {
-        if (!cancelled) setUnreadCount(0);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoggedIn]);
+  // Derived from the notification list, which polls. This used to be a
+  // fetch-once effect against /api/notifications/unread-count: the badge was
+  // fixed at whatever the count was when the header first mounted, so it did
+  // not clear when the customer read something and did not appear when
+  // something arrived.
+  const unreadCount = useUnreadNotificationCount(isLoggedIn);
 
   return (
     <TopBar

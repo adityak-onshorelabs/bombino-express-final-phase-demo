@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { useLocation, Link } from 'wouter';
 import { Search, ArrowRight, BadgeDollarSign, Send, Phone, Bell, ChevronRight } from 'lucide-react';
 import { Header } from '@/components/Header';
@@ -10,16 +10,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useIsMobile } from '@/hooks/use-mobile';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
-import { fetchMergedShipmentRows, type DisplayRow } from '@/lib/shipmentRows';
+import { type DisplayRow } from '@/lib/shipmentRows';
+import { useNotifications, useOrderHistory } from '@/hooks/useCustomerOrders';
 import HomeDesktop from '@/pages/HomeDesktop';
-
-interface HomeNotificationRow {
-  id: string;
-  title: string | null;
-  body: string | null;
-  type: string | null;
-  created_at: string;
-}
 
 function HomeShipmentsSkeleton() {
   return (
@@ -105,56 +98,19 @@ function HomeMobile() {
   const [, setLocation] = useLocation();
   const { isLoggedIn, user } = useAppStore();
 
-  const [shipmentsLoading, setShipmentsLoading] = useState(isLoggedIn);
-  const [shipmentsError, setShipmentsError] = useState(false);
-  const [shipmentRows, setShipmentRows] = useState<DisplayRow[]>([]);
+  // Both poll while the tab is in front — home is the screen a customer leaves
+  // open, and it was the worst offender for showing yesterday's state.
+  const {
+    data: historyData,
+    isLoading: historyLoading,
+    isError: shipmentsError,
+  } = useOrderHistory(isLoggedIn);
+  const { data: notificationsData, isError: notificationsError } =
+    useNotifications(isLoggedIn);
 
-  const [notificationsError, setNotificationsError] = useState(false);
-  const [apiNotifications, setApiNotifications] = useState<HomeNotificationRow[]>([]);
-
-  const loadHomeData = useCallback(async () => {
-    if (!isLoggedIn) {
-      setShipmentRows([]);
-      setApiNotifications([]);
-      setShipmentsError(false);
-      setNotificationsError(false);
-      setShipmentsLoading(false);
-      return;
-    }
-    setShipmentsLoading(true);
-    setShipmentsError(false);
-    setNotificationsError(false);
-
-    try {
-      setShipmentRows(await fetchMergedShipmentRows());
-    } catch {
-      setShipmentsError(true);
-      setShipmentRows([]);
-    }
-
-    const notifRes = await fetch('/api/notifications', { credentials: 'include' }).catch(() => null);
-    if (!notifRes || !notifRes.ok) {
-      setNotificationsError(true);
-      setApiNotifications([]);
-    } else {
-      const raw = (await notifRes.json().catch(() => [])) as HomeNotificationRow[];
-      setApiNotifications(Array.isArray(raw) ? raw : []);
-    }
-
-    setShipmentsLoading(false);
-  }, [isLoggedIn]);
-
-  useLayoutEffect(() => {
-    if (isLoggedIn) {
-      setShipmentsLoading(true);
-    } else {
-      setShipmentsLoading(false);
-    }
-  }, [isLoggedIn]);
-
-  useEffect(() => {
-    void loadHomeData();
-  }, [loadHomeData]);
+  const shipmentRows: DisplayRow[] = historyData ?? [];
+  const apiNotifications = notificationsData ?? [];
+  const shipmentsLoading = isLoggedIn && historyLoading;
 
   const userShipments = shipmentRows.slice(0, 2);
   const userNotifications = apiNotifications.slice(0, 3);

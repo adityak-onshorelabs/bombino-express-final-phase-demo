@@ -85,6 +85,16 @@ export function registerAgentRoutes(app: Express): void {
         return;
       }
 
+      /**
+       * No handover code travels with this payload, in either direction.
+       *
+       * The agent types both codes they touch — the customer's at the door, the
+       * hub's at the counter — and a verifier who can read the code is not being
+       * tested by it (`handoverCodes.ts`). This endpoint used to carry the `hub`
+       * code back when ops was the one entering it; that handover has since been
+       * flipped, and the entitlement moved with it. Ops reads the hub code off
+       * their own console now.
+       */
       res.json({ pickups: withActions(pickups, agentId) });
     }
   );

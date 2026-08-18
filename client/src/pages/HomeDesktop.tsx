@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+﻿import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import {
   Search,
@@ -16,8 +16,10 @@ import { useAppStore } from '@/lib/store';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
 import { StatusBadge } from '@/components/StatusBadge';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
-import { fetchMergedShipmentRows, type DisplayRow } from '@/lib/shipmentRows';
+import { type DisplayRow } from '@/lib/shipmentRows';
+import { useNotifications, useOrderHistory } from '@/hooks/useCustomerOrders';
 
+/** The subset of a notification this page renders. */
 interface HomeNotificationRow {
   id: string;
   title: string | null;
@@ -670,39 +672,14 @@ export default function HomeDesktop() {
 
   const [trackingNumber, setTrackingNumber] = useState('');
 
-  const [shipmentsLoading, setShipmentsLoading] = useState(isLoggedIn);
-  const [shipmentRows, setShipmentRows] = useState<DisplayRow[]>([]);
-  const [apiNotifications, setApiNotifications] = useState<HomeNotificationRow[]>([]);
+  // Same two hooks the mobile home uses, so both share one cache and one
+  // polling schedule rather than each running their own timers.
+  const { data: historyData, isLoading: historyLoading } = useOrderHistory(isLoggedIn);
+  const { data: notificationsData } = useNotifications(isLoggedIn);
 
-  const loadHomeData = useCallback(async () => {
-    if (!isLoggedIn) {
-      setShipmentRows([]);
-      setApiNotifications([]);
-      setShipmentsLoading(false);
-      return;
-    }
-    setShipmentsLoading(true);
-
-    const [rows, notifRes] = await Promise.all([
-      fetchMergedShipmentRows().catch(() => [] as DisplayRow[]),
-      fetch('/api/notifications', { credentials: 'include' }).catch(() => null),
-    ]);
-
-    setShipmentRows(rows);
-
-    if (notifRes && notifRes.ok) {
-      const raw = (await notifRes.json().catch(() => [])) as HomeNotificationRow[];
-      setApiNotifications(Array.isArray(raw) ? raw : []);
-    } else {
-      setApiNotifications([]);
-    }
-
-    setShipmentsLoading(false);
-  }, [isLoggedIn]);
-
-  useEffect(() => {
-    void loadHomeData();
-  }, [loadHomeData]);
+  const shipmentRows: DisplayRow[] = historyData ?? [];
+  const apiNotifications = notificationsData ?? [];
+  const shipmentsLoading = isLoggedIn && historyLoading;
 
   const handleTrack = (awb?: string) => {
     const value = (awb ?? trackingNumber).trim();

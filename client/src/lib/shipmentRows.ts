@@ -1,6 +1,15 @@
 import type { ShipmentHistoryItem } from '@/lib/shipmentApiTypes';
-import { getStatusLabel, getStatusColor, type AwbStatusTone } from '@/lib/awbStatus';
-import { getOrderStatusLabel, getOrderStatusTone } from '@/lib/orderStatus';
+import {
+  getStatusLabel,
+  getStatusColor,
+  isAwbStatusFinal,
+  type AwbStatusTone,
+} from '@/lib/awbStatus';
+import {
+  getCustomerStatusLabel,
+  getOrderStatusTone,
+  isTerminalOrderStatus,
+} from '@/lib/orderStatus';
 
 /** Row shape from GET /api/orders (server/ordersDb.ts OrderRow) */
 export interface OrderApiRow {
@@ -32,6 +41,15 @@ export interface DisplayRow {
   createdAt: string;
   /** Last movement. Drives list order so a just-advanced order leads. */
   updatedAt: string;
+  /**
+   * Still capable of changing. False once an order is dispatched or cancelled,
+   * or once ITD has said its last word on an AWB.
+   *
+   * The list polls only while at least one row is live, so a customer whose
+   * parcels have all arrived stops costing requests. Presentation only — never
+   * a guard.
+   */
+  isLive: boolean;
 }
 
 export function formatShipmentAmount(amount: string | number | null, currency: string | null): string | null {
@@ -63,6 +81,7 @@ export function shipmentToRow(item: ShipmentHistoryItem): DisplayRow {
     // Older server builds did not select updated_at; fall back rather than
     // sorting these to the epoch and burying them.
     updatedAt: item.updated_at ?? item.created_at,
+    isLive: !isAwbStatusFinal(item.current_status),
   };
 }
 
@@ -82,10 +101,14 @@ export function orderToRow(order: OrderApiRow): DisplayRow {
     // freight charge from the ITD rate call. Passing it here rendered
     // ₹1,705.10 as "QAR 1,705".
     amountStr: formatShipmentAmount(order.final_amount ?? order.quoted_amount, 'INR'),
-    statusLabel: getOrderStatusLabel(order.status),
+    // Customer vocabulary, not the internal one. This list is a customer
+    // surface, so `weighed`/`settled`/`ready_for_docket` must all read
+    // "Arrived at Bombino hub" — same phrase the detail screen shows.
+    statusLabel: getCustomerStatusLabel(order.status),
     statusTone: getOrderStatusTone(order.status),
     createdAt: order.created_at,
     updatedAt: order.updated_at ?? order.created_at,
+    isLive: !isTerminalOrderStatus(order.status),
   };
 }
 
