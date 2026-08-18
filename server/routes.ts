@@ -1817,6 +1817,18 @@ export async function registerRoutes(
     mark_received_dropoff: "dropoff",
   } as const satisfies Record<string, HandoverKind>;
 
+  /**
+   * Whose code each handover checks, for the audit note.
+   *
+   * Not cosmetic: reading "with the hub's code" in an order's history is what
+   * tells whoever is investigating a disputed parcel which party was tested.
+   */
+  const HANDOVER_CODE_OWNER = {
+    pickup: "the customer's code",
+    hub: "the hub's code",
+    dropoff: "the customer's code",
+  } as const satisfies Record<HandoverKind, string>;
+
   /** Which handover an ops override is waving through, by the status it acts on. */
   const HANDOVER_KIND_FOR_STATUS: Partial<Record<OrderStatus, HandoverKind>> = {
     out_for_pickup: "pickup",
@@ -2055,12 +2067,13 @@ export async function registerRoutes(
 
           eventNote = `${
             role === "agent" ? "Agent" : "Ops"
-          } completed the ${kind} handover with the customer's code`;
+          } completed the ${kind} handover with ${HANDOVER_CODE_OWNER[kind]}`;
           extra = { handover: kind, verified: true };
 
-          // The agent's parcel is now in their bag and the next handover is at
-          // the hub counter. Issue that code here so it is on their screen for
-          // the whole ride, not conjured at the counter on a bad signal.
+          // The parcel is now in the agent's bag and the next handover is at the
+          // hub counter, where ops reads this number off their console. Issued
+          // here rather than at the counter so it is already on the ops screen
+          // when the agent walks up.
           if (action === "mark_picked_up") {
             await issueCode(order.id, "hub");
           }
@@ -2480,9 +2493,19 @@ export async function registerRoutes(
         ) {
           kind = "pickup";
         }
-      } else if (role === "agent") {
-        // Only the agent holding the parcel, and only once it is in their bag.
-        if (order.agent_id === callerId && order.status === "picked_up") {
+      } else if (role === "admin" || role === "super_admin") {
+        // The hub code, and only the hub code. Ops shows that one to the agent
+        // at the counter, so ops is the party entitled to refresh it.
+        //
+        // Not `dropoff`, even though it is also read at their counter: that code
+        // is the customer's and ops is the one who types it in. Not `pickup`
+        // either, for the same reason at the other end. A verifier who could
+        // mint a fresh code would be testing themselves, which is the one rule
+        // `handoverCodes.ts` exists to hold.
+        //
+        // The agent has no branch here at all any more — they type the hub code
+        // now, so the entitlement moved with the handover.
+        if (order.status === "picked_up") {
           kind = "hub";
         }
       }
@@ -2621,8 +2644,8 @@ export async function registerRoutes(
      * The customer's handover code, and only the customer's.
      *
      * A pickup order's code is theirs to read to the agent; a drop-off order's
-     * is theirs to read at the hub counter. The `hub` code belongs to the
-     * agent and must never appear here — this endpoint is the customer's.
+     * is theirs to read at the hub counter. The `hub` code belongs to ops and
+     * must never appear here — this endpoint is the customer's.
      *
      * Only fetched in the statuses where the handover is actually next. Showing
      * a code for a parcel already at the hub invites someone to read out a

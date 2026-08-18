@@ -5,7 +5,7 @@
  *
  *   kind      shown to    typed in by   gates
  *   pickup    customer    agent         out_for_pickup  → picked_up
- *   hub       agent       ops           picked_up       → received_at_hub
+ *   hub       ops         agent         picked_up       → received_at_hub
  *   dropoff   customer    ops           awaiting_dropoff → received_at_hub
  *
  * THE ONE RULE: never return a code to the party that types it in. A verifier

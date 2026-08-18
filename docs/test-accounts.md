@@ -38,9 +38,22 @@ branch. Despite the name, `9000000011` holds the `admin` role, not
 `super_admin` — it was briefly turned into an agent by an earlier revision of
 the seed script and has been restored.
 
-Ops is the other half of two handovers: it types the agent's `hub` code and the
-customer's `dropoff` code, and it decides cancellation requests. Neither of
-those screens is in this branch — they live on `origin/arbaaz/ops-console`.
+Ops is the other half of two handovers, in opposite directions: it **shows** the
+`hub` code that the agent types into the agent app, and it **types** the
+customer's `dropoff` code. It also decides cancellation requests. None of those
+screens is in this branch — they live on `origin/arbaaz/ops-console`.
+
+Until the ops console catches up, the hub code can be minted (and read) through
+the API as an admin, which is exactly what their screen will call:
+
+```
+POST /api/orders/<order-id>/handover-code     # as 9000000010, on a picked_up order
+→ { "handover": { "kind": "hub", "code": "218876", "locked": false } }
+```
+
+Seeded orders carry no handover codes — `scripts/seed-dummy-agents.mjs` writes
+them straight into mid-lifecycle states. Mint one with the call above, or drive
+an order through `mark_picked_up`, which issues the hub code as a side effect.
 
 ## Customers
 

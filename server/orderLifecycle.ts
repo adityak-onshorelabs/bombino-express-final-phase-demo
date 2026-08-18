@@ -150,18 +150,25 @@ export const TRANSITIONS: readonly Transition[] = [
     guard: (order, ctx) => isOwningAgent(order, ctx) && !owesAtPickup(order),
   },
   {
-    // Ops, not the agent. The agent reads their code out at the counter and
-    // ops types it in — an agent who could complete their own handover is not
-    // being checked by the code, which is the only reason it exists.
+    // The agent closes their own job, but not on their own say-so: the hub code
+    // is on ops' console and appears nowhere in the agent app, so typing it is
+    // proof the agent reached the counter and someone there read it out.
     //
-    // Terminal for the agent either way: no row has `from: picked_up` and
-    // `role: agent`, so the job leaves their queue when ops accepts it.
+    // The verifier is the agent and the owner is ops — the reverse of the
+    // pickup, and the same rule (`handoverCodes.ts`: never return a code to the
+    // party that types it in). Ops still has `override_handover` below for a
+    // dead phone.
+    //
+    // This is the last thing the agent does with the parcel: `received_at_hub`
+    // has no `role: agent` row, so the job leaves their queue the moment it
+    // lands.
     from: "picked_up",
     action: "mark_received_at_hub",
-    role: "admin",
+    role: "agent",
     to: "received_at_hub",
-    label: "Receive from agent",
+    label: "Hand over at hub",
     requiresPayload: true,
+    guard: isOwningAgent,
   },
 
   // ── Ops, drop-off path + hub (M2/M3/M5) ────────────────────────────────
