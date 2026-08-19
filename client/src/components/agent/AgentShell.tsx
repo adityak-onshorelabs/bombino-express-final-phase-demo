@@ -125,7 +125,7 @@ export function AgentShell({
   children,
 }: {
   /**
-   * Omitted on Today, which has no title at all: the date is in the bar and the
+   * Omitted on Home, which has no title at all: the date is in the bar and the
    * first band names itself, so a heading over them said nothing twice.
    */
   title?: string;
@@ -133,7 +133,7 @@ export function AgentShell({
   meta?: React.ReactNode;
   /** One plain line under the title row. Only My week has one. */
   sub?: string;
-  /** Space between blocks: 22 on Today, 20 on the list screens. */
+  /** Space between blocks: 22 on Home, 20 on the list screens. */
   gap?: 16 | 20 | 22;
   children: React.ReactNode;
 }) {
