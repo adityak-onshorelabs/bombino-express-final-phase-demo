@@ -156,6 +156,8 @@ interface OrderCreatePayload {
   payment_method: 'pay_now' | 'pay_at_pickup' | 'pay_at_dropoff' | 'cod';
   booked_weight?: number | null;
   quoted_amount?: number | null;
+  /** The customer wants us to pack the parcel. Never priced at booking. */
+  packaging_required: boolean;
   origin_address: {
     full_name: string;
     company?: string | null;
@@ -403,6 +405,7 @@ export default function CreateShipment() {
   const [weightUnit, setWeightUnit] = useState<'lb' | 'kg'>('lb');
   const [weight, setWeight] = useState('2');
   const [pieces, setPieces] = useState('1');
+  const [packagingRequired, setPackagingRequired] = useState(false);
   const [dimUnit, setDimUnit] = useState<'in' | 'cm'>('in');
   const [dimL, setDimL] = useState('');
   const [dimW, setDimW] = useState('');
@@ -1144,6 +1147,7 @@ export default function CreateShipment() {
       pickup_slot: pickupRequest === '1' ? pickupSlot : null,
       booked_weight: Number.isFinite(weightKg) ? parseFloat(weightKg.toFixed(2)) : null,
       quoted_amount: quotedAmount != null && Number.isFinite(quotedAmount) ? quotedAmount : null,
+      packaging_required: packagingRequired,
       origin_address: {
         full_name: senderName,
         company: senderCompany || null,
@@ -2111,6 +2115,51 @@ export default function CreateShipment() {
               <p className="text-[10px] text-muted-foreground mt-1.5">Customs declared value for international shipping</p>
             </div>
 
+            {/* Packaging — asked here, on the Package step, because it is a
+                fact about the parcel and not about how it travels. Carries no
+                price: any packaging cost is settled at the hub with the rest of
+                the reprice, so nothing on this card moves the quote. */}
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+              <Label className="text-sm font-semibold mb-3 block">Packaging</Label>
+
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-muted-foreground">Do you need us to pack it?</span>
+                <div className="flex gap-3">
+                  {(
+                    [
+                      { val: false, label: 'Already packed' },
+                      { val: true, label: 'Pack it for me' },
+                    ] as const
+                  ).map(({ val, label }) => (
+                    <button
+                      key={String(val)}
+                      type="button"
+                      onClick={() => setPackagingRequired(val)}
+                      className={cn(
+                        'px-3 py-1 text-xs',
+                        'rounded-full border',
+                        'transition-colors',
+                        packagingRequired === val
+                          ? 'bg-primary text-white border-primary'
+                          : 'border-border text-muted-foreground'
+                      )}
+                      data-testid={`button-packaging-${val ? 'yes' : 'no'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <p className="text-[10px] text-muted-foreground mt-3 pt-3 border-t border-border">
+                {packagingRequired
+                  ? pickupRequest === '1'
+                    ? 'The agent brings packaging material to your door. Any packaging charge is added when we weigh the parcel — not to the quote below.'
+                    : 'We pack your parcel at the hub counter. Any packaging charge is added when we weigh it — not to the quote below.'
+                  : 'Hand us a sealed parcel. Fragile items travel better packed by us.'}
+              </p>
+            </div>
+
             {stepError && (
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3">
                 <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
@@ -2727,6 +2776,9 @@ export default function CreateShipment() {
                         {shipmentValue ? (
                           <p className="text-[11px] text-muted-foreground tabular-nums">Value: {selectedCurrency} {shipmentValue}</p>
                         ) : null}
+                        {packagingRequired ? (
+                          <p className="text-[11px] text-muted-foreground">Packaging: we pack it</p>
+                        ) : null}
                       </>
                     ) : (
                       <p className="text-[12px] text-muted-foreground italic">Weight, dimensions &amp; value — not set</p>
@@ -3201,6 +3253,12 @@ export default function CreateShipment() {
                 </span>
                 <span className="font-medium text-foreground text-right">
                   {pickupRequest === '1' ? `${pickupDate} · ${pickupSlot}` : 'At the hub'}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Packaging</span>
+                <span className="font-medium text-foreground text-right">
+                  {packagingRequired ? 'We pack it' : 'Already packed'}
                 </span>
               </div>
               <div className="flex justify-between gap-3 pt-2 border-t border-border">

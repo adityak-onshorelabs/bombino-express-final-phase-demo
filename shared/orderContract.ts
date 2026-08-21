@@ -104,6 +104,13 @@ export interface Order {
   items: unknown;
   booked_weight: number | null;
   quoted_amount: number | null;
+  /**
+   * The customer asked us to pack the parcel. Nothing about it is priced at
+   * booking — packaging cost, where it applies, lands in `final_amount` at the
+   * hub like every other reprice. It is here so the agent knows to carry
+   * material before they leave, and ops knows to pack at the counter.
+   */
+  packaging_required: boolean;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
   is_cod: boolean;

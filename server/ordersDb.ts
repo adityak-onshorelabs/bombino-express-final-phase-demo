@@ -33,6 +33,7 @@ export type OrderInsert = {
   items: Json;
   booked_weight: number | null;
   quoted_amount: number | null;
+  packaging_required: boolean;
   payment_method: PaymentMethod;
   is_cod: boolean;
 };
@@ -50,6 +51,7 @@ export type OrderRow = {
   items: Json;
   booked_weight: number | null;
   quoted_amount: number | null;
+  packaging_required: boolean;
   payment_method: string;
   payment_status: string;
   is_cod: boolean;
@@ -69,7 +71,7 @@ export async function insertOrderAndReturnRow(input: OrderInsert): Promise<Order
     .from("orders")
     .insert(input)
     .select(
-      "id, order_no, user_id, status, pickup_request, pickup_date, pickup_slot, origin_address_id, consignee, items, booked_weight, quoted_amount, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, created_at, updated_at"
+      "id, order_no, user_id, status, pickup_request, pickup_date, pickup_slot, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, created_at, updated_at"
     )
     .single();
 
@@ -106,7 +108,7 @@ export async function insertOrderEvent(input: {
 }
 
 const ORDER_COLUMNS =
-  "id, order_no, user_id, status, pickup_request, pickup_date, pickup_slot, origin_address_id, consignee, items, booked_weight, quoted_amount, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, metadata, created_at, updated_at";
+  "id, order_no, user_id, status, pickup_request, pickup_date, pickup_slot, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, metadata, created_at, updated_at";
 
 /**
  * Narrow a DB row to the shared `Order` contract.
@@ -121,6 +123,9 @@ export function toOrder(row: OrderRow & { metadata?: unknown }): Order {
     ...row,
     status: row.status as Order["status"],
     pickup_request: row.pickup_request === 2 ? 2 : 1,
+    // Explicit rather than carried by the spread: a projection written before
+    // the column existed hands us `undefined`, and the contract says boolean.
+    packaging_required: row.packaging_required === true,
     payment_method: row.payment_method as Order["payment_method"],
     payment_status: row.payment_status as Order["payment_status"],
     metadata: (row.metadata as Record<string, unknown> | null) ?? null,
@@ -482,7 +487,7 @@ export async function listOrdersByUserId(userId: string): Promise<OrderRow[] | n
   const { data, error } = await client
     .from("orders")
     .select(
-      "id, order_no, user_id, status, pickup_request, pickup_date, pickup_slot, origin_address_id, consignee, items, booked_weight, quoted_amount, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, created_at, updated_at"
+      "id, order_no, user_id, status, pickup_request, pickup_date, pickup_slot, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, created_at, updated_at"
     )
     .eq("user_id", userId)
     // Most recently moved first — an order the agent just advanced should lead.

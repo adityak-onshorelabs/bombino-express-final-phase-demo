@@ -66,6 +66,8 @@ export interface OrderDetailOrder {
   items: Record<string, unknown> | null;
   booked_weight: number | null;
   quoted_amount: number | null;
+  /** The customer asked us to pack the parcel. Costs nothing at booking. */
+  packaging_required: boolean;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
   is_cod: boolean;

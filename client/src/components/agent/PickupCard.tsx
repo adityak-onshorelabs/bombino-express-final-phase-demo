@@ -6,6 +6,7 @@ import {
   CreditCard,
   MapPin,
   Package,
+  PackagePlus,
   CalendarDays,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -151,6 +152,37 @@ export function dateValue(pickup: AgentPickup): string {
 
 export function weightLabel(pickup: AgentPickup): string {
   return pickup.booked_weight ? `${pickup.booked_weight} kg` : 'No weight';
+}
+
+/**
+ * The packaging row, which exists only when the customer asked for it.
+ *
+ * Amber and never hidden behind a chevron: it is material the agent has to put
+ * in the van before leaving the hub, so it belongs with `Place` and `Time` in
+ * the set of facts that change what they do next. A job that does not need
+ * packaging shows no row at all — a grey "No packaging" on every other card
+ * would bury the handful that matter.
+ */
+export function PackagingRow({
+  pickup,
+  size = 'card',
+  className,
+}: {
+  pickup: AgentPickup;
+  size?: 'card' | 'sheet';
+  className?: string;
+}) {
+  if (!pickup.packaging_required) return null;
+  return (
+    <FactRow
+      icon={PackagePlus}
+      tone="amber"
+      label="Packaging"
+      value="Carry material"
+      size={size}
+      className={className}
+    />
+  );
 }
 
 /**
@@ -411,6 +443,8 @@ export function JobEntry({
           className={cn('border-t', divider)}
         />
       )}
+
+      <PackagingRow pickup={pickup} className={cn('border-t', divider)} />
 
       {children}
     </div>

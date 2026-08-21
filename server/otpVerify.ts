@@ -19,7 +19,8 @@ export type OtpConsumeResult =
   | { ok: false; status: number; message: string };
 
 /**
- * Dev-only escape hatch for the missing SMS provider (otp.ts §sendOtpSms).
+ * Dev-only escape hatch for when no delivery channel is configured
+ * (otp.ts §deliverOtp).
  *
  * Two conditions, not one: NODE_ENV alone is a single misconfigured deploy
  * variable away from accepting any code in production, and this gate is the
