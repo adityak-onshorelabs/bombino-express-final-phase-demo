@@ -282,3 +282,45 @@ export async function applyWeighResult(input: {
 
   return toOrder(data as unknown as OrderRow & { metadata?: unknown });
 }
+
+export type MockDocketResponse = {
+  mock: true;
+  docket_id: number;
+  awb_no: string;
+  generated_at: string;
+};
+
+/**
+ * Mock docket write: settled → dispatched with a fake AWB.
+ * Double-fire guard is `awb_no IS NULL` plus status = settled.
+ */
+export async function applyGenerateDocket(input: {
+  orderId: string;
+  awbNo: string;
+  docketResponse: MockDocketResponse;
+}): Promise<Order | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .update({
+      status: "dispatched",
+      awb_no: input.awbNo,
+      itd_docket_response: input.docketResponse,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.orderId)
+    .eq("status", "settled")
+    .is("awb_no", null)
+    .select(DETAIL_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("applyGenerateDocket", error);
+    return null;
+  }
+  if (!data) return null;
+
+  return toOrder(data as unknown as OrderRow & { metadata?: unknown });
+}

@@ -43,10 +43,17 @@ export type OpsOrderDetail = OpsBoardOrder & {
   updated_at: string;
 };
 
+export type OpsHubHandover = {
+  kind: 'hub';
+  code: string | null;
+  locked: boolean;
+};
+
 export type OpsOrderDetailResponse = {
   order: OpsOrderDetail;
   events: OpsOrderEvent[];
   availableActions: AvailableAction[];
+  handover: OpsHubHandover | null;
 };
 
 export type OpsActionResult = {

@@ -4,11 +4,14 @@ import { useLocation } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { TopBar } from '@/components/TopBar';
 import { OpsNav } from './OpsNav';
+import { OpsDesktopSidebar } from './OpsDesktopSidebar';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
 /**
- * Chrome for every ops screen — same TopBar pattern as AgentShell.
- * Board widens on desktop for phase columns; detail stays readable.
+ * Chrome for every ops screen.
+ * Desktop: customer AppLayout split (left rail + scrollable main).
+ * Mobile: TopBar + children + bottom OpsNav.
  */
 export function OpsShell({
   title,
@@ -21,6 +24,7 @@ export function OpsShell({
   wide?: boolean;
   children: React.ReactNode;
 }) {
+  const isMobile = useIsMobile();
   const [, setLocation] = useLocation();
   const { user, logout } = useAppStore();
 
@@ -33,6 +37,36 @@ export function OpsShell({
     logout();
     setLocation('/login');
   };
+
+  const heading = (
+    <div className="mb-4">
+      <h1 className="text-2xl font-extrabold tracking-tight text-foreground leading-tight">
+        {title}
+      </h1>
+      <p className="text-sm font-medium text-muted-foreground mt-0.5">
+        {subtitle ?? user?.fullName ?? 'Operations'}
+      </p>
+    </div>
+  );
+
+  if (!isMobile) {
+    return (
+      <div className="flex h-screen overflow-hidden" data-testid="ops-shell">
+        <OpsDesktopSidebar />
+        <main className="flex-1 flex flex-col overflow-y-auto bg-[#F8F9FA]">
+          <div
+            className={cn(
+              'mx-auto w-full px-6 md:px-8 py-6',
+              wide ? 'max-w-6xl' : 'max-w-md'
+            )}
+          >
+            {heading}
+            {children}
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[100dvh] bg-background pb-nav" data-testid="ops-shell">
@@ -58,15 +92,7 @@ export function OpsShell({
           wide ? 'max-w-6xl' : 'max-w-md'
         )}
       >
-        <div className="mb-4">
-          <h1 className="text-2xl font-extrabold tracking-tight text-foreground leading-tight">
-            {title}
-          </h1>
-          <p className="text-sm font-medium text-muted-foreground mt-0.5">
-            {subtitle ?? user?.fullName ?? 'Operations'}
-          </p>
-        </div>
-
+        {heading}
         {children}
       </main>
 

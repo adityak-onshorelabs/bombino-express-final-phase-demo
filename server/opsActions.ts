@@ -2,14 +2,18 @@
  * Phase 3B — Admin lifecycle action handlers (ops surface).
  *
  * Wired from POST /api/orders/:id/actions default branch. Agent cases stay in
- * routes.ts. generate_docket remains 501 (3C).
+ * routes.ts. generate_docket writes a mock AWB (demo).
  */
 
 import { z } from "zod";
 import { transitionOrderStatus } from "./agentDb.js";
 import { itdClient, type RateParams } from "./itd.js";
 import { withTimeout } from "./itdTokenRefresh.js";
-import { applyWeighResult, getAddressCityPincode } from "./opsDb.js";
+import {
+  applyGenerateDocket,
+  applyWeighResult,
+  getAddressCityPincode,
+} from "./opsDb.js";
 import type { Order, OrderStatus } from "../shared/orderContract.js";
 
 const RATES_TIMEOUT_MS = 10_000;
@@ -317,6 +321,53 @@ export async function handleSettle(input: {
       quoted_amount: q,
       final_amount: f,
       payment_status: updated.payment_status,
+    },
+  };
+}
+
+function mockAwbNo(): string {
+  const d = new Date();
+  const yy = String(d.getFullYear()).slice(-2);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const rand = String(Math.floor(Math.random() * 1_000_000)).padStart(6, "0");
+  return `BMB${yy}${mm}${dd}${rand}`;
+}
+
+export async function handleGenerateDocket(input: {
+  order: Order;
+  callerId: string;
+}): Promise<OpsActionResult> {
+  const awbNo = mockAwbNo();
+  const generatedAt = new Date().toISOString();
+  const docketId = Math.floor(Math.random() * 900_000) + 100_000;
+
+  const updated = await applyGenerateDocket({
+    orderId: input.order.id,
+    awbNo,
+    docketResponse: {
+      mock: true,
+      docket_id: docketId,
+      awb_no: awbNo,
+      generated_at: generatedAt,
+    },
+  });
+  if (!updated) {
+    return {
+      error: {
+        status: 409,
+        message: "This order has already moved on. Refresh and try again.",
+        code: "ORDER_STATE_CHANGED",
+      },
+    };
+  }
+
+  return {
+    order: updated,
+    eventNote: `Docket generated · AWB ${awbNo}`,
+    eventMeta: {
+      action: "generate_docket",
+      awb_no: awbNo,
     },
   };
 }

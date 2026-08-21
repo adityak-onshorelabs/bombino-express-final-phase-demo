@@ -1,13 +1,18 @@
 import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Loader2, LogOut } from 'lucide-react';
 import { Link, useLocation, useParams } from 'wouter';
 import { ActionBar } from '@/components/agent/ActionButtons';
 import { OpsShell } from '@/components/ops/OpsShell';
-import { OpsWeighSheet } from '@/components/ops/OpsWeighSheet';
 import { OpsCollectPaymentSheet } from '@/components/ops/OpsCollectPaymentSheet';
+import { OpsDropoffOtpSheet } from '@/components/ops/OpsDropoffOtpSheet';
+import { OpsWeighSheet } from '@/components/ops/OpsWeighSheet';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+import { parseApiErrorMessage } from '@/lib/apiError';
+import { apiRequest } from '@/lib/queryClient';
 import {
+  opsOrderDetailKey,
   useOpsOrderAction,
   useOpsOrderDetail,
   type OpsActionError,
@@ -61,8 +66,7 @@ function consigneeLines(consignee: unknown): { name: string; city: string; phone
 }
 
 /**
- * Ops order detail + event timeline + lifecycle actions (3B).
- * generate_docket filtered until 3C.
+ * Ops order detail + event timeline + lifecycle actions.
  */
 export default function OpsOrderDetail() {
   const params = useParams<{ id: string }>();
@@ -70,11 +74,37 @@ export default function OpsOrderDetail() {
   const [, setLocation] = useLocation();
   const { logout } = useAppStore();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { data, isLoading, error, isError } = useOpsOrderDetail(orderId);
   const action = useOpsOrderAction(orderId);
 
+  const regenerateHandover = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest('POST', `/api/orders/${id}/handover-code`);
+      return (await res.json()) as { handover: { kind: string; code: string } };
+    },
+    onSuccess: () => {
+      if (orderId) {
+        void queryClient.invalidateQueries({ queryKey: opsOrderDetailKey(orderId) });
+      }
+      toast({
+        title: 'New code ready',
+        description: 'Read this number to the pickup agent.',
+      });
+    },
+    onError: (err: unknown) => {
+      toast({
+        title: 'Could not get a new code',
+        description: parseApiErrorMessage(err, 'Please try again.'),
+        variant: 'destructive',
+      });
+    },
+  });
+
   const [weighOpen, setWeighOpen] = useState(false);
   const [collectOpen, setCollectOpen] = useState(false);
+  const [dropoffOpen, setDropoffOpen] = useState(false);
+  const [dropoffError, setDropoffError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<{ txnId: string | null; amount: number } | null>(
     null,
   );
@@ -97,6 +127,9 @@ export default function OpsOrderDetail() {
 
   const runAction = (actionName: string, payload?: Record<string, unknown>): void => {
     setPendingAction(actionName);
+    if (actionName === 'mark_received_dropoff') {
+      setDropoffError(null);
+    }
     action.mutate(
       { action: actionName, payload },
       {
@@ -108,6 +141,8 @@ export default function OpsOrderDetail() {
           }
           setWeighOpen(false);
           setCollectOpen(false);
+          setDropoffOpen(false);
+          setDropoffError(null);
           toast({
             title: 'Updated',
             description: `${result.order.order_no} — ${getOrderStatusLabel(result.order.status)}`,
@@ -115,6 +150,18 @@ export default function OpsOrderDetail() {
         },
         onError: (err: OpsActionError) => {
           setPendingAction(null);
+          const isOtpError =
+            actionName === 'mark_received_dropoff' &&
+            typeof err.code === 'string' &&
+            err.code.startsWith('OTP_');
+          if (isOtpError) {
+            setDropoffError(err.message);
+            return;
+          }
+          if (actionName === 'mark_received_dropoff') {
+            setDropoffOpen(false);
+            setDropoffError(null);
+          }
           const isRetryReprice = err.code === 'RETRY_REPRICE';
           toast({
             title: isRetryReprice
@@ -143,10 +190,13 @@ export default function OpsOrderDetail() {
       setCollectOpen(true);
       return;
     }
-    if (actionName === 'mark_received_dropoff' || actionName === 'settle') {
-      const label =
-        actionName === 'settle' ? 'Settle this order?' : 'Mark this parcel received at hub?';
-      if (!window.confirm(label)) return;
+    if (actionName === 'mark_received_dropoff') {
+      setDropoffError(null);
+      setDropoffOpen(true);
+      return;
+    }
+    if (actionName === 'settle') {
+      if (!window.confirm('Settle this order?')) return;
     }
     runAction(actionName);
   };
@@ -198,10 +248,10 @@ export default function OpsOrderDetail() {
     );
   }
 
-  const { order, events, availableActions } = data;
+  const { order, events, availableActions, handover } = data;
   const consignee = consigneeLines(order.consignee);
-  const visibleActions = availableActions.filter((a) => a.action !== 'generate_docket');
   const dueAmount = order.final_amount ?? order.quoted_amount ?? 0;
+  const needsNewHubCode = Boolean(handover && (handover.locked || !handover.code));
 
   return (
     <OpsShell title={order.order_no} subtitle={getOrderStatusLabel(order.status)}>
@@ -213,6 +263,60 @@ export default function OpsOrderDetail() {
         <ArrowLeft className="w-4 h-4" />
         Back to board
       </Link>
+
+      {handover && (
+        <div
+          className="rounded-2xl border border-[#F2A123] bg-[#F2A123]/15 px-4 py-3 mb-4"
+          data-testid="ops-hub-handover-code"
+        >
+          <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground">
+            Hub handover code
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Read this to the pickup agent
+          </p>
+          {needsNewHubCode ? (
+            <>
+              <p className="text-sm font-semibold text-foreground mt-2">
+                {handover.locked
+                  ? 'This code is locked after too many wrong tries.'
+                  : 'No hub code on this order yet.'}
+              </p>
+              <Button
+                type="button"
+                onClick={() => regenerateHandover.mutate(order.id)}
+                disabled={regenerateHandover.isPending}
+                className="mt-3 h-11 rounded-xl bg-primary text-white font-bold"
+                data-testid="button-ops-regenerate-hub-code"
+              >
+                {regenerateHandover.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  'Regenerate code'
+                )}
+              </Button>
+            </>
+          ) : (
+            <p className="text-2xl font-extrabold tabular-nums tracking-[0.2em] text-foreground mt-1">
+              {handover.code}
+            </p>
+          )}
+        </div>
+      )}
+
+      {order.awb_no && (
+        <div
+          className="rounded-2xl border border-[#F2A123] bg-[#F2A123]/15 px-4 py-3 mb-4"
+          data-testid="ops-order-awb"
+        >
+          <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground">
+            AWB
+          </p>
+          <p className="text-lg font-extrabold tabular-nums text-foreground mt-0.5">
+            {order.awb_no}
+          </p>
+        </div>
+      )}
 
       <section
         className="rounded-2xl border border-border bg-white px-4 mb-6"
@@ -256,7 +360,7 @@ export default function OpsOrderDetail() {
           Actions
         </h2>
         <ActionBar
-          actions={visibleActions}
+          actions={availableActions}
           onAction={handleAction}
           pendingAction={pendingAction}
           disabled={action.isPending}
@@ -307,6 +411,17 @@ export default function OpsOrderDetail() {
         isPending={action.isPending && pendingAction === 'collect_payment'}
         receipt={receipt}
         onConfirm={(payload) => runAction('collect_payment', payload)}
+      />
+
+      <OpsDropoffOtpSheet
+        open={dropoffOpen}
+        onOpenChange={(open) => {
+          setDropoffOpen(open);
+          if (!open) setDropoffError(null);
+        }}
+        isPending={action.isPending && pendingAction === 'mark_received_dropoff'}
+        error={dropoffError}
+        onConfirm={({ otp }) => runAction('mark_received_dropoff', { otp })}
       />
     </OpsShell>
   );
