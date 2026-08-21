@@ -29,6 +29,7 @@ import cookieSession from "cookie-session";
 import { registerRoutes } from "./routes.js";
 import { assertDatabaseUrl, getPgPoolConfig } from "./pgPoolConfig.js";
 import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode.js";
+import { warnIfFixedOtpEnabled } from "./otp.js";
 import { createServer, type Server } from "http";
 
 
@@ -352,6 +353,7 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
   }
 
   warnIfPaymentsTestModeEnabled();
+  warnIfFixedOtpEnabled();
 
   await registerRoutes(httpServer, app);
 
