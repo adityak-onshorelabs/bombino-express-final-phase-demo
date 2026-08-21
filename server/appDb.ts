@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { CreateShipmentResponse } from "./itd.js";
 import { supabase } from "./supabaseClient.js";
 import type { ChatMessage } from "./supportTypes.js";
@@ -172,6 +173,103 @@ export async function upsertItdUserAndReturnId(
     return null;
   }
   return data;
+}
+
+export type CreatedStaffUser = {
+  id: string;
+  phone: string;
+  full_name: string;
+  role: string;
+};
+
+export type StaffUserRow = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  role: string;
+  is_active: boolean;
+};
+
+export type InsertStaffUserInput = {
+  full_name: string;
+  phone: string;
+  role: "agent" | "admin";
+  hub_id: number;
+};
+
+/**
+ * Mint a staff row the same way the seed scripts do: synthetic local-* ITD
+ * ids, is_active true, account_type left to the DB default (`personal`).
+ * Returns `"taken"` on itd_users_phone_key (23505) so a raced insert is 409.
+ */
+export async function insertStaffUser(
+  input: InsertStaffUserInput
+): Promise<CreatedStaffUser | "taken" | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const syntheticId = `local-${randomUUID()}`;
+  const now = new Date().toISOString();
+
+  const { data, error } = await client
+    .from("itd_users")
+    .insert({
+      itd_customer_id: syntheticId,
+      itd_customer_code: syntheticId,
+      full_name: input.full_name,
+      email: "",
+      username: input.phone,
+      phone: input.phone,
+      role: input.role,
+      is_active: true,
+      metadata: {
+        created_by: "ops_console",
+        created_at: now,
+        hub_id: input.hub_id,
+      },
+    })
+    .select("id, phone, full_name, role")
+    .single();
+
+  if (error) {
+    if (error.code === "23505") return "taken";
+    logSupabaseError("insertStaffUser", error);
+    return null;
+  }
+  if (!data?.id || typeof data.full_name !== "string" || typeof data.role !== "string") {
+    return null;
+  }
+  return {
+    id: data.id,
+    phone: typeof data.phone === "string" ? data.phone : input.phone,
+    full_name: data.full_name,
+    role: data.role,
+  };
+}
+
+export async function listStaffUsers(): Promise<StaffUserRow[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("id, full_name, phone, role, is_active")
+    .in("role", ["agent", "admin", "super_admin"])
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  if (error) {
+    logSupabaseError("listStaffUsers", error);
+    return null;
+  }
+
+  return (data ?? []).map((row) => ({
+    id: String(row.id),
+    full_name: String(row.full_name ?? ""),
+    phone: typeof row.phone === "string" ? row.phone : null,
+    role: String(row.role ?? ""),
+    is_active: row.is_active !== false,
+  }));
 }
 
 /**

@@ -43,9 +43,9 @@ export function TabBar({
     >
       <div className="flex items-center justify-around h-16 max-w-md mx-auto">
         {items.map(({ icon: Icon, label, path, badge }) => {
-          // Exact match for surface roots ('/home', '/agent') so a detail route
-          // doesn't light up two tabs at once; prefix match for the rest.
-          const isRoot = path === '/home' || path === '/agent';
+          // Exact match for surface roots so a detail route doesn't light up
+          // two tabs at once; prefix match for the rest.
+          const isRoot = path === '/home' || path === '/agent' || path === '/ops';
           const isActive = isRoot
             ? location === path || (path === '/home' && location === '/')
             : location.startsWith(path);
