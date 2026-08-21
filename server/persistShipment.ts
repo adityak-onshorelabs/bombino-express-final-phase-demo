@@ -4,6 +4,7 @@ import {
   insertShipmentCreatedAuditLog,
   insertShipmentCreatedNotification,
 } from "./appDb.js";
+import { notifyDispatched } from "./notify.js";
 import type { CreateShipmentPayload, CreateShipmentResponse } from "./itd.js";
 
 function countryCodeFromLabel(country: string | undefined): string {
@@ -146,6 +147,19 @@ export async function persistShipmentAfterCreate(
     body: notifBody,
     data: { awb },
     shipment_id: shipmentRow.id,
+  });
+
+  // The parcel is now trackable, so tell the customer where.
+  //
+  // This path books a docket directly and never touches an order, so there is
+  // no order number to quote — the AWB is the only reference the customer has,
+  // and it is passed as both. The ops `generate_docket` path quotes both
+  // properly, through the status fan-out in `notify.ts`.
+  void notifyDispatched({
+    userId: dbUserId,
+    orderNo: awb,
+    awb,
+    orderId: null,
   });
 
   await insertShipmentCreatedAuditLog({
