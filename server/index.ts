@@ -13,6 +13,7 @@ import cookieSession from "cookie-session";
 import { registerRoutes } from "./routes";
 import { assertDatabaseUrl, getPgPoolConfig } from "./pgPoolConfig";
 import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode";
+import { warnIfFixedOtpEnabled } from "./otp";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
@@ -325,6 +326,7 @@ app.use((req, res, next) => {
   }
 
   warnIfPaymentsTestModeEnabled();
+  warnIfFixedOtpEnabled();
 
   await registerRoutes(httpServer, app);
 
