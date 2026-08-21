@@ -6,6 +6,7 @@ import { ActionBar } from '@/components/agent/ActionButtons';
 import { CollectPaymentSheet } from '@/components/agent/CollectPaymentSheet';
 import {
   FactRow,
+  PackagingRow,
   amountOwedAtDoor,
   areaLine,
   houseLine,
@@ -319,6 +320,7 @@ export default function PickupDetail() {
             right={{ label: 'Boxes', value: String(pieces?.number_of_boxes ?? '—') }}
             className="border-t border-[#E8EDF2]!"
           />
+          <PackagingRow pickup={order} size="sheet" className="border-t border-[#E8EDF2]!" />
           <FactRow
             size="sheet"
             icon={Globe}

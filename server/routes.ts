@@ -1662,6 +1662,9 @@ export async function registerRoutes(
       payment_method: z.enum(PAYMENT_METHODS),
       booked_weight: z.number().optional().nullable(),
       quoted_amount: z.number().optional().nullable(),
+      // Absent on clients booking against the older shape — read as "no
+      // packaging", which is what every order before this option was.
+      packaging_required: z.boolean().optional(),
       origin_address: z.object({
         full_name: z.string().trim().min(1),
         company: z.string().optional().nullable(),
@@ -1766,6 +1769,7 @@ export async function registerRoutes(
       items: body.items,
       booked_weight: body.booked_weight ?? null,
       quoted_amount: body.quoted_amount ?? null,
+      packaging_required: body.packaging_required ?? false,
       payment_method: body.payment_method,
       is_cod: body.payment_method === "cod",
     });

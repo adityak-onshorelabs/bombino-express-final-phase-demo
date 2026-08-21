@@ -706,6 +706,10 @@ export default function OrderDetails() {
             {order.actual_weight != null && (
               <Field label="Weighed at hub" value={formatKg(order.actual_weight)} />
             )}
+            <Field
+              label="Packaging"
+              value={order.packaging_required ? 'We pack it' : 'Already packed'}
+            />
             <Field label="Dimensions" value={formatDimensions(items)} />
             <Field label="Declared value" value={formatDeclaredValue(items)} />
             <Field label="Product type" value={itemStr(items, 'product_code')} />
