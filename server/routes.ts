@@ -17,7 +17,6 @@ import {
   listNotificationsByUserId,
   listShipmentsByUserId,
   insertNotification,
-  insertOrderStatusNotification,
   markNotificationRead,
   mergeItdUserMetadataById,
   updateSupportSessionMessages,
@@ -51,6 +50,14 @@ import {
   isKnownAction,
 } from "./orderLifecycle.js";
 import {
+  notifyAgentOfCancellationRequest,
+  notifyAgentsOfNewJob,
+  notifyCancellationDeclined,
+  notifyHandoverCodeReissued,
+  notifyOrderBooked,
+  notifyOrderTransition,
+} from "./notify.js";
+import {
   advanceOrderStatus,
   claimPickup,
   recordCollectedPayment,
@@ -67,8 +74,8 @@ import {
 import { ensureDbUser, requireRole, requireUser } from "./routeGuards.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
-import { registerOpsRoutes } from "./routes/ops.js";
-import { handleGenerateDocket, handleSettle, handleWeigh } from "./opsActions.js";
+import { registerWhatsappRoutes } from "./routes/whatsapp.js";
+import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import {
   cancellationState,
   deriveCustomerStatus,
@@ -86,7 +93,7 @@ import {
 import {
   generateOtp,
   hashOtp,
-  sendOtpSms,
+  deliverOtp,
   OTP_TTL_MINUTES,
   OTP_MAX_ATTEMPTS,
   OTP_MAX_REQUESTS_PER_HOUR,
@@ -130,7 +137,6 @@ import {
   toKycSummary,
 } from "../shared/kyc.js";
 import { validateGstin } from "../shared/gstin.js";
-import { isIndiaHubId } from "../shared/hubs.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
   SUPPORT_CHAT_MAX_CONTENT_LENGTH,
@@ -169,9 +175,12 @@ export async function registerRoutes(
   // is unauthenticated by design — its signature is its authentication.
   registerPaymentRoutes(app);
 
-  // Ops console (3A/3B). Board + detail reads; writes go through the uniform
-  // action endpoint below.
-  registerOpsRoutes(app);
+  // WhatsApp delivery receipts, and the STOP word. Unauthenticated by design
+  // too — the secret in the path is what the provider was given.
+  registerWhatsappRoutes(app);
+
+  // The agent digest and slot reminders, driven by an external scheduler.
+  registerWhatsappScheduleRoutes(app);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -312,7 +321,7 @@ export async function registerRoutes(
       return;
     }
 
-    await sendOtpSms(phone, code);
+    await deliverOtp(phone, code);
     res.json({ message: "OTP sent" });
   });
 
@@ -406,15 +415,8 @@ export async function registerRoutes(
 
   const signupCompanySchema = z.object({
     phone: phoneSchema,
-    company_name: z.string().trim().min(1, "Company name is required").max(120),
+    company_name: z.string().trim().min(1, "Company name is required"),
     gstin: z.string().trim().length(15, "GST number must be 15 characters"),
-    email: z.string().trim().email("Enter a valid email").max(120),
-    address: z.string().trim().min(1, "Address is required").max(200),
-    pincode: z.string().trim().regex(/^\d{6}$/, "Enter a 6-digit pincode"),
-    city: z.string().trim().min(1, "City is required").max(80),
-    state: z.string().trim().min(1, "State is required").max(80),
-    contact_person: z.string().trim().max(80).optional().default(""),
-    hub_id: z.coerce.number().int().refine(isIndiaHubId, "Select a valid hub"),
   });
 
   // POST /api/auth/signup/company
@@ -424,18 +426,7 @@ export async function registerRoutes(
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
       return;
     }
-    const {
-      phone,
-      company_name,
-      gstin: rawGstin,
-      email,
-      address,
-      pincode,
-      city,
-      state,
-      contact_person,
-      hub_id,
-    } = parsed.data;
+    const { phone, company_name, gstin: rawGstin } = parsed.data;
     const gstin = rawGstin.toUpperCase();
 
     const gstinCheck = validateGstin(gstin);
@@ -460,7 +451,7 @@ export async function registerRoutes(
     const row = await upsertItdUserAndReturnId({
       itd_customer_id: itdCustomerId,
       itd_customer_code: itdCustomerId,
-      email,
+      email: "",
       full_name: company_name,
       username: phone,
       role: "customer",
@@ -478,22 +469,11 @@ export async function registerRoutes(
     let addCustomerResponse: unknown = null;
     let addCustomerError: string | null = null;
     try {
-      const addCustomerResult = await withTimeout(
-        itdClient.addCustomer({
-          name: company_name,
-          contact_no: phone,
-          gst_number: gstin,
-          email,
-          address,
-          pincode,
-          city,
-          state,
-          contact_person: contact_person || undefined,
-          hub_id,
-        }),
-        ITD_LINK_TIMEOUT_MS,
-        "ITD addCustomer"
-      );
+      const addCustomerResult = await itdClient.addCustomer({
+        name: company_name,
+        contact_no: phone,
+        gst_number: gstin,
+      });
       itdRegistered = !!addCustomerResult.success;
       addCustomerResponse = addCustomerResult;
     } catch (err) {
@@ -513,13 +493,6 @@ export async function registerRoutes(
       itd_customer_id: itdCustomerId,
       itd_registration_attempted_at: new Date().toISOString(),
       itd_add_customer_response: addCustomerResponse,
-      email,
-      address,
-      pincode,
-      city,
-      state,
-      contact_person,
-      hub_id,
       ...(addCustomerError ? { itd_add_customer_error: addCustomerError } : {}),
     });
 
@@ -527,7 +500,7 @@ export async function registerRoutes(
       id: itdCustomerId,
       customerId: itdCustomerId,
       code: itdCustomerId,
-      email,
+      email: "",
       fullName: company_name,
       username: phone,
       role: "customer",
@@ -1689,6 +1662,9 @@ export async function registerRoutes(
       payment_method: z.enum(PAYMENT_METHODS),
       booked_weight: z.number().optional().nullable(),
       quoted_amount: z.number().optional().nullable(),
+      // Absent on clients booking against the older shape — read as "no
+      // packaging", which is what every order before this option was.
+      packaging_required: z.boolean().optional(),
       origin_address: z.object({
         full_name: z.string().trim().min(1),
         company: z.string().optional().nullable(),
@@ -1793,6 +1769,7 @@ export async function registerRoutes(
       items: body.items,
       booked_weight: body.booked_weight ?? null,
       quoted_amount: body.quoted_amount ?? null,
+      packaging_required: body.packaging_required ?? false,
       payment_method: body.payment_method,
       is_cod: body.payment_method === "cod",
     });
@@ -1817,25 +1794,28 @@ export async function registerRoutes(
       await issueCode(order.id, "dropoff");
     }
 
+    // The booking confirmation, and — for a pickup — the shout to the agents
+    // rostered for that window. Neither goes through `notifyOrderTransition`:
+    // the customer is the actor here, and that function silences self-actions.
+    //
+    // Fire-and-forget. A slow provider must not delay the Order ID the customer
+    // is waiting on, and a failed message must not fail a paid-for booking.
+    const bookedOrder = toOrder(order);
+    void notifyOrderBooked({
+      order: bookedOrder,
+      customerName: body.origin_address.full_name,
+    });
+    void notifyAgentsOfNewJob({
+      order: bookedOrder,
+      address: { city: body.origin_address.city, pincode: body.origin_address.pincode },
+    });
+
     res.json({ order });
   });
 
-  /**
-   * The second line of a customer notification. The title is the derived
-   * customer-facing status ("Agent on the way"); this says what it means for
-   * them in plain terms.
-   *
-   * Only customer-visible statuses appear — the three internal ones never
-   * produce a notification at all.
-   */
-  const CUSTOMER_STATUS_DETAIL: Record<string, string> = {
-    agent_accepted: "An agent has accepted your pickup.",
-    out_for_pickup: "Your agent is on the way to collect your parcel.",
-    picked_up: "Your parcel has been collected.",
-    received_at_hub: "Your parcel has arrived at the Bombino hub.",
-    dispatched: "Your parcel is on its way. You can now track it.",
-    cancelled: "Your order has been cancelled.",
-  };
+  // The customer-facing copy that used to sit here moved to
+  // `server/notificationCopy.ts`, so the WhatsApp templates and the in-app rows
+  // read from one table instead of two.
 
   // ── The uniform lifecycle endpoint (M0 item 7) ──────────────────────────
   //
@@ -2183,132 +2163,68 @@ export async function registerRoutes(
         }
 
         case "collect_payment": {
-          if (role === "agent") {
-            // Ops collection at the hub is M3's; this branch is the doorstep.
-            if (order.payment_method !== "pay_at_pickup") {
-              res.status(400).json({
-                message: "This order is not marked pay-at-pickup.",
-                code: "PAYMENT_METHOD_MISMATCH",
-              });
-              return;
-            }
-
-            const paymentBody = z
-              .object({
-                amount: z.number().positive("amount must be greater than zero"),
-                // How the money actually moved. Required: an agent handing over
-                // a parcel must have said whether they hold cash or watched a
-                // UPI transfer land, because only one of those ends up in their
-                // pouch at the end of the shift.
-                collection_mode: z.enum(["upi", "cash"], {
-                  errorMap: () => ({ message: "Choose UPI or cash" }),
-                }),
-                // UPI reference from the customer's app, if they read it out.
-                reference: z.string().trim().max(120).optional().nullable(),
-              })
-              .safeParse(parsed.data.payload ?? {});
-            if (!paymentBody.success) {
-              res.status(400).json({
-                message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
-                code: "INVALID_PAYLOAD",
-              });
-              return;
-            }
-
-            const result = await recordCollectedPayment({
-              order_id: order.id,
-              user_id: order.user_id,
-              amount: paymentBody.data.amount,
-              method: "pay_at_pickup",
-              status: "collected",
-              collection_mode: paymentBody.data.collection_mode,
-              collected_by: callerId,
-              reference: paymentBody.data.reference ?? null,
+          // Ops collection at the hub is M3's; this branch is the doorstep.
+          if (order.payment_method !== "pay_at_pickup") {
+            res.status(400).json({
+              message: "This order is not marked pay-at-pickup.",
+              code: "PAYMENT_METHOD_MISMATCH",
             });
-            if (!result) {
-              res.status(502).json({
-                message: "Could not record the payment. Do not hand over the parcel.",
-                code: "PAYMENT_WRITE_FAILED",
-              });
-              return;
-            }
-
-            // Deliberately no status change — the parcel is still out_for_pickup.
-            updated = result.order ?? order;
-            eventNote = `Collected ₹${paymentBody.data.amount} at pickup (${paymentBody.data.collection_mode})`;
-            extra = {
-              payment_id: result.paymentId,
-              txn_id: result.txnId,
-              amount: paymentBody.data.amount,
-              collection_mode: paymentBody.data.collection_mode,
-            };
-            // Surfaced at the top level so the sheet can show the receipt without
-            // digging through the event metadata.
-            collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
-            break;
+            return;
           }
 
-          if (role === "admin" || role === "super_admin") {
-            if (order.payment_method !== "pay_at_dropoff") {
-              res.status(400).json({
-                message: "This order is not marked pay-at-drop-off.",
-                code: "PAYMENT_METHOD_MISMATCH",
-              });
-              return;
-            }
-
-            const paymentBody = z
-              .object({
-                amount: z.number().positive("amount must be greater than zero"),
-                collection_mode: z.enum(["upi", "cash"], {
-                  errorMap: () => ({ message: "Choose UPI or cash" }),
-                }),
-                reference: z.string().trim().max(120).optional().nullable(),
-              })
-              .safeParse(parsed.data.payload ?? {});
-            if (!paymentBody.success) {
-              res.status(400).json({
-                message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
-                code: "INVALID_PAYLOAD",
-              });
-              return;
-            }
-
-            const result = await recordCollectedPayment({
-              order_id: order.id,
-              user_id: order.user_id,
-              amount: paymentBody.data.amount,
-              method: "pay_at_dropoff",
-              status: "collected",
-              collection_mode: paymentBody.data.collection_mode,
-              collected_by: callerId,
-              reference: paymentBody.data.reference ?? null,
+          const paymentBody = z
+            .object({
+              amount: z.number().positive("amount must be greater than zero"),
+              // How the money actually moved. Required: an agent handing over
+              // a parcel must have said whether they hold cash or watched a
+              // UPI transfer land, because only one of those ends up in their
+              // pouch at the end of the shift.
+              collection_mode: z.enum(["upi", "cash"], {
+                errorMap: () => ({ message: "Choose UPI or cash" }),
+              }),
+              // UPI reference from the customer's app, if they read it out.
+              reference: z.string().trim().max(120).optional().nullable(),
+            })
+            .safeParse(parsed.data.payload ?? {});
+          if (!paymentBody.success) {
+            res.status(400).json({
+              message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
+              code: "INVALID_PAYLOAD",
             });
-            if (!result) {
-              res.status(502).json({
-                message: "Could not record the payment. Do not settle yet.",
-                code: "PAYMENT_WRITE_FAILED",
-              });
-              return;
-            }
-
-            updated = result.order ?? order;
-            eventNote = `Collected ₹${paymentBody.data.amount} at drop-off (${paymentBody.data.collection_mode})`;
-            extra = {
-              payment_id: result.paymentId,
-              txn_id: result.txnId,
-              amount: paymentBody.data.amount,
-              collection_mode: paymentBody.data.collection_mode,
-            };
-            collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
-            break;
+            return;
           }
 
-          res.status(403).json({
-            message: "You do not have permission to collect payment on this order.",
-            code: "FORBIDDEN",
+          const result = await recordCollectedPayment({
+            order_id: order.id,
+            user_id: order.user_id,
+            amount: paymentBody.data.amount,
+            method: "pay_at_pickup",
+            status: "collected",
+            collection_mode: paymentBody.data.collection_mode,
+            collected_by: callerId,
+            reference: paymentBody.data.reference ?? null,
           });
-          return;
+          if (!result) {
+            res.status(502).json({
+              message: "Could not record the payment. Do not hand over the parcel.",
+              code: "PAYMENT_WRITE_FAILED",
+            });
+            return;
+          }
+
+          // Deliberately no status change — the parcel is still out_for_pickup.
+          updated = result.order ?? order;
+          eventNote = `Collected ₹${paymentBody.data.amount} at pickup (${paymentBody.data.collection_mode})`;
+          extra = {
+            payment_id: result.paymentId,
+            txn_id: result.txnId,
+            amount: paymentBody.data.amount,
+            collection_mode: paymentBody.data.collection_mode,
+          };
+          // Surfaced at the top level so the sheet can show the receipt without
+          // digging through the event metadata.
+          collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
+          break;
         }
 
         case "request_cancellation": {
@@ -2354,6 +2270,11 @@ export async function registerRoutes(
             ? `Customer requested cancellation: ${reason}`
             : "Customer requested cancellation";
           extra = { reason };
+
+          // Warn the agent holding it. The order has not moved, so the message
+          // says wait rather than stop — but an agent who sets off now may find
+          // a customer who has already decided they are not sending anything.
+          void notifyAgentOfCancellationRequest(updated);
           break;
         }
 
@@ -2444,90 +2365,16 @@ export async function registerRoutes(
 
           // The one case the customer must be told about explicitly. An
           // approval announces itself as the order turning `cancelled`, which
-          // the block below already notifies; a decline changes nothing on
+          // the fan-out below already notifies; a decline changes nothing on
           // screen, so without this the customer waits forever.
-          void insertOrderStatusNotification({
-            user_id: updated.user_id,
-            title: "Cancellation declined",
-            body: note
-              ? `${updated.order_no} — ${note}`
-              : `${updated.order_no} — your cancellation request was declined. Your shipment is still going ahead.`,
-            data: {
-              order_id: updated.id,
-              order_no: updated.order_no,
-              status: updated.status,
-              cancellation: "rejected",
-            },
-          });
+          void notifyCancellationDeclined({ order: updated, note });
           break;
         }
 
         default: {
-          // Ops actions — weigh, settle, generate_docket (mock AWB).
-          // mark_received_dropoff is OTP-gated above; do not delegate it here.
-          const mapOpsResult = (
-            r: Awaited<ReturnType<typeof handleWeigh>>
-          ): boolean => {
-            if ("error" in r) {
-              res.status(r.error.status).json({
-                message: r.error.message,
-                code: r.error.code,
-                ...(r.error.extra ?? {}),
-                availableActions: availableActions(order, role, { userId: callerId }),
-              });
-              return false;
-            }
-            updated = r.order;
-            eventNote = r.eventNote;
-            extra = r.eventMeta;
-            return true;
-          };
-
-          if (action === "weigh") {
-            if (!transition.to) {
-              res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
-              return;
-            }
-            const ok = mapOpsResult(
-              await handleWeigh({
-                order,
-                callerId,
-                expectedFrom: transition.from,
-                to: transition.to,
-                payload: parsed.data.payload,
-              })
-            );
-            if (!ok) return;
-            break;
-          }
-
-          if (action === "settle") {
-            if (!transition.to) {
-              res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
-              return;
-            }
-            const ok = mapOpsResult(
-              await handleSettle({
-                order,
-                callerId,
-                expectedFrom: transition.from,
-                to: transition.to,
-              })
-            );
-            if (!ok) return;
-            break;
-          }
-
-          if (action === "generate_docket") {
-            if (!transition.to) {
-              res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
-              return;
-            }
-            const ok = mapOpsResult(await handleGenerateDocket({ order, callerId }));
-            if (!ok) return;
-            break;
-          }
-
+          // Ops actions — weigh, settle, generate_docket, mark_received_dropoff.
+          // Authorised and legal, but the handlers are Arbaaz's (M3/M5). The
+          // 501 stays until those land.
           res.status(501).json({
             message: `"${action}" is legal for this order but not implemented yet.`,
             code: "NOT_IMPLEMENTED",
@@ -2539,14 +2386,6 @@ export async function registerRoutes(
           });
           return;
         }
-      }
-
-      if (!updated) {
-        res.status(500).json({
-          message: "Action completed without an order row.",
-          code: "NO_ORDER",
-        });
-        return;
       }
 
       // The write landed. Log it before responding — awaited, not fire-and-
@@ -2573,31 +2412,18 @@ export async function registerRoutes(
         });
       }
 
-      // Tell the customer their order moved.
+      // Tell everyone who needs telling — in-app and on WhatsApp.
       //
-      // Three statuses are deliberately silent: weigh, settle and
-      // ready_for_docket happen while the parcel sits at the hub, and from the
-      // customer's point of view nothing has changed. Firing a notification for
-      // each would be noise (§2 of roles-and-flows).
-      //
-      // Also silent when the actor IS the customer — nobody needs telling about
-      // something they just did themselves.
-      //
-      // NOTE: M6 (Status Sync) owns notification fan-out and the audit_log row
-      // that should accompany it. This covers the agent transitions only; when
-      // M6 lands it should absorb this block rather than double-notify.
-      if (
-        transition.to &&
-        !isInternalOnlyStatus(updated.status) &&
-        updated.user_id !== callerId
-      ) {
-        void insertOrderStatusNotification({
-          user_id: updated.user_id,
-          title: deriveCustomerStatus(updated),
-          body: `${updated.order_no} — ${CUSTOMER_STATUS_DETAIL[updated.status] ?? 'Your order has been updated.'}`,
-          data: { order_id: updated.id, order_no: updated.order_no, status: updated.status },
-        });
-      }
+      // The rules that used to live here (silence on the three internal
+      // statuses, silence when the actor is the customer) now live in
+      // `server/notify.ts` alongside the WhatsApp half, so the two channels
+      // cannot drift apart. Fire-and-forget: a provider round trip must not sit
+      // in front of this response.
+      void notifyOrderTransition({
+        order: updated,
+        moved: transition.to !== null,
+        actorUserId: callerId,
+      });
 
       res.json({
         order: updated,
@@ -2716,6 +2542,15 @@ export async function registerRoutes(
         actor_user_id: callerId,
         metadata: { action: "regenerate_handover_code", handover: kind, role },
       });
+
+      // Push the new pickup code to the customer's WhatsApp, but only once the
+      // agent is actually on the way — before that the customer is reading it
+      // off their own screen and has nothing to be told. `notifyHandoverCodeReissued`
+      // keys its dedupe on the new code, so this is a different message from
+      // the one carrying the code it replaced rather than a suppressed duplicate.
+      if (kind === "pickup") {
+        void notifyHandoverCodeReissued({ order, code });
+      }
 
       res.json({ handover: { kind, code, locked: false } });
     }

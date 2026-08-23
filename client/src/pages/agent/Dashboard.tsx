@@ -28,7 +28,7 @@ import { todayInIst } from '@shared/pickupSlots';
 /**
  * The agent's home. Three things and nothing else.
  *
- *   NEW JOBS  — free work, as a swipeable rail
+ *   NEW JOBS  — every free job, as a swipeable rail
  *   DOING NOW — the job furthest along, the one physically in their hands
  *   CASH      — one amber bar with what is in the bag
  *
@@ -280,13 +280,22 @@ export default function Dashboard() {
   }, [mine, today]);
 
   /**
-   * Free jobs live enough to matter today — late first, then today's, then the
-   * undated. Not the whole queue: jobs three days out are what New is for.
+   * Every free job, late first, then today's, then the undated, then the ones
+   * dated ahead.
+   *
+   * The rail used to drop anything dated forward, on the theory that home was
+   * today's work and the rest was New's job. In practice a booking made for
+   * Thursday landed on no screen the agent looks at, and "my new job isn't
+   * showing" is the only report that matters — a free job that exists is work
+   * that can be taken, whatever its date. Ordering carries the distinction that
+   * the filter used to: what is due now sits at the head of the rail, and each
+   * card states its own date.
    */
   const freeJobs = useMemo(() => {
     const rank: Record<string, number> = { overdue: 0, today: 1, undated: 2, scheduled: 3 };
-    return (available ?? [])
-      .filter((e) => isTodaysWork(e, today))
+    // Copied before sorting: `available` is React Query's cached array and
+    // sorting in place rewrites what every other screen reads.
+    return [...(available ?? [])]
       .sort((a, b) => {
         const byBand =
           rank[bandForDate(a.order.pickup_date, today)] -

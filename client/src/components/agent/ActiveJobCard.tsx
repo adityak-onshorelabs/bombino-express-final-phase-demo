@@ -26,7 +26,7 @@ import { todayInIst } from '@shared/pickupSlots';
  * the schedule's `Saved`, so it cannot be confused with money (amber), a state
  * change (navy) or lateness (red).
  *
- * Used by Today for the one job leading the screen. My jobs shows plain entries
+ * Used by Home for the one job leading the screen. My jobs shows plain entries
  * instead — the v2 pass took the buttons off that list so it reads as a list,
  * and every job there opens onto One job, which carries the full action bar.
  *

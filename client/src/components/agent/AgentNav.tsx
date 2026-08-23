@@ -43,7 +43,7 @@ export function AgentNav() {
   const { data: mine } = useMyPickups();
 
   const items: AgentTab[] = [
-    { icon: LayoutGrid, label: 'Today', path: '/agent' },
+    { icon: LayoutGrid, label: 'Home', path: '/agent' },
     { icon: PackageSearch, label: 'New', path: '/agent/available', badge: available?.length },
     { icon: ClipboardList, label: 'My jobs', path: '/agent/mine', badge: mine?.length },
     { icon: Wallet, label: 'Money', path: '/agent/collections' },

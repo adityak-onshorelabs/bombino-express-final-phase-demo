@@ -14,11 +14,17 @@ import {
 import { todayInIst } from '@shared/pickupSlots';
 
 /**
- * Jobs nobody has taken, in two bands: Late, then Today.
+ * Jobs nobody has taken, in three bands: Late, Today, then Later.
  *
- * Only two. Jobs three days out are not what an agent scans here — they are
- * still reachable from My jobs once taken, and from a direct link. The subtitle
- * counts what renders, never what the endpoint returned, or the number lies.
+ * Every free job is a full card with its own `Take job`, including the ones
+ * dated ahead. This screen is the queue — the one place an agent goes to find
+ * work — so a job that exists and is claimable belongs here in full, and a
+ * booking made a minute ago should be visible a minute later without anyone
+ * refreshing anything. Compact rows were tried for `Later` and read as a
+ * footnote to the screen rather than part of it.
+ *
+ * The subtitle counts what renders, never what the endpoint returned — it and
+ * the nav badge both count every free job, so they agree.
  *
  * Within a band the queue is still oldest-first, so nothing rots at the bottom
  * of the list — the FIFO fairness the server orders by is untouched.
@@ -53,20 +59,31 @@ export default function AvailablePickups() {
       : action.error.message
     : null;
 
-  // Late and today only. Undated jobs ride with today: they have no date to
-  // push them into a band, and they are still work nobody has taken.
+  // Undated jobs ride with today: they have no date to push them into a band,
+  // and they are still work nobody has taken.
   const late: PickupEntry[] = [];
   const now: PickupEntry[] = [];
+  const later: PickupEntry[] = [];
   for (const entry of pickups ?? []) {
     const band = bandForEntry(entry, today);
     if (band === 'overdue') late.push(entry);
-    else if (band === 'today' || band === 'undated') now.push(entry);
+    else if (band === 'scheduled') later.push(entry);
+    else now.push(entry);
   }
-  const shown = late.length + now.length;
+  // Every free job renders somewhere now, so the count is simply all of them —
+  // and it agrees with the nav badge, which counts the same list.
+  const shown = late.length + now.length + later.length;
+
+  // Within Later the queue is by date rather than by booking order: what an
+  // agent wants to know about a job three days out is which day.
+  later.sort((a, b) =>
+    (a.order.pickup_date ?? '').localeCompare(b.order.pickup_date ?? ''),
+  );
 
   const bands = [
     { key: 'overdue' as const, entries: late },
     { key: 'today' as const, entries: now },
+    { key: 'scheduled' as const, entries: later },
   ].filter((b) => b.entries.length > 0);
 
   return (
@@ -152,6 +169,7 @@ export default function AvailablePickups() {
             </section>
           );
         })}
+
     </AgentShell>
   );
 }

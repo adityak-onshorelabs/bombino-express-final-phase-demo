@@ -38,6 +38,7 @@
 
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
+import { notifyPaymentFailed, notifyPaymentReceived } from "../notify.js";
 import { ensureDbUser, requireUser } from "../routeGuards.js";
 import { getOrderById, getUserContactsByIds, insertOrderEvent } from "../ordersDb.js";
 import {
@@ -434,6 +435,13 @@ export function registerPaymentRoutes(app: Express): void {
           razorpay_payment_id: payment.id,
           reason: payment.error_description ?? null,
         });
+        // Keyed on the payment id, so a customer who fails three times is told
+        // three times. A silent second failure reads as a first success.
+        void notifyPaymentFailed({
+          order,
+          amount: toRupees(payment.amount),
+          attemptRef: payment.id,
+        });
         res.status(402).json({
           message: payment.error_description ?? "That payment did not go through.",
           code: "PAYMENT_FAILED",
@@ -498,6 +506,16 @@ export function registerPaymentRoutes(app: Express): void {
           note: `Paid ₹${toRupees(payment.amount)} online`,
           actor_user_id: order.user_id,
           metadata: { payment_id: recorded.payment.id, reference: payment.id, source: "verify" },
+        });
+
+        // Receipt on WhatsApp. Gated on `created` like the event above, so the
+        // webhook racing this call cannot send a second copy — that race is
+        // designed in (payments_gateway_reference.sql) and exactly one of the
+        // two writers wins it.
+        void notifyPaymentReceived({
+          order,
+          amount: toRupees(payment.amount),
+          txnId: recorded.payment.txn_id,
         });
       }
 
@@ -694,6 +712,11 @@ export function registerPaymentRoutes(app: Express): void {
           typeof entity.error_description === "string" ? entity.error_description : null,
         source: "webhook",
       });
+      void notifyPaymentFailed({
+        order,
+        amount: typeof entity.amount === "number" ? toRupees(entity.amount) : null,
+        attemptRef: entity.id,
+      });
       res.json({ received: true });
       return;
     }
@@ -750,6 +773,10 @@ export function registerPaymentRoutes(app: Express): void {
         actor_user_id: order.user_id,
         metadata: { payment_id: recorded.payment.id, reference: entity.id, source: "webhook" },
       });
+
+      // See the matching block in `verify` — whichever of the two recorded the
+      // payment is the one that tells the customer about it.
+      void notifyPaymentReceived({ order, amount, txnId: recorded.payment.txn_id });
     }
 
     res.json({ received: true, recorded: recorded.created });

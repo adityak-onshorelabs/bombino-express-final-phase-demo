@@ -104,6 +104,13 @@ export interface Order {
   items: unknown;
   booked_weight: number | null;
   quoted_amount: number | null;
+  /**
+   * The customer asked us to pack the parcel. Nothing about it is priced at
+   * booking — packaging cost, where it applies, lands in `final_amount` at the
+   * hub like every other reprice. It is here so the agent knows to carry
+   * material before they leave, and ops knows to pack at the counter.
+   */
+  packaging_required: boolean;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
   is_cod: boolean;
@@ -339,11 +346,15 @@ export function isInternalOnlyStatus(status: OrderStatus): boolean {
  * The single helper both lanes use to answer "may this order advance toward a
  * docket?".
  *
- * COD passes by design and must never block settle/docket (§4, Flow C).
- * Otherwise payment is satisfied only when `payment_status === 'paid'`
- * (advance pay, or cash collected at pickup/drop-off).
+ * STUB — M3 owns the real implementation (reconciliation against `payments`
+ * rows and the reprice delta). The signature is fixed here so A5 and M3 can be
+ * written against it in parallel.
+ *
+ * Returns false for everything except COD, which passes by design and must
+ * never block a docket (§4, Flow C). Erring closed means a premature caller
+ * gets a refusal rather than a wrongly-dispatched parcel.
  */
 export function isPaymentSatisfied(order: Order): boolean {
   if (order.is_cod || order.payment_method === 'cod') return true;
-  return order.payment_status === 'paid';
+  return false;
 }
