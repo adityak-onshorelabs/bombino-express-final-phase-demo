@@ -84,12 +84,7 @@ import {
   readCancellationRequest,
 } from "../shared/orderContract.js";
 import type { Order, OrderStatus, Role } from "../shared/orderContract.js";
-import { PICKUP_SLOT_VALUES } from "../shared/pickupSlots.js";
-import {
-  getCoveredDates,
-  getSlotOffersForDate,
-  isSlotBookable,
-} from "./availabilityDb.js";
+import { PICKUP_CUTOFF_HOUR, earliestPickupDate } from "../shared/istTime.js";
 import {
   generateOtp,
   hashOtp,
@@ -1597,68 +1592,19 @@ export async function registerRoutes(
 
   const PAYMENT_METHODS = ["pay_now", "pay_at_pickup", "pay_at_dropoff", "cod"] as const;
 
-  // ── Pickup slot availability (customer-facing) ──────────────────────────
-  // Namespaced under /api/pickup rather than /api/config/slots, which M1 owns
-  // (final-phase-modules.md §M1). When Arbaaz builds that endpoint it should
-  // delegate here rather than re-deriving availability.
-
-  const isoDateSchema = z
-    .string()
-    .trim()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD");
-
-  // GET /api/payment/upi is gone, along with the doorstep QR it fed. The
+  // GET /api/pickup/slots and /api/pickup/coverage are gone, with the pickup
+  // window itself. A customer names a date; there is no roster to check it
+  // against and no window that can lapse while the form is open.
+  //
+  // GET /api/payment/upi is gone too, along with the doorstep QR it fed. The
   // agent no longer shows the customer a payee address of any kind; the UPI
   // transfer is arranged between them and only its reference is recorded.
   // BOMBINO_UPI_VPA / BOMBINO_UPI_NAME are consequently unread.
-
-  // GET /api/pickup/slots?date=YYYY-MM-DD
-  // Every window for that date, each flagged available with a reason. Returns
-  // all four rather than only the open ones so the UI can show why a window is
-  // closed instead of silently omitting it.
-  app.get("/api/pickup/slots", requireUser, async (req: Request, res: Response) => {
-    const parsed = z.object({ date: isoDateSchema }).safeParse(req.query);
-    if (!parsed.success) {
-      res.status(400).json({ message: parsed.error.issues[0]?.message ?? "date is required" });
-      return;
-    }
-
-    const slots = await getSlotOffersForDate(parsed.data.date);
-    if (slots === null) {
-      res.status(502).json({ message: "Could not load pickup windows" });
-      return;
-    }
-    res.json({ date: parsed.data.date, slots });
-  });
-
-  // GET /api/pickup/coverage?from=&to=
-  // Dates with at least one bookable window, so the date picker can disable
-  // the rest. Deliberately returns only dates — never which agent, or how
-  // many; that is internal (§1).
-  app.get("/api/pickup/coverage", requireUser, async (req: Request, res: Response) => {
-    const parsed = z
-      .object({ from: isoDateSchema, to: isoDateSchema })
-      .safeParse(req.query);
-    if (!parsed.success) {
-      res.status(400).json({
-        message: parsed.error.issues[0]?.message ?? "from and to are required",
-      });
-      return;
-    }
-
-    const dates = await getCoveredDates(parsed.data.from, parsed.data.to);
-    if (dates === null) {
-      res.status(502).json({ message: "Could not load pickup availability" });
-      return;
-    }
-    res.json({ dates });
-  });
 
   const orderCreateSchema = z
     .object({
       pickup_request: z.union([z.literal(1), z.literal(2)]),
       pickup_date: z.string().trim().min(1).optional().nullable(),
-      pickup_slot: z.enum(PICKUP_SLOT_VALUES as [string, ...string[]]).optional().nullable(),
       payment_method: z.enum(PAYMENT_METHODS),
       booked_weight: z.number().optional().nullable(),
       quoted_amount: z.number().optional().nullable(),
@@ -1680,8 +1626,8 @@ export async function registerRoutes(
       consignee: z.record(z.unknown()),
       items: z.record(z.unknown()),
     })
-    .refine((body) => body.pickup_request !== 1 || (!!body.pickup_date && !!body.pickup_slot), {
-      message: "pickup_date and pickup_slot are required when pickup_request is 1 (pickup)",
+    .refine((body) => body.pickup_request !== 1 || !!body.pickup_date, {
+      message: "pickup_date is required when pickup_request is 1 (pickup)",
     })
     // Two payment methods are tied to how the parcel reaches us, because each
     // names the person who physically takes the money. Pay-at-pickup is
@@ -1714,22 +1660,21 @@ export async function registerRoutes(
     }
     const body = parsed.data;
 
-    // Authoritative slot check. The client filters the same way, but that is a
-    // convenience: the roster can empty between the form loading and the
-    // customer submitting, and nothing stops a hand-crafted request. Runs
-    // before the address write so a rejected booking leaves nothing behind.
-    if (body.pickup_request === 1 && body.pickup_date && body.pickup_slot) {
-      const check = await isSlotBookable(body.pickup_date, body.pickup_slot);
-      if (!check.ok) {
-        const message =
-          check.reason === "past"
-            ? "That pickup window has already started. Choose a later one."
-            : check.reason === "no_agent"
-              ? "No pickup agent is available for that window. Choose another."
-              : "Could not confirm that pickup window. Please try again.";
-        res.status(check.reason === "unknown" ? 502 : 409).json({
-          message,
-          code: check.reason === "past" ? "SLOT_PAST" : "SLOT_UNAVAILABLE",
+    // Authoritative pickup-date check. The form disables everything before the
+    // same boundary, but that is a convenience: the 3 PM IST cutoff can pass
+    // while a customer is still filling the form in, and nothing stops a
+    // hand-crafted request. Runs before the address write so a rejected
+    // booking leaves nothing behind.
+    if (body.pickup_request === 1 && body.pickup_date) {
+      const earliest = earliestPickupDate();
+      if (body.pickup_date < earliest) {
+        res.status(409).json({
+          message:
+            `Pickups booked after ${PICKUP_CUTOFF_HOUR % 12 || 12} ` +
+            `${PICKUP_CUTOFF_HOUR >= 12 ? "PM" : "AM"} are collected from the next day. ` +
+            `Choose ${earliest} or later.`,
+          code: "PICKUP_DATE_TOO_EARLY",
+          earliest_pickup_date: earliest,
         });
         return;
       }
@@ -1763,7 +1708,6 @@ export async function registerRoutes(
       status,
       pickup_request: body.pickup_request,
       pickup_date: isPickup ? body.pickup_date ?? null : null,
-      pickup_slot: isPickup ? body.pickup_slot ?? null : null,
       origin_address_id: originAddr.id,
       consignee: body.consignee,
       items: body.items,
@@ -2589,7 +2533,6 @@ export async function registerRoutes(
         customerStatus: deriveCustomerStatus(order),
         pickup_request: order.pickup_request,
         pickup_date: order.pickup_date,
-        pickup_slot: order.pickup_slot,
         quoted_amount: order.quoted_amount,
         final_amount: order.final_amount,
         payment_method: order.payment_method,

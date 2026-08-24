@@ -376,7 +376,10 @@ export function KycUpload({
           className={cn(
             'h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl',
             selectedDocType === 'Aadhaar Number' && 'font-mono tracking-widest',
-            showDocNoError && 'border-2 border-primary',
+            // `field-shake` is what CreateShipment's scroll-to-first-error
+            // looks for. Without it a missing KYC number marks itself red and
+            // the form scrolls past it to the next invalid field.
+            showDocNoError && 'border-2 border-primary field-shake',
           )}
           data-testid="input-aadhaar-number"
         />
@@ -427,7 +430,7 @@ export function KycUpload({
             uploadStatus === 'uploading' && 'border-amber-300 bg-amber-50 pointer-events-none',
             uploadStatus === 'success'   && 'border-green-300 bg-green-50',
             uploadStatus === 'error'     && 'border-red-300 bg-red-50',
-            fileErrorHighlight && 'border-primary',
+            fileErrorHighlight && 'border-primary field-shake',
           )}
         >
           {uploadStatus === 'idle' && (
