@@ -1,0 +1,426 @@
+/**
+ * Cashfree VRS Smart OCR — reads the number off an uploaded identity document
+ * and says whether it agrees with the number the customer typed.
+ *
+ *   POST {base}/verification/bharat-ocr   multipart/form-data
+ *   headers: x-client-id, x-client-secret, x-api-version
+ *   https://www.cashfree.com/docs/api-reference/vrs/v2/smart-ocr/smart-ocr
+ *
+ * The policy this file implements, decided with the client:
+ *
+ *   • A document that reads as a *different* number, or as the wrong kind of
+ *     document, or that carries a tamper signal, is refused. That is bad data,
+ *     and it reaches Indian customs if we let it through.
+ *   • A document that merely cannot be read — blur, glare, an outage, an empty
+ *     VRS balance — does not fail the *upload*. The row is stored with its
+ *     verdict, so the attempt is visible to ops and the customer keeps the
+ *     file they chose, and they are told to try a clearer photo.
+ *
+ * `blocking` marks only the first group, so only those refuse the upload.
+ *
+ * Account creation is stricter than either: assertDocumentsStaged (routes.ts)
+ * refuses to open an account unless every identity document came back `match`.
+ * An unread document therefore costs a retry, not an unverified account — and
+ * while Cashfree is unreachable, no account can open at all. That is the
+ * deliberate trade, so the copy below never promises a manual check.
+ */
+
+import crypto from "crypto";
+import { OCR_SLOT_DOCUMENT_TYPES, isOcrCheckedSlot } from "../shared/accountSpec.js";
+
+const SANDBOX_BASE = "https://sandbox.cashfree.com";
+const PRODUCTION_BASE = "https://api.cashfree.com";
+const DEFAULT_API_VERSION = "2024-12-01";
+/** Comfortably past Cashfree's own latency; a slow OCR must not hang an upload. */
+const REQUEST_TIMEOUT_MS = 20_000;
+
+/** The subset of Cashfree's document types we ever send. */
+export type CashfreeDocumentType =
+  | "PAN"
+  | "AADHAAR"
+  | "DRIVING_LICENCE"
+  | "VOTER_ID"
+  | "PASSPORT";
+
+export type OcrStatus =
+  /** OCR read the document and the number agrees with what was typed. */
+  | "match"
+  /** OCR read a different number. Blocking. */
+  | "mismatch"
+  /** The file is not the kind of document that slot asked for. Blocking. */
+  | "wrong_document"
+  /** Tamper signal from Cashfree's fraud checks. Blocking. */
+  | "tampered"
+  /** Cashfree answered but could not extract — blur, glare, a bad scan. */
+  | "unreadable"
+  /** We never got an answer: not configured, timed out, out of balance, 5xx. */
+  | "unavailable"
+  /** This document type has no OCR equivalent (GST certificate, a bill). */
+  | "skipped";
+
+export interface OcrResult {
+  status: OcrStatus;
+  /** True only for the statuses that must refuse the upload. */
+  blocking: boolean;
+  /** Shown to the customer. Written to be actionable, not to blame them. */
+  message: string;
+  /** Cashfree's own id for the call, for support tickets. */
+  verification_id: string | null;
+  reference_id: number | null;
+  /** Raw extraction, kept for ops. May hold a masked Aadhaar. */
+  document_fields: Record<string, unknown> | null;
+  quality_checks: Record<string, boolean | null> | null;
+  fraud_checks: Record<string, boolean | null> | null;
+  /** Set when we never reached a verdict, for the server log. */
+  error: string | null;
+}
+
+interface SmartOcrResponse {
+  verification_id?: string;
+  /**
+   * Documented as an integer, returned as a quoted string by the live sandbox
+   * ("127578"). Read through `toReferenceId`, never used raw.
+   */
+  reference_id?: number | string;
+  status?: string;
+  document_type?: string;
+  document_fields?: Record<string, unknown>;
+  quality_checks?: Record<string, boolean | null>;
+  fraud_checks?: Record<string, boolean | null>;
+}
+
+function getConfig(): { clientId: string; clientSecret: string; base: string; apiVersion: string } | null {
+  const clientId = process.env.CASHFREE_VRS_CLIENT_ID?.trim();
+  const clientSecret = process.env.CASHFREE_VRS_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) return null;
+
+  return {
+    clientId,
+    clientSecret,
+    // Anything other than an explicit "production" is sandbox. Getting this
+    // wrong costs real money against a real balance, so it fails safe.
+    base: process.env.CASHFREE_VRS_ENV?.trim() === "production" ? PRODUCTION_BASE : SANDBOX_BASE,
+    apiVersion: process.env.CASHFREE_VRS_API_VERSION?.trim() || DEFAULT_API_VERSION,
+  };
+}
+
+export function isOcrConfigured(): boolean {
+  return getConfig() !== null;
+}
+
+/** `verification_id`: max 50 chars, alphanumeric plus `.`, `-`, `_`, unique per call. */
+function newVerificationId(tag: string): string {
+  const safeTag = tag.replace(/[^A-Za-z0-9._-]/g, "").slice(0, 16);
+  return `bmb-${safeTag}-${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
+}
+
+/** Cashfree's reference id, whichever of the two shapes it arrives in. */
+function toReferenceId(value: number | string | undefined): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function unavailable(message: string, error: string): OcrResult {
+  return {
+    status: "unavailable",
+    blocking: false,
+    message,
+    verification_id: null,
+    reference_id: null,
+    document_fields: null,
+    quality_checks: null,
+    fraud_checks: null,
+    error,
+  };
+}
+
+/** Digits and letters only, upper-cased — how both sides of a comparison are held. */
+function normalize(value: string): string {
+  return value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+}
+
+/**
+ * Pull the identifying number out of `document_fields`.
+ *
+ * The key differs per document type, and Aadhaar comes back under `uid` on
+ * both the front and back variants. Unknown shapes return null, which lands
+ * the call in `unreadable` rather than a false mismatch.
+ */
+function extractNumber(
+  documentType: CashfreeDocumentType,
+  fields: Record<string, unknown> | undefined
+): string | null {
+  if (!fields) return null;
+  const keys: Record<CashfreeDocumentType, string[]> = {
+    PAN: ["pan", "pan_number"],
+    AADHAAR: ["uid", "aadhaar", "aadhaar_number"],
+    DRIVING_LICENCE: ["dl_number", "licence_number", "license_number", "dl"],
+    VOTER_ID: ["epic_number", "voter_id", "epic"],
+    PASSPORT: ["passport_number", "file_number", "passport"],
+  };
+  for (const key of keys[documentType]) {
+    const value = fields[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+/**
+ * Compare what OCR read against what the customer typed.
+ *
+ * Aadhaar is routinely returned masked (`XXXXXXXX1234`) — by Cashfree, and by
+ * the masked e-Aadhaar people download and upload. Comparing those in full
+ * would reject every legitimate masked document, so a masked read is compared
+ * on the last four digits, which is all the document itself discloses.
+ */
+function compareNumbers(
+  extracted: string,
+  typed: string
+): "match" | "mismatch" | "inconclusive" {
+  const typedNorm = normalize(typed);
+  const extractedNorm = normalize(extracted);
+  if (!typedNorm || !extractedNorm) return "inconclusive";
+
+  const maskedDigits = extractedNorm.replace(/[^0-9]/g, "");
+  const isMasked = /X{2,}/.test(extractedNorm) || /\*{2,}/.test(extracted);
+
+  if (isMasked) {
+    if (maskedDigits.length < 4) return "inconclusive";
+    const tail = maskedDigits.slice(-4);
+    return typedNorm.endsWith(tail) ? "match" : "mismatch";
+  }
+
+  return extractedNorm === typedNorm ? "match" : "mismatch";
+}
+
+/**
+ * Cashfree's tamper signals.
+ *
+ * `is_screenshot` and `is_photo_of_screen` are deliberately *not* here: people
+ * photograph a screen holding a genuine document often enough that blocking on
+ * it would cost more good customers than it catches bad ones. They are still
+ * stored, so ops can look.
+ */
+const TAMPER_FLAGS = ["is_photo_imposed", "is_overwritten", "is_forged"] as const;
+
+function tamperSignal(fraudChecks: Record<string, boolean | null> | undefined): string | null {
+  if (!fraudChecks) return null;
+  for (const flag of TAMPER_FLAGS) {
+    if (fraudChecks[flag] === true) return flag;
+  }
+  return null;
+}
+
+export interface RunSmartOcrInput {
+  documentType: CashfreeDocumentType;
+  /** The number the customer typed, compared against what OCR reads. */
+  typedNumber: string;
+  file: Buffer;
+  filename: string;
+  mimeType: string;
+  /** Goes into `verification_id` so a support ticket can be traced back. */
+  tag: string;
+}
+
+/**
+ * Run one OCR check. Never throws — every failure path returns an OcrResult,
+ * because an exception here would fail an upload for a reason that is ours.
+ */
+export async function runSmartOcr(input: RunSmartOcrInput): Promise<OcrResult> {
+  const config = getConfig();
+  if (!config) {
+    return unavailable(
+      "Document verification is not switched on, so this document cannot be accepted yet.",
+      "CASHFREE_VRS_CLIENT_ID/SECRET not configured"
+    );
+  }
+
+  const verificationId = newVerificationId(input.tag);
+  const form = new FormData();
+  form.append("verification_id", verificationId);
+  form.append("document_type", input.documentType);
+  form.append(
+    "file",
+    new Blob([new Uint8Array(input.file)], { type: input.mimeType }),
+    input.filename
+  );
+
+  let res: Response;
+  try {
+    res = await fetch(`${config.base}/verification/bharat-ocr`, {
+      method: "POST",
+      headers: {
+        "x-client-id": config.clientId,
+        "x-client-secret": config.clientSecret,
+        "x-api-version": config.apiVersion,
+      },
+      body: form,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "network error";
+    console.error("[cashfreeOcr] request failed:", detail);
+    return unavailable(
+      "We could not verify this document just now. Please try again in a moment.",
+      detail
+    );
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    // 401/403 is our configuration, 422 is our balance, 5xx is their outage —
+    // none of them are the customer's problem, so none of them block.
+    console.error("[cashfreeOcr] non-OK response:", res.status, body.slice(0, 500));
+    return unavailable(
+      "We could not verify this document just now. Please try again in a moment.",
+      `HTTP ${res.status}: ${body.slice(0, 200)}`
+    );
+  }
+
+  let body: SmartOcrResponse;
+  try {
+    body = (await res.json()) as SmartOcrResponse;
+  } catch (err) {
+    return unavailable(
+      "We could not verify this document just now. Please try again in a moment.",
+      err instanceof Error ? err.message : "unparseable response"
+    );
+  }
+
+  const base = {
+    verification_id: body.verification_id ?? verificationId,
+    reference_id: toReferenceId(body.reference_id),
+    document_fields: body.document_fields ?? null,
+    quality_checks: body.quality_checks ?? null,
+    fraud_checks: body.fraud_checks ?? null,
+    error: null,
+  };
+
+  const tampered = tamperSignal(body.fraud_checks);
+  if (tampered) {
+    return {
+      ...base,
+      status: "tampered",
+      blocking: true,
+      message:
+        "This document looks altered. Please upload an unedited photo or scan of the original.",
+    };
+  }
+
+  if (body.status !== "VALID") {
+    return {
+      ...base,
+      status: "unreadable",
+      blocking: false,
+      message: "We could not read this document clearly. Please upload a sharper photo of the original.",
+    };
+  }
+
+  // A VALID read of the wrong kind of document is the customer putting a file
+  // in the wrong slot, and it is worth saying so plainly.
+  if (body.document_type && !body.document_type.toUpperCase().startsWith(input.documentType)) {
+    return {
+      ...base,
+      status: "wrong_document",
+      blocking: true,
+      message: `This looks like a ${humanDocumentType(body.document_type)}, not a ${humanDocumentType(
+        input.documentType
+      )}. Please upload the right document.`,
+    };
+  }
+
+  const extracted = extractNumber(input.documentType, body.document_fields);
+  if (!extracted) {
+    return {
+      ...base,
+      status: "unreadable",
+      blocking: false,
+      message: "We could not read the number on this document. Please upload a sharper photo of the original.",
+    };
+  }
+
+  const verdict = compareNumbers(extracted, input.typedNumber);
+  if (verdict === "mismatch") {
+    return {
+      ...base,
+      status: "mismatch",
+      blocking: true,
+      message: `The number on this document does not match the ${humanDocumentType(
+        input.documentType
+      )} number you entered. Please check both.`,
+    };
+  }
+  if (verdict === "inconclusive") {
+    return {
+      ...base,
+      status: "unreadable",
+      blocking: false,
+      message: "We could not read the number on this document. Please upload a sharper photo of the original.",
+    };
+  }
+
+  return {
+    ...base,
+    status: "match",
+    blocking: false,
+    message: "Document verified.",
+  };
+}
+
+/**
+ * Which onboarding slots OCR can speak to.
+ *
+ * Cashfree reads identity documents; it has nothing to say about a GST
+ * certificate, an IEC certificate, a utility bill or an authorization letter,
+ * so those slots are `skipped` rather than sent and billed for.
+ */
+export function ocrTypeForDocSlot(slot: string): CashfreeDocumentType | null {
+  return isOcrCheckedSlot(slot) ? OCR_SLOT_DOCUMENT_TYPES[slot] : null;
+}
+
+/** The KYC upload path names its documents differently — see KycUpload.tsx. */
+export function ocrTypeForKycDocumentType(documentType: string): CashfreeDocumentType | null {
+  const map: Record<string, CashfreeDocumentType> = {
+    "Aadhaar Number": "AADHAAR",
+    "PAN Number": "PAN",
+    "Passport Number": "PASSPORT",
+    "Driving Licence": "DRIVING_LICENCE",
+    // GSTIN is not an identity document; Smart OCR has no type for it.
+  };
+  return map[documentType] ?? null;
+}
+
+/** The result stored against a document OCR was never asked about. */
+export function skippedOcr(reason: string): OcrResult {
+  return {
+    status: "skipped",
+    blocking: false,
+    message: reason,
+    verification_id: null,
+    reference_id: null,
+    document_fields: null,
+    quality_checks: null,
+    fraud_checks: null,
+    error: null,
+  };
+}
+
+function humanDocumentType(value: string): string {
+  const map: Record<string, string> = {
+    PAN: "PAN card",
+    AADHAAR: "Aadhaar card",
+    AADHAAR_FRONT: "Aadhaar card",
+    AADHAAR_BACK: "Aadhaar card",
+    DRIVING_LICENCE: "driving licence",
+    VOTER_ID: "voter ID",
+    PASSPORT: "passport",
+    VEHICLE_RC: "vehicle RC",
+    CANCELLED_CHEQUE: "cancelled cheque",
+    INVOICE: "invoice",
+  };
+  return map[value.toUpperCase()] ?? value.toLowerCase().replace(/_/g, " ");
+}

@@ -131,6 +131,40 @@ import {
   buildItdKycPayload,
   toKycSummary,
 } from "../shared/kyc.js";
+import {
+  ocrTypeForDocSlot,
+  ocrTypeForKycDocumentType,
+  runSmartOcr,
+  skippedOcr,
+  type OcrResult,
+} from "./cashfreeOcr.js";
+import {
+  toOcrColumns,
+  claimSignupDocuments,
+  deleteSignupDocument,
+  getAccountDocumentByCapabilityId,
+  getSignupDocumentWithFile,
+  listDocumentsBySignupRef,
+  upsertAccountDocument,
+} from "./accountDocsDb.js";
+import {
+  CONTRACT_VERSION,
+  isValidSignature,
+  SIGNATURE_ERROR,
+  SIGNATURE_MAX_LENGTH,
+} from "../shared/contract.js";
+import {
+  COMPANY_CATEGORIES,
+  COMPANY_CATEGORY_SPECS,
+  DOC_SLOT_SPECS,
+  EXTRA_FIELD_SPECS,
+  isDocSlot,
+  missingDocuments,
+  requiredExtraFields,
+  type CompanyCategory,
+  type DocSlot,
+  type ExtraField,
+} from "../shared/accountSpec.js";
 import { validateGstin } from "../shared/gstin.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
@@ -343,11 +377,369 @@ export async function registerRoutes(
     res.json({ verified: true });
   });
 
-  const signupPersonalSchema = z.object({
-    full_name: z.string().trim().min(1, "Full name is required"),
-    email: z.string().trim().email("Enter a valid email"),
-    phone: phoneSchema,
+  // ── Onboarding documents ──────────────────────────────────────────────────
+  //
+  // The accounts department compels a document set before an account opens
+  // (shared/accountSpec.ts), so these uploads happen *before* there is a user
+  // row to hang them on. They are staged against a `signupRef` held in the
+  // session and claimed by the account at creation.
+  //
+  // Authorisation is the verified phone number: the caller must have passed
+  // the OTP for the number they are opening the account under. That is the
+  // same proof /api/auth/signup/* asks for a moment later.
+
+  /** Mint the staging handle on first use; reuse it for the rest of the signup. */
+  function getOrCreateSignupRef(req: Request): string {
+    if (!req.session.signupRef) {
+      req.session.signupRef = crypto.randomUUID();
+    }
+    return req.session.signupRef;
+  }
+
+  async function assertPhoneVerified(
+    phone: unknown,
+    res: Response
+  ): Promise<string | null> {
+    const parsed = phoneSchema.safeParse(phone);
+    if (!parsed.success) {
+      res.status(400).json({ message: "A verified phone number is required" });
+      return null;
+    }
+    const verified = await hasRecentVerification(
+      parsed.data,
+      "auth",
+      OTP_VERIFICATION_WINDOW_MINUTES
+    );
+    if (!verified) {
+      res.status(400).json({ message: "Please verify your phone number first" });
+      return null;
+    }
+    return parsed.data;
+  }
+
+  /**
+   * Validate the number printed on a document, where the slot asks for one.
+   * Returns the value to store, or an error message. The patterns are the
+   * ones the form enforces — shared/accountSpec.ts is the single source.
+   */
+  function normalizeDocumentNo(
+    slot: DocSlot,
+    raw: unknown
+  ): { ok: true; value: string | null } | { ok: false; message: string } {
+    const field = DOC_SLOT_SPECS[slot].numberField;
+    if (!field) return { ok: true, value: null };
+
+    const trimmed = typeof raw === "string" ? raw.trim() : "";
+    if (!trimmed) {
+      return { ok: false, message: `${field.label} is required` };
+    }
+    const value = field.uppercase ? trimmed.toUpperCase() : trimmed;
+    if (!field.pattern.test(value)) {
+      return { ok: false, message: field.error };
+    }
+    return { ok: true, value };
+  }
+
+  /**
+   * Read the document and check it says what the customer said it says.
+   *
+   * Refuses the upload when OCR reads a contradicting number, the wrong kind
+   * of document, or a tamper signal. Everything else — an unreadable scan, an
+   * outage, no credentials — is allowed through and recorded as unverified,
+   * because those failures are ours and a customer cannot photograph their way
+   * out of them. See server/cashfreeOcr.ts for the full policy.
+   */
+  async function verifyDocumentOrRefuse(
+    res: Response,
+    args: {
+      cashfreeType: ReturnType<typeof ocrTypeForDocSlot>;
+      typedNumber: string | null;
+      file: Express.Multer.File;
+      tag: string;
+    }
+  ): Promise<OcrResult | null> {
+    if (!args.cashfreeType || !args.typedNumber) {
+      return skippedOcr("No OCR check applies to this document.");
+    }
+
+    const result = await runSmartOcr({
+      documentType: args.cashfreeType,
+      typedNumber: args.typedNumber,
+      file: args.file.buffer,
+      filename: args.file.originalname,
+      mimeType: args.file.mimetype,
+      tag: args.tag,
+    });
+
+    if (result.blocking) {
+      // 422: the request was well-formed and we understood it — the document
+      // itself is the problem.
+      res.status(422).json({
+        message: result.message,
+        ocr: { status: result.status, verification_id: result.verification_id },
+      });
+      return null;
+    }
+    return result;
+  }
+
+  // POST /api/signup/documents — stage one document of an in-flight signup
+  app.post(
+    "/api/signup/documents",
+    kycUpload.single("file"),
+    async (req: Request, res: Response) => {
+      const phone = await assertPhoneVerified(req.body?.phone, res);
+      if (!phone) return;
+
+      if (!req.file) {
+        res.status(400).json({ message: "No file uploaded." });
+        return;
+      }
+
+      const slot = typeof req.body?.doc_slot === "string" ? req.body.doc_slot.trim() : "";
+      if (!isDocSlot(slot)) {
+        res.status(400).json({ message: "Unknown document type" });
+        return;
+      }
+
+      const docNo = normalizeDocumentNo(slot, req.body?.document_no);
+      if (!docNo.ok) {
+        res.status(400).json({ message: docNo.message });
+        return;
+      }
+
+      const ocr = await verifyDocumentOrRefuse(res, {
+        cashfreeType: ocrTypeForDocSlot(slot),
+        typedNumber: docNo.value,
+        file: req.file,
+        tag: `signup-${slot}`,
+      });
+      if (!ocr) return;
+
+      try {
+        const saved = await upsertAccountDocument({
+          signup_ref: getOrCreateSignupRef(req),
+          doc_slot: slot,
+          document_no: docNo.value,
+          original_filename: req.file.originalname,
+          mime_type: req.file.mimetype,
+          file_size_bytes: req.file.size,
+          file_data: req.file.buffer.toString("base64"),
+          ocr: toOcrColumns(ocr),
+        });
+        if (!saved) {
+          res.status(500).json({ message: "Failed to save document." });
+          return;
+        }
+        // The session now carries the handle these rows are keyed by; without
+        // an explicit save the next request can race ahead of the store write
+        // and look like a signup with no documents at all.
+        req.session.save((err) => {
+          if (err) console.error("[signup/documents] session save error:", err);
+          res.json({
+            doc_slot: saved.doc_slot,
+            capability_id: saved.capability_id,
+            original_filename: saved.original_filename,
+            mime_type: saved.mime_type,
+            file_size_bytes: saved.file_size_bytes,
+            updated_at: saved.updated_at,
+            // The form tells the customer when a document went in unverified,
+            // so "Uploaded" never over-promises.
+            ocr: { status: ocr.status, message: ocr.message },
+          });
+        });
+      } catch (err) {
+        console.error("[POST /api/signup/documents] failed:", err);
+        res.status(500).json({ message: "Failed to save document." });
+      }
+    }
+  );
+
+  // GET /api/signup/documents — what this signup has staged so far
+  app.get("/api/signup/documents", async (req: Request, res: Response) => {
+    const signupRef = req.session.signupRef;
+    if (!signupRef) {
+      res.json({ documents: [] });
+      return;
+    }
+    const rows = await listDocumentsBySignupRef(signupRef);
+    res.set("Cache-Control", "no-store");
+    res.json({
+      documents: rows.map((row) => ({
+        doc_slot: row.doc_slot,
+        capability_id: row.capability_id,
+        // Echoed back so that stepping away from the documents screen and
+        // returning restores the form instead of asking for the file again.
+        // Session-scoped: the only reader is the browser that typed it.
+        document_no: row.document_no,
+        original_filename: row.original_filename,
+        mime_type: row.mime_type,
+        file_size_bytes: row.file_size_bytes,
+        updated_at: row.updated_at,
+        // The form marks an unverified identity document as still outstanding,
+        // because account creation will refuse it.
+        ocr_status: row.ocr_status,
+      })),
+    });
   });
+
+  // DELETE /api/signup/documents/:slot — drop a staged document
+  app.delete("/api/signup/documents/:slot", async (req: Request, res: Response) => {
+    const signupRef = req.session.signupRef;
+    if (!signupRef) {
+      res.status(404).json({ message: "Nothing to remove" });
+      return;
+    }
+    if (!isDocSlot(req.params.slot)) {
+      res.status(400).json({ message: "Unknown document type" });
+      return;
+    }
+    const ok = await deleteSignupDocument(signupRef, req.params.slot);
+    if (!ok) {
+      res.status(500).json({ message: "Failed to remove document." });
+      return;
+    }
+    res.json({ removed: req.params.slot });
+  });
+
+  /**
+   * Refuse the account until every compelled document is present.
+   *
+   * Returns null when the set is incomplete, having already answered the
+   * request; `missing_documents` is echoed back so the form can mark the gaps
+   * rather than making the customer hunt for them.
+   */
+  async function assertDocumentsStaged(
+    req: Request,
+    res: Response,
+    accountType: "personal" | "company",
+    category: CompanyCategory | null
+  ): Promise<Map<DocSlot, { document_no: string | null; capability_id: string }> | null> {
+    const signupRef = req.session.signupRef;
+    const staged = signupRef ? await listDocumentsBySignupRef(signupRef) : [];
+    const missing = missingDocuments(
+      accountType,
+      category,
+      staged.map((row) => row.doc_slot)
+    );
+    if (missing.length > 0) {
+      res.status(400).json({
+        message: `Please upload: ${missing.map((s) => DOC_SLOT_SPECS[s].label).join(", ")}`,
+        missing_documents: missing,
+      });
+      return null;
+    }
+
+    // Present is not the same as verified. An identity document that OCR never
+    // actually read — a blurred scan, or Cashfree unreachable — is refused
+    // here rather than opening an account on a document nobody has checked.
+    //
+    // This makes verification load-bearing: while Cashfree is unreachable, no
+    // account can open. That is the deliberate trade. `skipped` slots (GST
+    // certificate, bills) have no OCR equivalent and are unaffected.
+    const unverified = staged
+      .filter((row) => ocrTypeForDocSlot(row.doc_slot) !== null && row.ocr_status !== "match")
+      .map((row) => row.doc_slot);
+
+    if (unverified.length > 0) {
+      res.status(422).json({
+        message:
+          `We could not verify your ${unverified
+            .map((slot) => DOC_SLOT_SPECS[slot].label)
+            .join(" and ")}. Please upload a clear photo of the original and check the number you entered.`,
+        unverified_documents: unverified,
+      });
+      return null;
+    }
+
+    return new Map(
+      staged.map((row) => [
+        row.doc_slot,
+        { document_no: row.document_no, capability_id: row.capability_id },
+      ])
+    );
+  }
+
+  /**
+   * The typed signature that closes signup.
+   *
+   * Personal accounts sign here instead of handing over a signed copy, so this
+   * is the whole of their contract record — refuse the account outright rather
+   * than let one through unsigned. Corporate accounts sign here *and* upload
+   * the countersigned authorization letter.
+   */
+  const contractAcceptanceSchema = z.object({
+    contract_accepted: z.literal(true, {
+      errorMap: () => ({ message: "Please accept the contract to continue" }),
+    }),
+    contract_signed_name: z.string().trim().max(SIGNATURE_MAX_LENGTH, SIGNATURE_ERROR),
+  });
+
+  /** The columns an acceptance writes, with the evidence to go alongside it. */
+  function contractColumns(
+    req: Request,
+    signedName: string
+  ): {
+    contract_signed_name: string;
+    contract_version: string;
+    contract_accepted_at: string;
+    contract_accepted_ip: string | null;
+  } {
+    return {
+      contract_signed_name: signedName.trim(),
+      contract_version: CONTRACT_VERSION,
+      contract_accepted_at: new Date().toISOString(),
+      // Behind a proxy this is only as good as `trust proxy`, which is why it
+      // is evidence alongside the timestamp rather than proof on its own.
+      contract_accepted_ip: req.ip ?? null,
+    };
+  }
+
+  /** Move the staged documents onto the new account; never fatal to signup. */
+  async function claimDocumentsForUser(req: Request, userId: string): Promise<void> {
+    const signupRef = req.session.signupRef;
+    if (!signupRef) return;
+    try {
+      await claimSignupDocuments(signupRef, userId);
+    } catch (err) {
+      console.error("[signup] claimSignupDocuments failed:", err);
+      return;
+    }
+    delete req.session.signupRef;
+  }
+
+  // GET /api/account/documents/:id/file — capability URL, same contract as the
+  // KYC one: the unguessable id in the path is the authorisation, so ITD can
+  // fetch a document without holding a Bombino session.
+  app.get("/api/account/documents/:id/file", async (req: Request, res: Response) => {
+    try {
+      const doc = await getAccountDocumentByCapabilityId(req.params.id);
+      if (!doc) {
+        res.status(404).json({ message: "Document not found." });
+        return;
+      }
+      const buffer = Buffer.from(doc.file_data, "base64");
+      res.set({
+        "Content-Type": doc.mime_type,
+        "Content-Length": String(buffer.length),
+        // Re-uploads keep the capability_id, so a cached copy would go stale.
+        "Cache-Control": "no-store",
+        "Content-Disposition": `inline; filename="${doc.original_filename}"`,
+      });
+      res.send(buffer);
+    } catch (err) {
+      console.error("[GET /api/account/documents/:id/file] failed:", err);
+      res.status(500).json({ message: "Failed to retrieve document." });
+    }
+  });
+
+  const signupPersonalSchema = z
+    .object({
+      full_name: z.string().trim().min(1, "Full name is required"),
+      email: z.string().trim().email("Enter a valid email"),
+      phone: phoneSchema,
+    })
+    .merge(contractAcceptanceSchema);
 
   // POST /api/auth/signup/personal
   app.post("/api/auth/signup/personal", async (req: Request, res: Response) => {
@@ -356,7 +748,12 @@ export async function registerRoutes(
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
       return;
     }
-    const { full_name, email, phone } = parsed.data;
+    const { full_name, email, phone, contract_signed_name } = parsed.data;
+
+    if (!isValidSignature(contract_signed_name)) {
+      res.status(400).json({ message: SIGNATURE_ERROR });
+      return;
+    }
 
     const existing = await findItdUserIdByPhone(phone);
     if (existing) {
@@ -372,6 +769,11 @@ export async function registerRoutes(
       return;
     }
 
+    // Aadhaar and PAN both, before the account exists — the document set is a
+    // precondition of opening it, not a follow-up task.
+    const staged = await assertDocumentsStaged(req, res, "personal", null);
+    if (!staged) return;
+
     const itdCustomerId = `local-${crypto.randomUUID()}`;
     const row = await upsertItdUserAndReturnId({
       itd_customer_id: itdCustomerId,
@@ -382,10 +784,38 @@ export async function registerRoutes(
       role: "customer",
       phone,
       account_type: "personal",
+      ...contractColumns(req, contract_signed_name),
     });
     if (!row?.id) {
       res.status(502).json({ message: "Could not create account. Please try again." });
       return;
+    }
+
+    // Mirror the Aadhaar into kyc_documents. That table is what the shipment
+    // path reads to build ITD's `kyc_details` (buildItdKycPayload), and it
+    // stays the one KYC document of record; account_documents is the
+    // onboarding file, not a second source of truth for customs.
+    const aadhaar = req.session.signupRef
+      ? await getSignupDocumentWithFile(req.session.signupRef, "aadhaar_card")
+      : null;
+    await claimDocumentsForUser(req, row.id);
+    if (aadhaar?.document_no) {
+      const mirrored = await upsertKycDocument({
+        user_id: row.id,
+        capability_id: crypto.randomUUID(),
+        document_type: "Aadhaar Number",
+        document_no: aadhaar.document_no,
+        original_filename: aadhaar.original_filename,
+        mime_type: aadhaar.mime_type,
+        file_size_bytes: aadhaar.file_size_bytes,
+        file_data: aadhaar.file_data,
+      });
+      if (!mirrored) {
+        // Non-fatal: the document is safe in account_documents either way, and
+        // the customer can re-upload from Profile. Losing the account over it
+        // would be the worse trade.
+        console.error("[signup/personal] KYC mirror failed for user", row.id);
+      }
     }
 
     const user = {
@@ -412,7 +842,47 @@ export async function registerRoutes(
     phone: phoneSchema,
     company_name: z.string().trim().min(1, "Company name is required"),
     gstin: z.string().trim().length(15, "GST number must be 15 characters"),
-  });
+    // Which of the four the account is. Optional so that a client built before
+    // the categories existed still opens a plain corporate account rather than
+    // failing at the schema.
+    company_category: z.enum(COMPANY_CATEGORIES).default("corporate"),
+    contact_person: z.string().trim().min(1, "Contact person is required"),
+    email: z.string().trim().email("Enter a valid email"),
+    // Only e-commerce asks for these; validated per category below, against
+    // the same patterns the form uses.
+    lut_no: z.string().trim().optional(),
+    iec_branch_code: z.string().trim().optional(),
+    bank_account_no: z.string().trim().optional(),
+    bank_ad_code: z.string().trim().optional(),
+  }).merge(contractAcceptanceSchema);
+
+  /**
+   * The export-paperwork fields, checked against shared/accountSpec.ts.
+   * Categories that do not ask for a field store null rather than whatever
+   * the customer had typed before switching category.
+   */
+  function collectExtraFields(
+    category: CompanyCategory,
+    body: Partial<Record<ExtraField, string | undefined>>
+  ): { ok: true; values: Record<ExtraField, string | null> } | { ok: false; message: string } {
+    const required = requiredExtraFields(category);
+    const values = {
+      lut_no: null,
+      iec_branch_code: null,
+      bank_account_no: null,
+      bank_ad_code: null,
+    } as Record<ExtraField, string | null>;
+
+    for (const field of required) {
+      const spec = EXTRA_FIELD_SPECS[field];
+      const raw = (body[field] ?? "").trim();
+      if (!raw) return { ok: false, message: `${spec.label} is required` };
+      const value = spec.uppercase ? raw.toUpperCase() : raw;
+      if (!spec.pattern.test(value)) return { ok: false, message: spec.error };
+      values[field] = value;
+    }
+    return { ok: true, values };
+  }
 
   // POST /api/auth/signup/company
   app.post("/api/auth/signup/company", async (req: Request, res: Response) => {
@@ -421,12 +891,31 @@ export async function registerRoutes(
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
       return;
     }
-    const { phone, company_name, gstin: rawGstin } = parsed.data;
+    const {
+      phone,
+      company_name,
+      gstin: rawGstin,
+      company_category,
+      contact_person,
+      email,
+      contract_signed_name,
+    } = parsed.data;
     const gstin = rawGstin.toUpperCase();
+
+    if (!isValidSignature(contract_signed_name)) {
+      res.status(400).json({ message: SIGNATURE_ERROR });
+      return;
+    }
 
     const gstinCheck = validateGstin(gstin);
     if (!gstinCheck.valid) {
       res.status(400).json({ message: gstinCheck.message ?? "Invalid GST number" });
+      return;
+    }
+
+    const extras = collectExtraFields(company_category, parsed.data);
+    if (!extras.ok) {
+      res.status(400).json({ message: extras.message });
       return;
     }
 
@@ -442,11 +931,16 @@ export async function registerRoutes(
       return;
     }
 
+    const categorySpec = COMPANY_CATEGORY_SPECS[company_category];
+
+    const staged = await assertDocumentsStaged(req, res, "company", company_category);
+    if (!staged) return;
+
     const itdCustomerId = `local-${crypto.randomUUID()}`;
     const row = await upsertItdUserAndReturnId({
       itd_customer_id: itdCustomerId,
       itd_customer_code: itdCustomerId,
-      email: "",
+      email,
       full_name: company_name,
       username: phone,
       role: "customer",
@@ -454,11 +948,21 @@ export async function registerRoutes(
       account_type: "company",
       company_name,
       gstin,
+      company_category,
+      // Denormalised from the spec at creation time: a later change to the
+      // mapping must not silently restate what an existing account signed.
+      contract_head: categorySpec.contractHead,
+      group_code: categorySpec.groupCode ?? null,
+      contact_person,
+      ...extras.values,
+      ...contractColumns(req, contract_signed_name),
     });
     if (!row?.id) {
       res.status(502).json({ message: "Could not create account. Please try again." });
       return;
     }
+
+    await claimDocumentsForUser(req, row.id);
 
     let itdRegistered = false;
     let addCustomerResponse: unknown = null;
@@ -468,6 +972,8 @@ export async function registerRoutes(
         name: company_name,
         contact_no: phone,
         gst_number: gstin,
+        email,
+        contact_person,
       });
       itdRegistered = !!addCustomerResult.success;
       addCustomerResponse = addCustomerResult;
@@ -486,6 +992,11 @@ export async function registerRoutes(
     void mergeItdUserMetadataById(row.id, {
       itd_registered: itdRegistered,
       itd_customer_id: itdCustomerId,
+      // add_customer has no field for either, so the only record of which
+      // contract this account opened under lives on our side.
+      company_category,
+      contract_head: categorySpec.contractHead,
+      ...(categorySpec.groupCode ? { group_code: categorySpec.groupCode } : {}),
       itd_registration_attempted_at: new Date().toISOString(),
       itd_add_customer_response: addCustomerResponse,
       ...(addCustomerError ? { itd_add_customer_error: addCustomerError } : {}),
@@ -495,7 +1006,7 @@ export async function registerRoutes(
       id: itdCustomerId,
       customerId: itdCustomerId,
       code: itdCustomerId,
-      email: "",
+      email,
       fullName: company_name,
       username: phone,
       role: "customer",
@@ -2861,6 +3372,14 @@ export async function registerRoutes(
           ? documentNo
           : documentNo.toUpperCase();
 
+      const ocr = await verifyDocumentOrRefuse(res, {
+        cashfreeType: ocrTypeForKycDocumentType(documentType),
+        typedNumber: normalizedDocumentNo,
+        file: req.file,
+        tag: "kyc",
+      });
+      if (!ocr) return;
+
       try {
         const existing = await getKycByUserId(req.session.dbUserId);
         const capabilityId = existing?.capability_id ?? crypto.randomUUID();
@@ -2875,6 +3394,7 @@ export async function registerRoutes(
           mime_type: req.file.mimetype,
           file_size_bytes: req.file.size,
           file_data: fileDataBase64,
+          ocr: toOcrColumns(ocr),
         });
 
         if (!saved) {
@@ -2885,6 +3405,7 @@ export async function registerRoutes(
         res.json({
           capability_id: saved.capability_id,
           ...toKycSummary(saved),
+          ocr: { status: ocr.status, message: ocr.message },
         });
       } catch (err) {
         console.error("KYC upload full error:", JSON.stringify(err, Object.getOwnPropertyNames(err as object)));

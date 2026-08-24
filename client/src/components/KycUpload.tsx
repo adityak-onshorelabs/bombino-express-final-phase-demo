@@ -79,6 +79,15 @@ const DOC_TYPES: Record<string, DocConfig> = {
 
 const DOC_TYPE_KEYS = Object.keys(DOC_TYPES);
 
+/**
+ * OCR outcomes worth telling the customer about. A contradicting number, the
+ * wrong document or a tamper signal never reaches a successful response — the
+ * server refuses those uploads with 422 and the message lands in the error
+ * state below. What is left says the document went in *unverified*, which
+ * should not look identical to a clean pass.
+ */
+const OCR_SILENT = new Set(['match', 'skipped']);
+
 const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
@@ -107,6 +116,7 @@ export function KycUpload({
   const [docNoDisplay, setDocNoDisplay] = useState('');
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
   const [uploadError, setUploadError] = useState('');
+  const [ocrNote, setOcrNote] = useState('');
   const [uploadResult, setUploadResult] = useState<KycUploadResult | null>(null);
   const [selectedFileName, setSelectedFileName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -138,6 +148,7 @@ export function KycUpload({
     setDocNoDisplay('');
     setUploadStatus('idle');
     setUploadError('');
+    setOcrNote('');
     setUploadResult(null);
     setSelectedFileName('');
     pendingFileRef.current = null;
@@ -150,6 +161,7 @@ export function KycUpload({
     setSelectedFileName(file.name);
     setUploadStatus('uploading');
     setUploadError('');
+    setOcrNote('');
     setUploadResult(null);
     syncToParent(documentNo, null, selectedDocType);
 
@@ -174,7 +186,13 @@ export function KycUpload({
         throw new Error(body.message);
       }
 
-      const data = await res.json() as KycOnFile & { capability_id: string };
+      const data = await res.json() as KycOnFile & {
+        capability_id: string;
+        ocr?: { status?: string; message?: string };
+      };
+      setOcrNote(
+        data.ocr && !OCR_SILENT.has(data.ocr.status ?? '') ? (data.ocr.message ?? '') : '',
+      );
       const result: KycUploadResult = {
         document_type: data.document_type,
         last_four: data.last_four,
@@ -500,6 +518,11 @@ export function KycUpload({
 
         {showFileError && (
           <p className="text-xs text-red-600 mt-1">Please upload your {docConfig.label} document</p>
+        )}
+        {uploadStatus === 'success' && ocrNote && (
+          <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mt-1.5">
+            {ocrNote}
+          </p>
         )}
         <div className="flex items-center gap-1 mt-1.5">
           <FileText className="w-3 h-3 text-muted-foreground" />
