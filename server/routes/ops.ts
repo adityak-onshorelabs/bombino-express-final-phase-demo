@@ -31,8 +31,11 @@ import {
   assignPickup,
   getOrderByIdForOps,
   listAllOrdersForOps,
+  listOpsPayments,
   listOrderEventsForOps,
+  listPendingCancellationsForOps,
   type OpsOrderDetail,
+  type OpsPaymentRange,
 } from "../opsDb.js";
 import { requireRole, requireUser } from "../routeGuards.js";
 
@@ -56,7 +59,7 @@ function asOrder(row: OpsOrderDetail): Order {
     status: row.status as Order["status"],
     pickup_request: row.pickup_request === 2 ? 2 : 1,
     pickup_date: row.pickup_date,
-    pickup_slot: row.pickup_slot,
+    pickup_slot: null,
     origin_address_id: row.origin_address_id,
     consignee: row.consignee,
     items: row.items,
@@ -103,6 +106,48 @@ export function registerOpsRoutes(app: Express): void {
       }
 
       res.json({ orders });
+    }
+  );
+
+  // GET /api/ops/payments — ops-wide ledger (IST today | last 7 days)
+  app.get(
+    "/api/ops/payments",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const rawRange = req.query.range;
+      let range: OpsPaymentRange = "today";
+      if (rawRange !== undefined) {
+        if (rawRange !== "today" && rawRange !== "7d") {
+          res.status(400).json({ message: "range must be today or 7d" });
+          return;
+        }
+        range = rawRange;
+      }
+
+      const result = await listOpsPayments(range);
+      if (result === null) {
+        res.status(502).json({ message: "Could not load payments" });
+        return;
+      }
+
+      res.json(result);
+    }
+  );
+
+  // GET /api/ops/cancellations — pending cancellation requests
+  app.get(
+    "/api/ops/cancellations",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (_req: Request, res: Response) => {
+      const result = await listPendingCancellationsForOps();
+      if (result === null) {
+        res.status(502).json({ message: "Could not load cancellations" });
+        return;
+      }
+
+      res.json(result);
     }
   );
 

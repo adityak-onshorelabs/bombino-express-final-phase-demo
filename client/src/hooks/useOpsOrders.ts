@@ -71,6 +71,42 @@ export type OpsActionError = Error & {
 
 export const OPS_ORDERS_KEY = ['/api/ops/orders'] as const;
 export const OPS_USERS_KEY = ['/api/ops/users'] as const;
+export const OPS_PAYMENTS_KEY = ['/api/ops/payments'] as const;
+export const OPS_CANCELLATIONS_KEY = ['/api/ops/cancellations'] as const;
+
+export type OpsPaymentRange = 'today' | '7d';
+
+export type OpsPaymentRow = {
+  id: string;
+  txn_id: string | null;
+  order_id: string;
+  order_no: string | null;
+  amount: number;
+  currency: string;
+  method: string;
+  collection_mode: 'cash' | 'upi' | null;
+  collected_by: string | null;
+  collector_name: string;
+  collected_at: string | null;
+  status: string;
+  reference: string | null;
+};
+
+export type OpsPaymentTotals = {
+  all: number;
+  cash: number;
+  upi: number;
+  gateway: number;
+  count: number;
+};
+
+export type OpsPendingCancellation = {
+  id: string;
+  order_no: string;
+  consignee_name: string | null;
+  requested_at: string;
+  reason: string | null;
+};
 
 export type OpsStaffUser = {
   id: string;
@@ -170,6 +206,32 @@ export function useOpsStaffUsers() {
       const res = await fetch('/api/ops/users', { credentials: 'include' });
       const data = await readJson<{ users: OpsStaffUser[] }>(res);
       return data.users;
+    },
+    retry: false,
+    refetchOnMount: 'always',
+  });
+}
+
+export function useOpsPayments(range: OpsPaymentRange) {
+  return useQuery({
+    queryKey: [...OPS_PAYMENTS_KEY, range],
+    queryFn: async () => {
+      const res = await fetch(`/api/ops/payments?range=${encodeURIComponent(range)}`, {
+        credentials: 'include',
+      });
+      return readJson<{ payments: OpsPaymentRow[]; totals: OpsPaymentTotals }>(res);
+    },
+    retry: false,
+    refetchOnMount: 'always',
+  });
+}
+
+export function useOpsCancellations() {
+  return useQuery({
+    queryKey: OPS_CANCELLATIONS_KEY,
+    queryFn: async () => {
+      const res = await fetch('/api/ops/cancellations', { credentials: 'include' });
+      return readJson<{ cancellations: OpsPendingCancellation[]; count: number }>(res);
     },
     retry: false,
     refetchOnMount: 'always',

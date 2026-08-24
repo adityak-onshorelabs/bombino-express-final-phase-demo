@@ -75,6 +75,14 @@ export function nowInIst(now: Date = new Date()): {
 }
 
 /**
+ * Instant for 00:00 Asia/Kolkata on an IST calendar day (`YYYY-MM-DD`).
+ * Defaults to today IST. Same meaning as the agent collections window start.
+ */
+export function startOfIstDayIso(day: string = nowInIst().date): string {
+  return new Date(`${day}T00:00:00+05:30`).toISOString();
+}
+
+/**
  * Minutes of notice a pickup needs before its window opens.
  *
  * Zero by design, per the product decision: a slot is bookable right up until
