@@ -54,6 +54,7 @@ function asOrder(row: OpsOrderDetail): Order {
     items: row.items,
     booked_weight: row.booked_weight,
     quoted_amount: row.quoted_amount,
+    packaging_required: row.packaging_required === true,
     payment_method: row.payment_method as PaymentMethod,
     payment_status: row.payment_status as PaymentStatus,
     is_cod: row.is_cod,

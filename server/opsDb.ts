@@ -13,7 +13,7 @@ const BOARD_COLUMNS =
   "id, order_no, status, created_at, pickup_request, pickup_date, pickup_slot, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no";
 
 const DETAIL_COLUMNS =
-  "id, order_no, user_id, status, pickup_request, pickup_date, pickup_slot, origin_address_id, consignee, items, booked_weight, quoted_amount, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
+  "id, order_no, user_id, status, pickup_request, pickup_date, pickup_slot, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
 
 function getSupabaseClient() {
   return supabase;
@@ -70,6 +70,7 @@ export type OpsOrderDetail = {
   items: unknown;
   booked_weight: number | null;
   quoted_amount: number | null;
+  packaging_required: boolean;
   payment_method: string;
   payment_status: string;
   is_cod: boolean;
@@ -133,6 +134,7 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
     items: row.items ?? null,
     booked_weight: toNum(row.booked_weight),
     quoted_amount: toNum(row.quoted_amount),
+    packaging_required: row.packaging_required === true,
     payment_method: String(row.payment_method),
     payment_status: String(row.payment_status),
     is_cod: Boolean(row.is_cod),
