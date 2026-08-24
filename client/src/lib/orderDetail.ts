@@ -229,6 +229,18 @@ export function formatInr(amount: number | null | undefined): string | null {
   return `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }
 
+/** Instant in India. Ops board, dashboard, and ledger share this — do not copy. */
+export function formatIst(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 // ── Labels ────────────────────────────────────────────────────────────────
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {

@@ -1,4 +1,5 @@
 import { OpsSectionBoard } from '@/components/ops/OpsSectionBoard';
+import { PICKUPS_FILTER_CONFIG } from '@/hooks/useOpsBoardFilters';
 import type { OpsBoardOrder } from '@/hooks/useOpsOrders';
 
 function isActivePickup(order: OpsBoardOrder): boolean {
@@ -16,6 +17,7 @@ export default function OpsPickups() {
       subtitle="Active pickup orders"
       filter={isActivePickup}
       mode="stages"
+      filterConfig={PICKUPS_FILTER_CONFIG}
     />
   );
 }

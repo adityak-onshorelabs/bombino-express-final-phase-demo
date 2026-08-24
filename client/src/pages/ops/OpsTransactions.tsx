@@ -9,19 +9,8 @@ import {
   type OpsPaymentRange,
   type OpsPaymentRow,
 } from '@/hooks/useOpsOrders';
-import { formatInr, paymentMethodLabel } from '@/lib/orderDetail';
+import { formatInr, formatIst, paymentMethodLabel } from '@/lib/orderDetail';
 import { cn } from '@/lib/utils';
-
-function formatIst(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    day: 'numeric',
-    month: 'short',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
 
 function modeLabel(mode: OpsPaymentRow['collection_mode']): string {
   if (mode === 'cash') return 'Cash';

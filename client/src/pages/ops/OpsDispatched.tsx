@@ -1,4 +1,5 @@
 import { OpsSectionBoard } from '@/components/ops/OpsSectionBoard';
+import { DISPATCHED_FILTER_CONFIG } from '@/hooks/useOpsBoardFilters';
 import type { OpsBoardOrder } from '@/hooks/useOpsOrders';
 
 function isDispatched(order: OpsBoardOrder): boolean {
@@ -12,6 +13,7 @@ export default function OpsDispatched() {
       subtitle="AWB generated"
       filter={isDispatched}
       mode="flat"
+      filterConfig={DISPATCHED_FILTER_CONFIG}
     />
   );
 }

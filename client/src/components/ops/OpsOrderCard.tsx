@@ -1,17 +1,17 @@
 import { Link } from 'wouter';
 import { MapPin, Package } from 'lucide-react';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
+import {
+  formatInr,
+  formatIst,
+  paymentMethodLabel,
+  paymentStatusLabel,
+} from '@/lib/orderDetail';
 import type { OpsBoardOrder } from '@/hooks/useOpsOrders';
-
-function formatAmount(value: number | null): string | null {
-  if (value == null || Number.isNaN(value)) return null;
-  return `₹${value.toLocaleString('en-IN')}`;
-}
 
 function paymentLabel(order: OpsBoardOrder): string {
   if (order.is_cod || order.payment_method === 'cod') return 'COD';
-  const method = order.payment_method.replace(/_/g, ' ');
-  return `${method} · ${order.payment_status}`;
+  return `${paymentMethodLabel(order.payment_method)} · ${paymentStatusLabel(order.payment_status)}`;
 }
 
 /**
@@ -20,11 +20,13 @@ function paymentLabel(order: OpsBoardOrder): string {
  */
 export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
   const amount =
-    formatAmount(order.final_amount) ?? formatAmount(order.quoted_amount);
+    formatInr(order.final_amount) ?? formatInr(order.quoted_amount);
   const where = [order.consignee_name, order.consignee_city]
     .filter(Boolean)
     .join(' · ');
   const mode = order.pickup_request === 2 ? 'Drop-off' : 'Pickup';
+  const unpaid =
+    order.is_cod || order.payment_method === 'cod' || order.payment_status !== 'paid';
 
   return (
     <Link
@@ -68,13 +70,18 @@ export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
 
       <p
         className={
-          order.is_cod || order.payment_status !== 'paid'
+          unpaid
             ? 'mt-2 text-xs font-bold text-[#F2A123]'
             : 'mt-2 text-xs font-medium text-muted-foreground'
         }
       >
         {paymentLabel(order)}
         {amount ? ` · ${amount}` : ''}
+      </p>
+
+      <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+        {formatIst(order.created_at)}
+        {order.awb_no ? ` · ${order.awb_no}` : ''}
       </p>
     </Link>
   );

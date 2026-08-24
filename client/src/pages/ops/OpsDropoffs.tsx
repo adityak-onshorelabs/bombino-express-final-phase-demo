@@ -1,4 +1,5 @@
 import { OpsSectionBoard } from '@/components/ops/OpsSectionBoard';
+import { DROPOFFS_FILTER_CONFIG } from '@/hooks/useOpsBoardFilters';
 import type { OpsBoardOrder } from '@/hooks/useOpsOrders';
 
 function isActiveDropoff(order: OpsBoardOrder): boolean {
@@ -16,6 +17,7 @@ export default function OpsDropoffs() {
       subtitle="Active drop-off orders"
       filter={isActiveDropoff}
       mode="stages"
+      filterConfig={DROPOFFS_FILTER_CONFIG}
     />
   );
 }

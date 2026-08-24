@@ -10,7 +10,7 @@ import {
   useOpsPayments,
   type OpsBoardOrder,
 } from '@/hooks/useOpsOrders';
-import { formatInr } from '@/lib/orderDetail';
+import { formatInr, formatIst } from '@/lib/orderDetail';
 
 function isActivePickup(order: OpsBoardOrder): boolean {
   return (
@@ -26,17 +26,6 @@ function isActiveDropoff(order: OpsBoardOrder): boolean {
     order.status !== 'dispatched' &&
     order.status !== 'cancelled'
   );
-}
-
-function formatIst(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    day: 'numeric',
-    month: 'short',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
 }
 
 function StockCard({
