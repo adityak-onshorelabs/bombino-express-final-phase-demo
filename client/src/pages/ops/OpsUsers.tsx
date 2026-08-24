@@ -16,6 +16,7 @@ import { parseApiErrorMessage } from '@/lib/apiError';
 import { apiRequest } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
 import { INDIA_HUBS } from '@shared/hubs';
+import { OPS_USERS_KEY } from '@/hooks/useOpsOrders';
 
 type StaffRole = 'agent' | 'admin';
 
@@ -26,8 +27,6 @@ type StaffUser = {
   role: string;
   is_active: boolean;
 };
-
-const OPS_USERS_KEY = ['/api/ops/users'] as const;
 
 const inputClass = 'h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl mt-2';
 

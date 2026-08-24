@@ -8,13 +8,23 @@ import { OpsCollectPaymentSheet } from '@/components/ops/OpsCollectPaymentSheet'
 import { OpsDropoffOtpSheet } from '@/components/ops/OpsDropoffOtpSheet';
 import { OpsWeighSheet } from '@/components/ops/OpsWeighSheet';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { parseApiErrorMessage } from '@/lib/apiError';
 import { apiRequest } from '@/lib/queryClient';
 import {
   opsOrderDetailKey,
+  useOpsAssign,
   useOpsOrderAction,
   useOpsOrderDetail,
+  useOpsStaffUsers,
   type OpsActionError,
 } from '@/hooks/useOpsOrders';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
@@ -77,6 +87,9 @@ export default function OpsOrderDetail() {
   const queryClient = useQueryClient();
   const { data, isLoading, error, isError } = useOpsOrderDetail(orderId);
   const action = useOpsOrderAction(orderId);
+  const assign = useOpsAssign(orderId);
+  const staff = useOpsStaffUsers();
+  const [selectedAgentId, setSelectedAgentId] = useState('');
 
   const regenerateHandover = useMutation({
     mutationFn: async (id: string) => {
@@ -350,10 +363,90 @@ export default function OpsOrderDetail() {
         <Fact label="Consignee" value={consignee.name} />
         <Fact label="City" value={consignee.city} />
         <Fact label="Phone" value={consignee.phone} />
-        <Fact label="Agent id" value={order.agent_id ?? '—'} />
+        <Fact
+          label="Agent"
+          value={
+            order.agent_id ? order.agent_name?.trim() || 'Assigned' : 'Unassigned'
+          }
+        />
         <Fact label="AWB" value={order.awb_no ?? '—'} />
         <Fact label="Created" value={formatWhen(order.created_at)} />
       </section>
+
+      {order.pickup_request === 1 &&
+        order.status === 'pickup_requested' &&
+        !order.agent_id && (
+          <section
+            className="rounded-2xl border border-border bg-white p-4 mb-6"
+            data-testid="ops-assign-agent"
+          >
+            <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-3">
+              Assign to agent
+            </h2>
+            <Label className="text-sm font-medium">Pickup agent</Label>
+            <Select
+              value={selectedAgentId || undefined}
+              onValueChange={setSelectedAgentId}
+            >
+              <SelectTrigger
+                className="h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl mt-2 w-full"
+                data-testid="select-ops-assign-agent"
+              >
+                <SelectValue placeholder="Select an agent" />
+              </SelectTrigger>
+              <SelectContent>
+                {(staff.data ?? [])
+                  .filter((user) => user.role === 'agent' && user.is_active)
+                  .map((user) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.full_name}
+                      {user.phone ? ` · ${user.phone}` : ''}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            {staff.isError && (
+              <p className="text-sm text-red-600 mt-2">Could not load agents.</p>
+            )}
+            <Button
+              type="button"
+              disabled={!selectedAgentId || assign.isPending}
+              onClick={() => {
+                assign.mutate(
+                  { agentId: selectedAgentId },
+                  {
+                    onSuccess: (result) => {
+                      setSelectedAgentId('');
+                      toast({
+                        title: 'Assigned',
+                        description: `${result.order.order_no} — ${getOrderStatusLabel(result.order.status)}`,
+                      });
+                    },
+                    onError: (err: OpsActionError) => {
+                      toast({
+                        title:
+                          err.status === 409 ? 'Pickup already taken' : 'Could not assign',
+                        description:
+                          err.status === 409
+                            ? 'This pickup was just taken or assigned.'
+                            : err.message,
+                        variant: 'destructive',
+                      });
+                    },
+                  },
+                );
+              }}
+              className="mt-4 w-full h-12 rounded-xl bg-primary text-white font-bold"
+              data-testid="button-ops-assign-agent"
+            >
+              {assign.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                'Confirm'
+              )}
+            </Button>
+          </section>
+        )}
 
       <section className="mb-6" data-testid="ops-order-actions">
         <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-3">

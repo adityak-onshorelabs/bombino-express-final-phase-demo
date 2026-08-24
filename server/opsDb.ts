@@ -6,7 +6,7 @@
  */
 
 import { supabase } from "./supabaseClient.js";
-import { toOrder, type OrderRow } from "./ordersDb.js";
+import { getUserContactsByIds, toOrder, type OrderRow } from "./ordersDb.js";
 import type { Order } from "../shared/orderContract.js";
 
 const BOARD_COLUMNS =
@@ -54,6 +54,7 @@ export type OpsBoardOrder = {
   consignee_name: string | null;
   consignee_city: string | null;
   agent_id: string | null;
+  agent_name: string | null;
   awb_no: string | null;
 };
 
@@ -75,6 +76,7 @@ export type OpsOrderDetail = {
   payment_status: string;
   is_cod: boolean;
   agent_id: string | null;
+  agent_name: string | null;
   actual_weight: number | null;
   final_amount: number | null;
   awb_no: string | null;
@@ -116,6 +118,7 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
     consignee_name: consigneeField(row.consignee, ["name", "full_name"]),
     consignee_city: consigneeField(row.consignee, ["city", "consignee_city"]),
     agent_id: (row.agent_id as string | null) ?? null,
+    agent_name: null,
     awb_no: (row.awb_no as string | null) ?? null,
   };
 }
@@ -139,6 +142,7 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
     payment_status: String(row.payment_status),
     is_cod: Boolean(row.is_cod),
     agent_id: (row.agent_id as string | null) ?? null,
+    agent_name: null,
     actual_weight: toNum(row.actual_weight),
     final_amount: toNum(row.final_amount),
     awb_no: (row.awb_no as string | null) ?? null,
@@ -147,6 +151,23 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
     created_at: String(row.created_at),
     updated_at: String(row.updated_at),
   };
+}
+
+/** Batch-resolve agent_id → full_name. Missing contacts stay null. */
+async function withAgentNames<T extends { agent_id: string | null; agent_name: string | null }>(
+  orders: T[]
+): Promise<T[]> {
+  const ids = orders
+    .map((order) => order.agent_id)
+    .filter((id): id is string => Boolean(id));
+  if (ids.length === 0) return orders;
+
+  const contacts = await getUserContactsByIds(ids);
+  return orders.map((order) => {
+    if (!order.agent_id) return order;
+    const name = contacts.get(order.agent_id)?.full_name?.trim();
+    return { ...order, agent_name: name ? name : null };
+  });
 }
 
 /** Newest-first board list. Hard cap 200. Optional exact status filter. */
@@ -174,7 +195,7 @@ export async function listAllOrdersForOps(opts: {
     return null;
   }
 
-  return (data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>));
+  return withAgentNames((data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>)));
 }
 
 /** Full order by id — no user_id filter. */
@@ -194,7 +215,42 @@ export async function getOrderByIdForOps(id: string): Promise<OpsOrderDetail | n
   }
   if (!data) return null;
 
-  return mapDetailRow(data as Record<string, unknown>);
+  const [detail] = await withAgentNames([mapDetailRow(data as Record<string, unknown>)]);
+  return detail ?? null;
+}
+
+/**
+ * Admin-directed assign. Copies claimPickup's atomic UPDATE so self-claim and
+ * ops-assign share one mutex: exactly one winner under READ COMMITTED.
+ *
+ * Do not import claimPickup — Aditya owns agentDb.ts.
+ */
+export async function assignPickup(
+  orderId: string,
+  agentId: string
+): Promise<Order | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("orders")
+    .update({
+      agent_id: agentId,
+      status: "agent_accepted",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", orderId)
+    .eq("status", "pickup_requested")
+    .is("agent_id", null)
+    .select(DETAIL_COLUMNS)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("assignPickup", error);
+    return null;
+  }
+  if (!data) return null;
+  return toOrder(data as unknown as OrderRow & { metadata?: unknown });
 }
 
 /** Timeline events for an order, oldest first. */

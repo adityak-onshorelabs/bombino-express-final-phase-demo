@@ -56,6 +56,14 @@ export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
             {[order.pickup_date, order.pickup_slot].filter(Boolean).join(' · ')}
           </span>
         )}
+        {order.pickup_request === 1 && (
+          <span
+            className="inline-flex items-center rounded-md bg-[#F3F4F6] px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground"
+            data-testid={`ops-agent-badge-${order.order_no}`}
+          >
+            {order.agent_id ? order.agent_name || 'Assigned' : 'Unassigned'}
+          </span>
+        )}
       </div>
 
       <p
