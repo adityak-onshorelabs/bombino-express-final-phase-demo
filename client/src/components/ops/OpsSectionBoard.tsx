@@ -1,9 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Loader2, LogOut } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { OpsOrderCard } from '@/components/ops/OpsOrderCard';
-import { OpsBoardFilterBar } from '@/components/ops/OpsBoardFilterBar';
+import {
+  OpsBoardFilterBar,
+  type OpsBoardView,
+} from '@/components/ops/OpsBoardFilterBar';
+import { OpsBoardTable } from '@/components/ops/OpsBoardTable';
 import { BandHeader } from '@/components/agent/BandHeader';
 import { Button } from '@/components/ui/button';
 import { useOpsOrders, type OpsBoardOrder } from '@/hooks/useOpsOrders';
@@ -89,6 +93,8 @@ export function OpsSectionBoard({
   } = useOpsBoardFilters(sectionOrders, filterConfig);
 
   const searching = query.trim().length > 0;
+  const [view, setView] = useState<OpsBoardView>('cards');
+  const hideCardsOnDesktop = view === 'table';
 
   if (forbidden) {
     return (
@@ -145,6 +151,8 @@ export function OpsSectionBoard({
             setQuery={setQuery}
             activeCount={activeCount}
             onClear={clear}
+            view={view}
+            setView={setView}
           />
 
           {sectionOrders.length === 0 && (
@@ -175,9 +183,16 @@ export function OpsSectionBoard({
             </div>
           )}
 
+          {visible.length > 0 && view === 'table' && (
+            <OpsBoardTable orders={visible} showStage={mode === 'stages'} />
+          )}
+
           {visible.length > 0 && mode === 'flat' && (
             <div
-              className="rounded-2xl border border-border bg-white px-3 divide-y divide-border"
+              className={cn(
+                'rounded-2xl border border-border bg-white px-3 divide-y divide-border',
+                hideCardsOnDesktop && 'md:hidden',
+              )}
               data-testid="ops-board-flat"
             >
               <OrderList orders={visible} />
@@ -187,7 +202,11 @@ export function OpsSectionBoard({
           {visible.length > 0 && mode === 'stages' && filledPhases.length > 0 && (
             <>
               <div
-                className={cn('hidden md:grid md:gap-4 md:items-start', colClass)}
+                className={cn(
+                  'md:gap-4 md:items-start',
+                  colClass,
+                  hideCardsOnDesktop ? 'hidden' : 'hidden md:grid',
+                )}
                 data-testid="ops-board-columns"
               >
                 {filledPhases.map((phase) => {

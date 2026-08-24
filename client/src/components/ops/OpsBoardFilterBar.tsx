@@ -36,6 +36,8 @@ function datePillLabel(filters: OpsBoardFilters): string {
   return `${field} · ${range}`;
 }
 
+export type OpsBoardView = 'cards' | 'table';
+
 function SortToggle({
   sort,
   setSort,
@@ -62,6 +64,37 @@ function SortToggle({
         data-testid="ops-sort-oldest"
       >
         Oldest
+      </Button>
+    </div>
+  );
+}
+
+function ViewToggle({
+  view,
+  setView,
+}: {
+  view: OpsBoardView;
+  setView: Dispatch<SetStateAction<OpsBoardView>>;
+}) {
+  return (
+    <div className="hidden md:flex gap-1 shrink-0" data-testid="ops-board-view-toggle">
+      <Button
+        type="button"
+        size="sm"
+        variant={view === 'cards' ? 'default' : 'outline'}
+        onClick={() => setView('cards')}
+        data-testid="ops-view-cards"
+      >
+        Cards
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant={view === 'table' ? 'default' : 'outline'}
+        onClick={() => setView('table')}
+        data-testid="ops-view-table"
+      >
+        Table
       </Button>
     </div>
   );
@@ -194,6 +227,8 @@ export function OpsBoardFilterBar({
   setQuery,
   activeCount,
   onClear,
+  view,
+  setView,
 }: {
   config: OpsFilterConfig;
   filters: OpsBoardFilters;
@@ -204,6 +239,8 @@ export function OpsBoardFilterBar({
   setQuery: Dispatch<SetStateAction<string>>;
   activeCount: number;
   onClear: () => void;
+  view?: OpsBoardView;
+  setView?: Dispatch<SetStateAction<OpsBoardView>>;
 }) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
@@ -237,6 +274,9 @@ export function OpsBoardFilterBar({
           />
         </div>
         {config.sort && <SortToggle sort={sort} setSort={setSort} />}
+        {view != null && setView != null && (
+          <ViewToggle view={view} setView={setView} />
+        )}
         {isMobile ? (
           <>
             <FilterTrigger
