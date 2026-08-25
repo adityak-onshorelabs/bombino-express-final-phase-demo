@@ -22,7 +22,7 @@ const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
  * Returns the date as `YYYY-MM-DD` so it compares directly against
  * `orders.pickup_date` without any further conversion.
  */
-function nowInIst(now: Date = new Date()): {
+export function nowInIst(now: Date = new Date()): {
   date: string;
   hour: number;
   minute: number;
@@ -38,6 +38,15 @@ function nowInIst(now: Date = new Date()): {
 /** Today in India, `YYYY-MM-DD`. The earliest bookable pickup date. */
 export function todayInIst(now: Date = new Date()): string {
   return nowInIst(now).date;
+}
+
+/**
+ * Instant for 00:00 Asia/Kolkata on an IST calendar day (`YYYY-MM-DD`).
+ * Defaults to today IST. Same meaning as the agent collections window start,
+ * and what the ops board and the transactions ledger date their filters from.
+ */
+export function startOfIstDayIso(day: string = nowInIst().date): string {
+  return new Date(`${day}T00:00:00+05:30`).toISOString();
 }
 
 /**

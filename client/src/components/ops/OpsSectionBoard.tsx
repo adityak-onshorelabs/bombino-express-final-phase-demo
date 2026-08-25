@@ -1,28 +1,33 @@
 import { useMemo, useState } from 'react';
-import { Loader2, LogOut, Search } from 'lucide-react';
+import { Loader2, LogOut } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { OpsOrderCard } from '@/components/ops/OpsOrderCard';
+import {
+  OpsBoardFilterBar,
+  type OpsBoardView,
+} from '@/components/ops/OpsBoardFilterBar';
+import { OpsBoardTable } from '@/components/ops/OpsBoardTable';
 import { BandHeader } from '@/components/agent/BandHeader';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { useOpsOrders, type OpsBoardOrder } from '@/hooks/useOpsOrders';
+import {
+  useOpsBoardFilters,
+  type OpsFilterConfig,
+} from '@/hooks/useOpsBoardFilters';
 import { OPS_PHASES, groupOrdersByPhase } from '@/lib/opsPhases';
 import { useAppStore } from '@/lib/store';
+import { cn } from '@/lib/utils';
 
 const STAGE_PHASES = OPS_PHASES.filter(
   (p) => p.showAsColumn && p.id !== 'dispatched' && p.id !== 'cancelled'
 );
 
-function matchesSearch(order: OpsBoardOrder, query: string): boolean {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-  const hay = [order.order_no, order.consignee_name, order.consignee_city]
-    .filter((v): v is string => Boolean(v))
-    .join(' ')
-    .toLowerCase();
-  return hay.includes(needle);
-}
+const COL_CLASS: Record<number, string> = {
+  1: 'md:grid-cols-1',
+  2: 'md:grid-cols-2',
+  3: 'md:grid-cols-3',
+};
 
 function OrderList({ orders }: { orders: OpsBoardOrder[] }) {
   return (
@@ -36,23 +41,24 @@ function OrderList({ orders }: { orders: OpsBoardOrder[] }) {
 
 /**
  * Pickups / Drop-offs / Dispatched — same GET /api/ops/orders list, filtered
- * in the client. Search is local to the section.
+ * in the client. Search and filters are local to the section.
  */
 export function OpsSectionBoard({
   title,
   subtitle,
   filter,
   mode,
+  filterConfig,
 }: {
   title: string;
   subtitle: string;
   filter: (order: OpsBoardOrder) => boolean;
   mode: 'stages' | 'flat';
+  filterConfig: OpsFilterConfig;
 }) {
   const [, setLocation] = useLocation();
   const { logout } = useAppStore();
   const { data: orders, isLoading, error, isError } = useOpsOrders();
-  const [query, setQuery] = useState('');
 
   const forbidden =
     isError &&
@@ -74,12 +80,21 @@ export function OpsSectionBoard({
     [orders, filter]
   );
 
-  const visible = useMemo(
-    () => sectionOrders.filter((order) => matchesSearch(order, query)),
-    [sectionOrders, query]
-  );
+  const {
+    visible,
+    filters,
+    setFilters,
+    sort,
+    setSort,
+    query,
+    setQuery,
+    activeCount,
+    clear,
+  } = useOpsBoardFilters(sectionOrders, filterConfig);
 
   const searching = query.trim().length > 0;
+  const [view, setView] = useState<OpsBoardView>('cards');
+  const hideCardsOnDesktop = view === 'table';
 
   if (forbidden) {
     return (
@@ -107,6 +122,8 @@ export function OpsSectionBoard({
   }
 
   const grouped = groupOrdersByPhase(visible);
+  const filledPhases = STAGE_PHASES.filter((phase) => grouped[phase.id].length > 0);
+  const colClass = COL_CLASS[filledPhases.length] ?? 'md:grid-cols-3';
 
   return (
     <OpsShell title={title} subtitle={subtitle} wide>
@@ -124,21 +141,19 @@ export function OpsSectionBoard({
 
       {!isLoading && !isError && (
         <>
-          <div className="relative mb-4">
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none"
-              aria-hidden
-            />
-            <Input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search order no or consignee"
-              className="h-11 pl-9 rounded-xl bg-white"
-              data-testid="ops-section-search"
-              aria-label="Search order no or consignee"
-            />
-          </div>
+          <OpsBoardFilterBar
+            config={filterConfig}
+            filters={filters}
+            setFilters={setFilters}
+            sort={sort}
+            setSort={setSort}
+            query={query}
+            setQuery={setQuery}
+            activeCount={activeCount}
+            onClear={clear}
+            view={view}
+            setView={setView}
+          />
 
           {sectionOrders.length === 0 && (
             <p className="text-sm text-muted-foreground py-12 text-center" data-testid="ops-board-empty">
@@ -146,28 +161,55 @@ export function OpsSectionBoard({
             </p>
           )}
 
-          {sectionOrders.length > 0 && visible.length === 0 && searching && (
-            <p className="text-sm text-muted-foreground py-12 text-center" data-testid="ops-board-no-matches">
-              No matches
-            </p>
+          {sectionOrders.length > 0 && visible.length === 0 && (
+            <div className="py-12 text-center" data-testid="ops-board-no-matches">
+              <p className="text-sm text-muted-foreground">
+                {searching && activeCount === 0
+                  ? 'No matches'
+                  : 'No orders match these filters. Among the latest 200 orders.'}
+              </p>
+              {activeCount > 0 && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="mt-3"
+                  onClick={clear}
+                  data-testid="ops-filters-clear-empty"
+                >
+                  Clear filters
+                </Button>
+              )}
+            </div>
+          )}
+
+          {visible.length > 0 && view === 'table' && (
+            <OpsBoardTable orders={visible} showStage={mode === 'stages'} />
           )}
 
           {visible.length > 0 && mode === 'flat' && (
             <div
-              className="rounded-2xl border border-border bg-white px-3 divide-y divide-border"
+              className={cn(
+                'rounded-2xl border border-border bg-white px-3 divide-y divide-border',
+                hideCardsOnDesktop && 'md:hidden',
+              )}
               data-testid="ops-board-flat"
             >
               <OrderList orders={visible} />
             </div>
           )}
 
-          {visible.length > 0 && mode === 'stages' && (
+          {visible.length > 0 && mode === 'stages' && filledPhases.length > 0 && (
             <>
               <div
-                className="hidden md:grid md:grid-cols-3 md:gap-4 md:items-start"
+                className={cn(
+                  'md:gap-4 md:items-start',
+                  colClass,
+                  hideCardsOnDesktop ? 'hidden' : 'hidden md:grid',
+                )}
                 data-testid="ops-board-columns"
               >
-                {STAGE_PHASES.map((phase) => {
+                {filledPhases.map((phase) => {
                   const list = grouped[phase.id];
                   return (
                     <section
@@ -182,11 +224,7 @@ export function OpsSectionBoard({
                         </span>
                       </div>
                       <div className="px-3 pb-2 divide-y divide-border">
-                        {list.length === 0 ? (
-                          <p className="text-xs text-muted-foreground py-6 text-center">None</p>
-                        ) : (
-                          <OrderList orders={list} />
-                        )}
+                        <OrderList orders={list} />
                       </div>
                     </section>
                   );
@@ -194,7 +232,7 @@ export function OpsSectionBoard({
               </div>
 
               <div className="md:hidden space-y-6" data-testid="ops-board-mobile">
-                {STAGE_PHASES.map((phase) => {
+                {filledPhases.map((phase) => {
                   const list = grouped[phase.id];
                   return (
                     <section key={phase.id} data-testid={`ops-phase-mobile-${phase.id}`}>
@@ -205,11 +243,7 @@ export function OpsSectionBoard({
                         </span>
                       </div>
                       <div className="rounded-2xl border border-border bg-white px-3 divide-y divide-border">
-                        {list.length === 0 ? (
-                          <p className="text-xs text-muted-foreground py-6 text-center">None</p>
-                        ) : (
-                          <OrderList orders={list} />
-                        )}
+                        <OrderList orders={list} />
                       </div>
                     </section>
                   );

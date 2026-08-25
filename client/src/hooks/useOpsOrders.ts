@@ -10,7 +10,6 @@ export type OpsBoardOrder = {
   created_at: string;
   pickup_request: number;
   pickup_date: string | null;
-  pickup_slot: string | null;
   payment_method: string;
   payment_status: string;
   is_cod: boolean;
@@ -19,6 +18,7 @@ export type OpsBoardOrder = {
   consignee_name: string | null;
   consignee_city: string | null;
   agent_id: string | null;
+  agent_name: string | null;
   awb_no: string | null;
 };
 
@@ -69,6 +69,51 @@ export type OpsActionError = Error & {
 };
 
 export const OPS_ORDERS_KEY = ['/api/ops/orders'] as const;
+export const OPS_USERS_KEY = ['/api/ops/users'] as const;
+export const OPS_PAYMENTS_KEY = ['/api/ops/payments'] as const;
+export const OPS_CANCELLATIONS_KEY = ['/api/ops/cancellations'] as const;
+
+export type OpsPaymentRange = 'today' | '7d';
+
+export type OpsPaymentRow = {
+  id: string;
+  txn_id: string | null;
+  order_id: string;
+  order_no: string | null;
+  amount: number;
+  currency: string;
+  method: string;
+  collection_mode: 'cash' | 'upi' | null;
+  collected_by: string | null;
+  collector_name: string;
+  collected_at: string | null;
+  status: string;
+  reference: string | null;
+};
+
+export type OpsPaymentTotals = {
+  all: number;
+  cash: number;
+  upi: number;
+  gateway: number;
+  count: number;
+};
+
+export type OpsPendingCancellation = {
+  id: string;
+  order_no: string;
+  consignee_name: string | null;
+  requested_at: string;
+  reason: string | null;
+};
+
+export type OpsStaffUser = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  role: string;
+  is_active: boolean;
+};
 
 export function opsOrderDetailKey(id: string) {
   return ['/api/ops/orders', id] as const;
@@ -146,6 +191,84 @@ export function useOpsOrderAction(orderId: string | undefined) {
       }
     },
     onSettled: (_data, _err, _vars) => {
+      if (!orderId) return;
+      void queryClient.invalidateQueries({ queryKey: opsOrderDetailKey(orderId) });
+      void queryClient.invalidateQueries({ queryKey: OPS_ORDERS_KEY });
+    },
+  });
+}
+
+export function useOpsStaffUsers() {
+  return useQuery({
+    queryKey: OPS_USERS_KEY,
+    queryFn: async () => {
+      const res = await fetch('/api/ops/users', { credentials: 'include' });
+      const data = await readJson<{ users: OpsStaffUser[] }>(res);
+      return data.users;
+    },
+    retry: false,
+    refetchOnMount: 'always',
+  });
+}
+
+export function useOpsPayments(range: OpsPaymentRange) {
+  return useQuery({
+    queryKey: [...OPS_PAYMENTS_KEY, range],
+    queryFn: async () => {
+      const res = await fetch(`/api/ops/payments?range=${encodeURIComponent(range)}`, {
+        credentials: 'include',
+      });
+      return readJson<{ payments: OpsPaymentRow[]; totals: OpsPaymentTotals }>(res);
+    },
+    retry: false,
+    refetchOnMount: 'always',
+  });
+}
+
+export function useOpsCancellations() {
+  return useQuery({
+    queryKey: OPS_CANCELLATIONS_KEY,
+    queryFn: async () => {
+      const res = await fetch('/api/ops/cancellations', { credentials: 'include' });
+      return readJson<{ cancellations: OpsPendingCancellation[]; count: number }>(res);
+    },
+    retry: false,
+    refetchOnMount: 'always',
+  });
+}
+
+export function useOpsAssign(orderId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ order: OpsOrderDetail }, OpsActionError, { agentId: string }>({
+    mutationFn: async ({ agentId }) => {
+      if (!orderId) throw new Error('Missing order id') as OpsActionError;
+      try {
+        const res = await apiRequest('POST', `/api/ops/orders/${orderId}/assign`, {
+          agent_id: agentId,
+        });
+        return (await res.json()) as { order: OpsOrderDetail };
+      } catch (err) {
+        const error = new Error(
+          parseApiErrorMessage(err, 'Could not assign this pickup'),
+        ) as OpsActionError;
+        const raw = String((err as Error)?.message ?? '');
+        const status = Number(raw.split(':')[0]);
+        error.status = Number.isFinite(status) ? status : 0;
+        try {
+          const body = JSON.parse(raw.replace(/^\d+:\s*/, '')) as {
+            code?: string;
+            message?: string;
+          };
+          error.code = body.code;
+          if (body.message) error.message = body.message;
+        } catch {
+          error.code = undefined;
+        }
+        throw error;
+      }
+    },
+    onSettled: () => {
       if (!orderId) return;
       void queryClient.invalidateQueries({ queryKey: opsOrderDetailKey(orderId) });
       void queryClient.invalidateQueries({ queryKey: OPS_ORDERS_KEY });

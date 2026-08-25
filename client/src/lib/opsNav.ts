@@ -1,7 +1,7 @@
 /**
  * Ops console destinations — one list so the desktop rail and mobile bar
- * cannot drift. Transactions is desktop-only this phase (five tabs is the
- * mobile ceiling; the ledger is a stub until Phase 2).
+ * cannot drift. The mobile bar holds four primary tabs plus More; destinations
+ * with `mobileMore` live in the More sheet (Transactions, Users).
  */
 
 import type { LucideIcon } from 'lucide-react';
@@ -20,7 +20,10 @@ export type OpsNavItem = {
   mobileLabel: string;
   path: string;
   icon: LucideIcon;
+  /** On the mobile bottom bar. */
   mobile: boolean;
+  /** In the mobile More sheet — not on the bar. */
+  mobileMore: boolean;
 };
 
 export const OPS_NAV: readonly OpsNavItem[] = [
@@ -30,6 +33,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     path: '/ops/dashboard',
     icon: LayoutDashboard,
     mobile: true,
+    mobileMore: false,
   },
   {
     label: 'Pickups',
@@ -37,6 +41,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     path: '/ops/pickups',
     icon: Truck,
     mobile: true,
+    mobileMore: false,
   },
   {
     label: 'Drop-offs',
@@ -45,6 +50,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     // lucide 0.545 has no PackageDown — Package is the drop-off stand-in.
     icon: Package,
     mobile: true,
+    mobileMore: false,
   },
   {
     label: 'Dispatched',
@@ -52,6 +58,7 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     path: '/ops/dispatched',
     icon: Send,
     mobile: true,
+    mobileMore: false,
   },
   {
     label: 'Transactions',
@@ -59,17 +66,26 @@ export const OPS_NAV: readonly OpsNavItem[] = [
     path: '/ops/transactions',
     icon: Wallet,
     mobile: false,
+    mobileMore: true,
   },
   {
     label: 'Users',
     mobileLabel: 'Users',
     path: '/ops/users',
     icon: Users,
-    mobile: true,
+    mobile: false,
+    mobileMore: true,
   },
 ];
 
 /** Prefix match, but `/ops/orders/:id` does not light any section tab. */
 export function isOpsNavActive(location: string, path: string): boolean {
   return location === path || location.startsWith(`${path}/`);
+}
+
+/** True when the current route is a More-sheet destination. */
+export function isOpsMoreActive(location: string): boolean {
+  return OPS_NAV.some(
+    (item) => item.mobileMore && isOpsNavActive(location, item.path),
+  );
 }

@@ -18,17 +18,24 @@ import {
   type PaymentStatus,
 } from "../../shared/orderContract.js";
 import {
+  findActiveAgentById,
   findItdUserIdByPhone,
   insertStaffUser,
   listStaffUsers,
 } from "../appDb.js";
-import { getCodeForOwner } from "../handoverCodes.js";
+import { getCodeForOwner, issueCode } from "../handoverCodes.js";
+import { notifyOrderTransition } from "../notify.js";
 import { availableActions } from "../orderLifecycle.js";
+import { insertOrderEvent } from "../ordersDb.js";
 import {
+  assignPickup,
   getOrderByIdForOps,
   listAllOrdersForOps,
+  listOpsPayments,
   listOrderEventsForOps,
+  listPendingCancellationsForOps,
   type OpsOrderDetail,
+  type OpsPaymentRange,
 } from "../opsDb.js";
 import { requireRole, requireUser } from "../routeGuards.js";
 
@@ -37,6 +44,10 @@ const createStaffSchema = z.object({
   phone: z.string().trim().regex(/^\d{10}$/, "Enter a valid 10-digit phone number"),
   role: z.enum(["agent", "admin"]),
   hub_id: z.coerce.number().int().refine(isIndiaHubId, "Select a valid hub"),
+});
+
+const assignPickupSchema = z.object({
+  agent_id: z.string().uuid("agent_id must be a uuid"),
 });
 
 /** Narrow ops detail row to the shared Order contract for availableActions. */
@@ -97,6 +108,48 @@ export function registerOpsRoutes(app: Express): void {
     }
   );
 
+  // GET /api/ops/payments — ops-wide ledger (IST today | last 7 days)
+  app.get(
+    "/api/ops/payments",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const rawRange = req.query.range;
+      let range: OpsPaymentRange = "today";
+      if (rawRange !== undefined) {
+        if (rawRange !== "today" && rawRange !== "7d") {
+          res.status(400).json({ message: "range must be today or 7d" });
+          return;
+        }
+        range = rawRange;
+      }
+
+      const result = await listOpsPayments(range);
+      if (result === null) {
+        res.status(502).json({ message: "Could not load payments" });
+        return;
+      }
+
+      res.json(result);
+    }
+  );
+
+  // GET /api/ops/cancellations — pending cancellation requests
+  app.get(
+    "/api/ops/cancellations",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (_req: Request, res: Response) => {
+      const result = await listPendingCancellationsForOps();
+      if (result === null) {
+        res.status(502).json({ message: "Could not load cancellations" });
+        return;
+      }
+
+      res.json(result);
+    }
+  );
+
   // GET /api/ops/orders/:id — any order by id + events + availableActions
   app.get(
     "/api/ops/orders/:id",
@@ -135,6 +188,79 @@ export function registerOpsRoutes(app: Express): void {
       }
 
       res.json({ order, events, availableActions: actions, handover });
+    }
+  );
+
+  // POST /api/ops/orders/:id/assign — admin-directed pickup assign (auto-advance)
+  app.post(
+    "/api/ops/orders/:id/assign",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const callerId = req.session.dbUserId;
+      if (!callerId) {
+        res.status(401).json({ message: "Login required" });
+        return;
+      }
+
+      const parsed = assignPickupSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Invalid request",
+        });
+        return;
+      }
+      const { agent_id: agentId } = parsed.data;
+
+      const agent = await findActiveAgentById(agentId);
+      if (!agent) {
+        res.status(400).json({
+          message: "target is not an active agent",
+          code: "INVALID_AGENT",
+        });
+        return;
+      }
+
+      const updated = await assignPickup(req.params.id, agentId);
+      if (!updated) {
+        const existing = await getOrderByIdForOps(req.params.id);
+        if (!existing) {
+          res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+          return;
+        }
+        res.status(409).json({
+          message: "This pickup was just taken or assigned.",
+          code: "PICKUP_ALREADY_CLAIMED",
+        });
+        return;
+      }
+
+      // Same side-effects as self-claim. The row is already committed; a failed
+      // code write must not undo the assignment (customer can regenerate).
+      await issueCode(updated.id, "pickup");
+
+      const role = isRole(req.session.user?.role) ? req.session.user!.role : "admin";
+      const eventLogged = await insertOrderEvent({
+        order_id: updated.id,
+        status: updated.status,
+        note: `Assigned to ${agent.full_name} by ops`,
+        actor_user_id: callerId,
+        metadata: { action: "assign", role, assigned_agent_id: agentId },
+      });
+      if (!eventLogged) {
+        console.error("[POST /api/ops/orders/:id/assign] order_events insert failed", {
+          order_id: updated.id,
+          actor_user_id: callerId,
+        });
+      }
+
+      void notifyOrderTransition({
+        order: updated,
+        moved: true,
+        actorUserId: callerId,
+      });
+
+      res.json({ order: updated });
     }
   );
 

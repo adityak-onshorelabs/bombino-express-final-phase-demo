@@ -310,6 +310,41 @@ export async function listStaffUsers(): Promise<StaffUserRow[] | null> {
 }
 
 /**
+ * One staff row that is an active pickup agent. Used to validate an ops
+ * assignment target — `orders.agent_id` FK only proves the id exists, not
+ * the role or that the account is still live.
+ *
+ * Returns null when the id is missing, not an agent, or not `is_active`.
+ */
+export async function findActiveAgentById(id: string): Promise<StaffUserRow | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("id, full_name, phone, role, is_active")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("findActiveAgentById", error);
+    return null;
+  }
+  if (!data?.id) return null;
+
+  const role = String(data.role ?? "");
+  if (role !== "agent" || data.is_active !== true) return null;
+
+  return {
+    id: String(data.id),
+    full_name: String(data.full_name ?? ""),
+    phone: typeof data.phone === "string" ? data.phone : null,
+    role,
+    is_active: true,
+  };
+}
+
+/**
  * Merge a patch into `itd_users.metadata` (the §4 escape hatch).
  *
  * Read-modify-write, not a `jsonb ||` in SQL — supabase-js cannot express one.

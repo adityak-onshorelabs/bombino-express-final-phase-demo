@@ -1,17 +1,17 @@
 import { Link } from 'wouter';
 import { MapPin, Package } from 'lucide-react';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
+import {
+  formatInr,
+  formatIst,
+  paymentMethodLabel,
+  paymentStatusLabel,
+} from '@/lib/orderDetail';
 import type { OpsBoardOrder } from '@/hooks/useOpsOrders';
-
-function formatAmount(value: number | null): string | null {
-  if (value == null || Number.isNaN(value)) return null;
-  return `₹${value.toLocaleString('en-IN')}`;
-}
 
 function paymentLabel(order: OpsBoardOrder): string {
   if (order.is_cod || order.payment_method === 'cod') return 'COD';
-  const method = order.payment_method.replace(/_/g, ' ');
-  return `${method} · ${order.payment_status}`;
+  return `${paymentMethodLabel(order.payment_method)} · ${paymentStatusLabel(order.payment_status)}`;
 }
 
 /**
@@ -20,11 +20,13 @@ function paymentLabel(order: OpsBoardOrder): string {
  */
 export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
   const amount =
-    formatAmount(order.final_amount) ?? formatAmount(order.quoted_amount);
+    formatInr(order.final_amount) ?? formatInr(order.quoted_amount);
   const where = [order.consignee_name, order.consignee_city]
     .filter(Boolean)
     .join(' · ');
   const mode = order.pickup_request === 2 ? 'Drop-off' : 'Pickup';
+  const unpaid =
+    order.is_cod || order.payment_method === 'cod' || order.payment_status !== 'paid';
 
   return (
     <Link
@@ -53,20 +55,33 @@ export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
         {order.pickup_date && (
           <span className="inline-flex items-center gap-1">
             <MapPin className="w-3.5 h-3.5" aria-hidden />
-            {[order.pickup_date, order.pickup_slot].filter(Boolean).join(' · ')}
+            {order.pickup_date}
+          </span>
+        )}
+        {order.pickup_request === 1 && (
+          <span
+            className="inline-flex items-center rounded-md bg-[#F3F4F6] px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground"
+            data-testid={`ops-agent-badge-${order.order_no}`}
+          >
+            {order.agent_id ? order.agent_name || 'Assigned' : 'Unassigned'}
           </span>
         )}
       </div>
 
       <p
         className={
-          order.is_cod || order.payment_status !== 'paid'
+          unpaid
             ? 'mt-2 text-xs font-bold text-[#F2A123]'
             : 'mt-2 text-xs font-medium text-muted-foreground'
         }
       >
         {paymentLabel(order)}
         {amount ? ` · ${amount}` : ''}
+      </p>
+
+      <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+        {formatIst(order.created_at)}
+        {order.awb_no ? ` · ${order.awb_no}` : ''}
       </p>
     </Link>
   );

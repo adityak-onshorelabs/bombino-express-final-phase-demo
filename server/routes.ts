@@ -78,6 +78,7 @@ import { registerWhatsappRoutes } from "./routes/whatsapp.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
 import { registerOpsRoutes } from "./routes/ops.js";
 import { handleGenerateDocket, handleSettle, handleWeigh } from "./opsActions.js";
+import { isIndiaHubId } from "../shared/hubs.js";
 import {
   cancellationState,
   deriveCustomerStatus,
@@ -168,7 +169,6 @@ import {
   type ExtraField,
 } from "../shared/accountSpec.js";
 import { validateGstin } from "../shared/gstin.js";
-import { isIndiaHubId } from "../shared/hubs.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
   SUPPORT_CHAT_MAX_CONTENT_LENGTH,
@@ -219,8 +219,9 @@ export async function registerRoutes(
   // The agent digest and slot reminders, driven by an external scheduler.
   registerWhatsappScheduleRoutes(app);
 
-  // Ops console (3A/3B). Board + detail reads; writes go through the uniform
-  // action endpoint below.
+  // Ops console: board + detail reads, the transactions ledger, and staff
+  // users. Admin/super_admin gated inside the module; writes go through the
+  // uniform action endpoint below.
   registerOpsRoutes(app);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -2931,8 +2932,8 @@ export async function registerRoutes(
         }
 
         default: {
-          // Ops actions — weigh, settle, generate_docket (mock AWB).
-          // mark_received_dropoff is OTP-gated above; do not delegate it here.
+          // Ops actions — weigh, settle, generate_docket. mark_received_dropoff
+          // is OTP-gated above; do not delegate a payload-less handler here.
           const mapOpsResult = (
             r: Awaited<ReturnType<typeof handleWeigh>>
           ): boolean => {
