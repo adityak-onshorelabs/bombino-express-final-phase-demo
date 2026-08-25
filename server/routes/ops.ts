@@ -48,7 +48,6 @@ function asOrder(row: OpsOrderDetail): Order {
     status: row.status as Order["status"],
     pickup_request: row.pickup_request === 2 ? 2 : 1,
     pickup_date: row.pickup_date,
-    pickup_slot: row.pickup_slot,
     origin_address_id: row.origin_address_id,
     consignee: row.consignee,
     items: row.items,

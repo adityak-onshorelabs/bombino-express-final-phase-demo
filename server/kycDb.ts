@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient.js";
+import type { OcrColumns } from "./accountDocsDb.js";
 
 export type KycDocumentRow = {
   id: string;
@@ -97,6 +98,8 @@ export type UpsertKycInput = {
   mime_type: string;
   file_size_bytes: number;
   file_data: string;
+  /** Absent leaves the stored verdict alone; see accountDocsDb.toOcrColumns. */
+  ocr?: OcrColumns;
 };
 
 export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocumentMeta | null> {
@@ -121,6 +124,7 @@ export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocum
         file_size_bytes: input.file_size_bytes,
         file_data: input.file_data,
         updated_at: now,
+        ...(input.ocr ?? {}),
       })
       .eq("user_id", input.user_id)
       .select(META_COLUMNS)
@@ -146,6 +150,7 @@ export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocum
       file_data: input.file_data,
       created_at: now,
       updated_at: now,
+      ...(input.ocr ?? {}),
     })
     .select(META_COLUMNS)
     .single();
