@@ -56,7 +56,9 @@ export type OcrStatus =
   /** We never got an answer: not configured, timed out, out of balance, 5xx. */
   | "unavailable"
   /** This document type has no OCR equivalent (GST certificate, a bill). */
-  | "skipped";
+  | "skipped"
+  /** OCR_BYPASS=1 — the check was never run. See isOcrBypassed below. */
+  | "bypassed";
 
 export interface OcrResult {
   status: OcrStatus;
@@ -106,6 +108,74 @@ function getConfig(): { clientId: string; clientSecret: string; base: string; ap
 
 export function isOcrConfigured(): boolean {
   return getConfig() !== null;
+}
+
+/**
+ * TEMPORARY — the document-verification bypass.
+ *
+ * There is no Cashfree production account yet, and the sandbox answers every
+ * image with the same canned PAN ("ABCPV1234D") and Aadhaar ("123456789012").
+ * Against a real document the sandbox therefore always reads a different
+ * number, that is a blocking `mismatch`, and — because assertDocumentsStaged
+ * refuses an account whose identity documents are not verified — nobody can
+ * register at all. This flag makes the check not run:
+ *
+ *   OCR_BYPASS=1
+ *
+ * The upload still happens and the file is still stored, exactly as before.
+ * Only the verdict is missing, recorded as `bypassed` so such a row can be
+ * told apart from one OCR had nothing to say about (`skipped`), one it could
+ * not read (`unreadable`), and one it read and agreed with (`match`).
+ * assertDocumentsStaged accepts `bypassed`, so accounts open again; the ops
+ * index on ocr_status still lists every row that went in without a match.
+ *
+ * IDENTITY DOCUMENTS ARE NOT CHECKED AGAINST THE NUMBERS TYPED WHILE THIS IS
+ * SET. A customer can upload anything for their PAN and type any number.
+ *
+ * Deliberately NOT gated on NODE_ENV, for the same reason PAYMENTS_TEST_MODE
+ * is not: the client tests on a deployed staging build where NODE_ENV is
+ * production, and that is the environment this is for. Unset it before this
+ * environment has real customers, and delete the flag once VRS production
+ * credentials exist.
+ */
+export function isOcrBypassed(): boolean {
+  return process.env.OCR_BYPASS === "1";
+}
+
+/** The result stored against a document the bypass let through unchecked. */
+export function bypassedOcr(): OcrResult {
+  return {
+    status: "bypassed",
+    blocking: false,
+    message: "Document uploaded. Verification is switched off in this environment.",
+    verification_id: null,
+    reference_id: null,
+    document_fields: null,
+    quality_checks: null,
+    fraud_checks: null,
+    error: null,
+  };
+}
+
+/** Called once at boot. Silent when the flag is off. */
+export function warnIfOcrBypassEnabled(): void {
+  if (!isOcrBypassed()) return;
+
+  const where = process.env.NODE_ENV === "production" ? "a PRODUCTION build" : "development";
+
+  console.warn(
+    [
+      "",
+      "  ############################################################",
+      "  ##  OCR_BYPASS=1",
+      "  ##  Identity documents are stored WITHOUT being verified.",
+      "  ##  Any file, and any number typed against it, is accepted.",
+      `  ##  Running in ${where}.`,
+      "  ##  Unset this before this environment has real customers.",
+      "  ############################################################",
+      "",
+    ].join("\n")
+  );
 }
 
 /** `verification_id`: max 50 chars, alphanumeric plus `.`, `-`, `_`, unique per call. */
@@ -231,6 +301,16 @@ export interface RunSmartOcrInput {
  * because an exception here would fail an upload for a reason that is ours.
  */
 export async function runSmartOcr(input: RunSmartOcrInput): Promise<OcrResult> {
+  // Ahead of getConfig, so the bypass works with no credentials at all and
+  // spends nothing against the VRS balance. Logged for every document: a
+  // silent bypass is how one survives into production unnoticed.
+  if (isOcrBypassed()) {
+    console.warn(
+      `[cashfreeOcr] OCR_BYPASS=1 — ${input.documentType} stored unverified (${input.tag})`
+    );
+    return bypassedOcr();
+  }
+
   const config = getConfig();
   if (!config) {
     return unavailable(

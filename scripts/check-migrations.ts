@@ -181,7 +181,9 @@ try {
     report("ocr_status CHECK constraint", false);
   } else {
     for (const c of checks) {
-      const admitted = ["match", "unreadable", "unavailable", "skipped"];
+      // "bypassed" comes from add_ocr_bypassed_status.sql. Without it every
+      // upload made while OCR_BYPASS=1 fails the CHECK and 500s.
+      const admitted = ["match", "unreadable", "unavailable", "skipped", "bypassed"];
       const ok = admitted.every((v) => c.def.includes(`'${v}'`));
       report("ocr_status CHECK admits every non-blocking status", ok, c.def);
     }
@@ -189,7 +191,7 @@ try {
 
   console.log(
     problems === 0
-      ? "\nBoth migrations are applied and match the code.\n"
+      ? "\nAll three migrations are applied and match the code.\n"
       : `\n${problems} item(s) missing — the migrations have not been fully applied.\n`
   );
   process.exitCode = problems === 0 ? 0 : 1;

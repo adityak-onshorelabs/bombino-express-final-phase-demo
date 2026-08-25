@@ -86,7 +86,7 @@ const DOC_TYPE_KEYS = Object.keys(DOC_TYPES);
  * state below. What is left says the document went in *unverified*, which
  * should not look identical to a clean pass.
  */
-const OCR_SILENT = new Set(['match', 'skipped']);
+const OCR_SILENT = new Set(['match', 'skipped', 'bypassed']);
 
 const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB

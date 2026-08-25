@@ -49,17 +49,28 @@ const EMPTY_SLOT: SlotState = {
 };
 
 /**
+ * The OCR outcomes the server will open an account on.
+ *
+ * `bypassed` is OCR_BYPASS=1 on the server: the document was stored without
+ * being checked at all, on purpose, because there is no Cashfree production
+ * account yet. Leaving it out here would gate Continue on a verdict that is
+ * never coming.
+ */
+const OCR_ACCEPTED = new Set(['match', 'bypassed']);
+
+/**
  * Whether a slot counts as done.
  *
  * Deliberately the same rule the server applies in assertDocumentsStaged: a
  * slot OCR cannot speak to is always fine, and one it can must have come back
- * `match`. Anything else — unreadable, unavailable, or a row from before OCR
+ * `match` — or `bypassed`, which is the server saying it was told not to
+ * look. Anything else — unreadable, unavailable, or a row from before OCR
  * existed with no status at all — leaves the slot outstanding, because the
  * server will refuse to open an account on it.
  */
 function isSlotVerified(slot: string, ocrStatus: string | null | undefined): boolean {
   if (!isOcrCheckedSlot(slot)) return true;
-  return ocrStatus === 'match';
+  return OCR_ACCEPTED.has(ocrStatus ?? '');
 }
 
 interface AccountDocumentsProps {

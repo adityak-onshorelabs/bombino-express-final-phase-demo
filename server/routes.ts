@@ -636,9 +636,16 @@ export async function registerRoutes(
     //
     // This makes verification load-bearing: while Cashfree is unreachable, no
     // account can open. That is the deliberate trade. `skipped` slots (GST
-    // certificate, bills) have no OCR equivalent and are unaffected.
+    // certificate, bills) have no OCR equivalent and are unaffected, and
+    // `bypassed` rows pass because OCR_BYPASS said not to ask — those files
+    // are stored unchecked on purpose. See isOcrBypassed in cashfreeOcr.ts.
     const unverified = staged
-      .filter((row) => ocrTypeForDocSlot(row.doc_slot) !== null && row.ocr_status !== "match")
+      .filter(
+        (row) =>
+          ocrTypeForDocSlot(row.doc_slot) !== null &&
+          row.ocr_status !== "match" &&
+          row.ocr_status !== "bypassed"
+      )
       .map((row) => row.doc_slot);
 
     if (unverified.length > 0) {

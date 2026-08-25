@@ -19,7 +19,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { isOcrConfigured, runSmartOcr } from "../server/cashfreeOcr.js";
+import { isOcrBypassed, isOcrConfigured, runSmartOcr } from "../server/cashfreeOcr.js";
 
 const ONE_PIXEL_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -34,6 +34,17 @@ const MIME_BY_EXT: Record<string, string> = {
 };
 
 async function main(): Promise<void> {
+  // With the bypass on, runSmartOcr never calls Cashfree — so this script
+  // would report a healthy-looking `bypassed` and prove nothing about the
+  // credentials. Say so instead of pretending to have checked.
+  if (isOcrBypassed()) {
+    console.error(
+      "OCR_BYPASS=1 is set: documents are stored WITHOUT verification and no\n" +
+        "call is made to Cashfree. Unset it to exercise the real OCR path."
+    );
+    process.exit(1);
+  }
+
   if (!isOcrConfigured()) {
     console.error(
       "CASHFREE_VRS_CLIENT_ID / CASHFREE_VRS_CLIENT_SECRET are not set.\n" +
