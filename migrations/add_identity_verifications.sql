@@ -18,7 +18,11 @@ CREATE TABLE IF NOT EXISTS public.identity_verifications (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid REFERENCES public.itd_users(id) ON DELETE CASCADE,
   signup_ref uuid,
-  kind text NOT NULL CHECK (kind IN ('aadhaar', 'pan')),
+  -- 'gstin' is here from the start so a fresh database needs this file alone.
+  -- add_gstin_identity_kind.sql widens the same constraint for a database that
+  -- already ran an earlier copy of this migration; on a fresh one it is a
+  -- no-op. Either order works, and running both twice changes nothing.
+  kind text NOT NULL CHECK (kind IN ('aadhaar', 'pan', 'gstin')),
   document_no text NOT NULL,
   status text NOT NULL CHECK (status IN ('verified', 'bypassed')),
   reference_id text,
