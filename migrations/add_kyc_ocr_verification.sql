@@ -12,6 +12,19 @@
 --   unreadable  Cashfree answered but could not extract — blur, glare, a bad scan
 --   unavailable no answer at all — not configured, timed out, no VRS balance, 5xx
 --   skipped     nothing for OCR to check (GST certificate, a utility bill)
+--   bypassed    OCR_BYPASS=1 — the check was deliberately not run at all
+--
+-- 'bypassed' is a fifth value rather than a reuse of one of the four because a
+-- document accepted while verification was switched off is not the same thing
+-- as one nothing checks ('skipped'), one that could not be read
+-- ('unreadable'), or one whose verifier gave no answer ('unavailable'). Only
+-- 'bypassed' means the number on the document was never compared with the
+-- number of record, and ops has to be able to find exactly those rows.
+--
+-- On a database that already has the column this file is a no-op — ADD COLUMN
+-- IF NOT EXISTS does not revisit the CHECK. Such a database was widened by
+-- add_ocr_bypassed_status.sql, which existed only for that purpose and is gone
+-- now that a fresh database gets all five values from the start.
 --
 -- The three non-match values are the ops queue: those documents went in
 -- unverified, and a human still has to look at them.
@@ -23,7 +36,7 @@ BEGIN
     EXECUTE format($f$
       ALTER TABLE public.%I
         ADD COLUMN IF NOT EXISTS ocr_status text
-          CHECK (ocr_status IN ('match', 'unreadable', 'unavailable', 'skipped')),
+          CHECK (ocr_status IN ('match', 'unreadable', 'unavailable', 'skipped', 'bypassed')),
         ADD COLUMN IF NOT EXISTS ocr_verification_id text,
         ADD COLUMN IF NOT EXISTS ocr_reference_id bigint,
         ADD COLUMN IF NOT EXISTS ocr_document_fields jsonb,

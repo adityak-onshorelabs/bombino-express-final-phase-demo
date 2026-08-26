@@ -181,8 +181,10 @@ try {
     report("ocr_status CHECK constraint", false);
   } else {
     for (const c of checks) {
-      // "bypassed" comes from add_ocr_bypassed_status.sql. Without it every
-      // upload made while OCR_BYPASS=1 fails the CHECK and 500s.
+      // "bypassed" comes from add_kyc_ocr_verification.sql, which now creates
+      // the CHECK with all five values. A database built before that was
+      // widened by add_ocr_bypassed_status.sql, since removed. Without the
+      // value, every upload made while OCR_BYPASS=1 fails the CHECK and 500s.
       const admitted = ["match", "unreadable", "unavailable", "skipped", "bypassed"];
       const ok = admitted.every((v) => c.def.includes(`'${v}'`));
       report("ocr_status CHECK admits every non-blocking status", ok, c.def);
