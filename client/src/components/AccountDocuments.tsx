@@ -82,6 +82,15 @@ interface AccountDocumentsProps {
   onMissingChange: (missing: DocSlot[]) => void;
   /** Slots the parent wants marked, after a blocked submit. */
   highlight?: readonly DocSlot[];
+  /**
+   * The numbers an authority already confirmed at the identity step, keyed by
+   * slot. These fields are shown read-only: the customer has proved this
+   * Aadhaar and this PAN, and the only question left is whether the document
+   * they upload carries them. The server ignores whatever `document_no` an
+   * upload sends for these slots and substitutes the proved value, so this is
+   * presentation of a decision already made rather than the decision itself.
+   */
+  verifiedNumbers?: Partial<Record<DocSlot, string>>;
 }
 
 /**
@@ -98,6 +107,7 @@ export function AccountDocuments({
   phone,
   onMissingChange,
   highlight,
+  verifiedNumbers,
 }: AccountDocumentsProps): React.JSX.Element {
   const slots = requiredDocuments(accountType, category);
   const [state, setState] = useState<Record<string, SlotState>>({});
@@ -106,8 +116,14 @@ export function AccountDocuments({
   const pendingFiles = useRef<Record<string, File | null>>({});
 
   const getSlot = useCallback(
-    (slot: DocSlot): SlotState => state[slot] ?? EMPTY_SLOT,
-    [state],
+    (slot: DocSlot): SlotState => {
+      const current = state[slot] ?? EMPTY_SLOT;
+      const proved = verifiedNumbers?.[slot];
+      // The proved number wins over anything held locally: it is the value the
+      // server will compare against regardless of what this component thinks.
+      return proved ? { ...current, documentNo: proved } : current;
+    },
+    [state, verifiedNumbers],
   );
 
   const patchSlot = useCallback((slot: DocSlot, patch: Partial<SlotState>): void => {
@@ -173,7 +189,19 @@ export function AccountDocuments({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, accountType, category]);
 
+  /**
+   * Whether this slot's number is good enough to upload against.
+   *
+   * A slot whose number was proved at the identity step is always ready, and
+   * is deliberately not pattern-tested: DigiLocker returns the Aadhaar masked
+   * (`XXXXXXXX1234`), which cannot match the twelve-digit pattern the form
+   * uses for a typed one. Testing it would park every Aadhaar upload in
+   * `pending` forever, since the field is read-only and can never be corrected
+   * into shape. The server owns this value and re-supplies it on upload, so
+   * there is nothing here left to validate.
+   */
   const isNumberValid = (slot: DocSlot, value: string): boolean => {
+    if (verifiedNumbers?.[slot] !== undefined) return true;
     const field = DOC_SLOT_SPECS[slot].numberField;
     if (!field) return true;
     return field.pattern.test(value);
@@ -220,6 +248,10 @@ export function AccountDocuments({
   }
 
   function handleNumberChange(slot: DocSlot, raw: string): void {
+    // `readOnly` already stops the keystroke, but a locked slot's value is the
+    // server's, and letting anything at all rewrite it here would put the
+    // field and the upload out of step.
+    if (verifiedNumbers?.[slot] !== undefined) return;
     const field = DOC_SLOT_SPECS[slot].numberField;
     if (!field) return;
 
@@ -293,6 +325,7 @@ export function AccountDocuments({
       {slots.map((slot) => {
         const spec = DOC_SLOT_SPECS[slot];
         const s = getSlot(slot);
+        const locked = verifiedNumbers?.[slot] !== undefined;
         const flagged = highlight?.includes(slot) && s.status !== 'success';
 
         return (
@@ -325,12 +358,21 @@ export function AccountDocuments({
                   placeholder={spec.numberField.placeholder}
                   maxLength={spec.numberField.maxLength}
                   inputMode={spec.numberField.uppercase ? 'text' : 'numeric'}
+                  readOnly={locked}
+                  aria-readonly={locked}
                   className={cn(
                     'h-11 mt-1 text-sm bg-muted/30 border-border rounded-xl',
                     !spec.numberField.uppercase && 'font-mono tracking-widest',
+                    locked && 'text-muted-foreground cursor-not-allowed',
                   )}
                   data-testid={`doc-number-${slot}`}
                 />
+                {locked && (
+                  <p className="text-[10px] text-green-700 mt-1 inline-flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> Already verified — upload the matching
+                    document.
+                  </p>
+                )}
               </div>
             )}
 

@@ -13,6 +13,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { AccountDocuments } from '@/components/AccountDocuments';
+import {
+  IdentityVerification,
+  type VerifiedIdentityNumbers,
+} from '@/components/IdentityVerification';
 import { ContractSignature } from '@/components/ContractSignature';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { useAppStore, type AuthUser } from '@/lib/store';
@@ -25,7 +29,9 @@ import {
   COMPANY_CATEGORY_SPECS,
   DOC_SLOT_SPECS,
   EXTRA_FIELD_SPECS,
+  IDENTITY_CHECK_LABELS,
   requiredExtraFields,
+  requiredIdentityChecks,
   type CompanyCategory,
   type DocSlot,
   type ExtraField,
@@ -44,8 +50,16 @@ const ACCOUNT_TYPES = ['personal', 'company'] as const satisfies readonly Accoun
  * 2026), so `documents` sits ahead of creation rather than after it. Uploads
  * are staged server-side against the session and claimed when the account is
  * written — see POST /api/signup/documents.
+ *
+ * `identity` sits ahead of `documents` for the same reason in miniature: the
+ * Aadhaar and PAN *numbers* are proved with UIDAI and the Income Tax
+ * Department first, and the upload that follows then only has to agree with a
+ * number already known to be real. Both stages stage against the same session
+ * and are claimed together.
  */
-type Step = 'details' | 'otp' | 'documents' | 'preview';
+type Step = 'details' | 'otp' | 'identity' | 'documents' | 'preview';
+
+const TOTAL_STEPS = 5;
 
 export default function Signup() {
   const [, setLocation] = useLocation();
@@ -76,6 +90,10 @@ export default function Signup() {
   const [email, setEmail] = useState('');
   const [missingDocs, setMissingDocs] = useState<DocSlot[]>([]);
   const [flaggedDocs, setFlaggedDocs] = useState<readonly DocSlot[]>([]);
+  // Proved at the identity step, then handed to the documents step, where the
+  // matching number fields are shown read-only. The server substitutes these
+  // values on upload regardless, so this is convenience, not enforcement.
+  const [verifiedNumbers, setVerifiedNumbers] = useState<VerifiedIdentityNumbers>({});
 
   // The contract is signed by typing, at the last step. `contractSignedName`
   // is seeded from the name already on the form — the customer can correct it,
@@ -101,6 +119,12 @@ export default function Signup() {
 
   const categorySpec = COMPANY_CATEGORY_SPECS[category];
   const activeExtras = accountType === 'company' ? requiredExtraFields(category) : [];
+  /** Whose PAN this is: the individual's on a personal account, the company's
+   *  on a corporate one. The server refuses to open an account under a name
+   *  the PAN was not verified against, so the two must be the same string. */
+  const accountName = accountType === 'personal' ? fullName.trim() : companyName.trim();
+  const identityChecks = requiredIdentityChecks(accountType, accountType === 'company' ? category : null);
+  const missingIdentity = identityChecks.filter((slot) => verifiedNumbers[slot] === undefined);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -138,6 +162,10 @@ export default function Signup() {
     setOtp('');
     setCooldown(0);
     setFlaggedDocs([]);
+    // Personal asks for Aadhaar and PAN, a company for PAN alone. What was
+    // proved still stands server-side; this only re-reads it on the way back
+    // into the step.
+    setVerifiedNumbers({});
     // A tick made against one account shape does not carry to the other —
     // the documents and the signatory both differ.
     setContractAccepted(false);
@@ -184,9 +212,9 @@ export default function Signup() {
 
   const handleSubmitDetails = (): void => {
     if (!validateDetails()) return;
-    // Already verified upstream at /login — go straight to the documents.
+    // Already verified upstream at /login — go straight to the identity check.
     if (preVerified) {
-      setStep('documents');
+      setStep('identity');
       return;
     }
     void requestOtp();
@@ -206,12 +234,25 @@ export default function Signup() {
     setErrors({});
     try {
       await apiRequest('POST', '/api/auth/otp/verify', { phone, purpose, code: otp });
-      setStep('documents');
+      setStep('identity');
     } catch (err) {
       setErrors({ otp: parseApiErrorMessage(err, 'Incorrect code') });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSubmitIdentity = (): void => {
+    if (missingIdentity.length > 0) {
+      setErrors({
+        form: `Please verify your ${missingIdentity
+          .map((slot) => IDENTITY_CHECK_LABELS[slot])
+          .join(' and ')} to continue.`,
+      });
+      return;
+    }
+    setErrors({});
+    setStep('documents');
   };
 
   const handleSubmitDocuments = (): void => {
@@ -277,8 +318,12 @@ export default function Signup() {
   };
 
   const handleBack = (): void => {
-    if (step === 'otp' || step === 'documents') {
+    if (step === 'otp' || step === 'identity') {
       setStep('details');
+      return;
+    }
+    if (step === 'documents') {
+      setStep('identity');
       return;
     }
     if (step === 'preview') {
@@ -293,9 +338,11 @@ export default function Signup() {
       ? handleSubmitDetails
       : step === 'otp'
         ? () => void handleVerifyOtp()
-        : step === 'documents'
-          ? handleSubmitDocuments
-          : () => void handleCreateAccount();
+        : step === 'identity'
+          ? handleSubmitIdentity
+          : step === 'documents'
+            ? handleSubmitDocuments
+            : () => void handleCreateAccount();
 
   const primaryLabel =
     step === 'details'
@@ -304,12 +351,20 @@ export default function Signup() {
         : 'Send code'
       : step === 'otp'
         ? 'Verify & continue'
-        : step === 'documents'
+        : step === 'identity' || step === 'documents'
           ? 'Continue'
           : 'Confirm & create account';
 
   const stepIndex =
-    step === 'details' ? 1 : step === 'otp' ? 2 : step === 'documents' ? 3 : 4;
+    step === 'details'
+      ? 1
+      : step === 'otp'
+        ? 2
+        : step === 'identity'
+          ? 3
+          : step === 'documents'
+            ? 4
+            : 5;
 
   const stepSubtitle =
     step === 'details' ? (
@@ -322,6 +377,8 @@ export default function Signup() {
         </span>
         .
       </>
+    ) : step === 'identity' ? (
+      'Verify your identity numbers before you upload anything.'
     ) : step === 'documents' ? (
       'Upload the documents your account type requires.'
     ) : (
@@ -337,7 +394,7 @@ export default function Signup() {
       subtitle={stepSubtitle}
       onBack={handleBack}
       step={stepIndex}
-      totalSteps={4}
+      totalSteps={TOTAL_STEPS}
       testId="screen-signup"
       beforeCard={
         step === 'details' ? (
@@ -578,6 +635,16 @@ export default function Signup() {
               </div>
             )}
 
+            {step === 'identity' && (
+              <IdentityVerification
+                accountType={accountType}
+                category={accountType === 'company' ? category : null}
+                phone={phone}
+                accountName={accountName}
+                onVerifiedChange={setVerifiedNumbers}
+              />
+            )}
+
             {step === 'documents' && (
               <AccountDocuments
                 accountType={accountType}
@@ -585,6 +652,7 @@ export default function Signup() {
                 phone={phone}
                 onMissingChange={setMissingDocs}
                 highlight={flaggedDocs}
+                verifiedNumbers={verifiedNumbers}
               />
             )}
 
@@ -617,6 +685,22 @@ export default function Signup() {
                       mono
                     />
                   ))}
+                  {/* The proved numbers, masked as the documents themselves
+                      mask them. Worth showing here because the account is
+                      about to be opened on them and this is the last screen
+                      before it is. */}
+                  {identityChecks.map((slot) => {
+                    const value = verifiedNumbers[slot];
+                    if (!value) return null;
+                    return (
+                      <PreviewRow
+                        key={slot}
+                        label={`${IDENTITY_CHECK_LABELS[slot]} (verified)`}
+                        value={slot === 'aadhaar_card' ? `XXXX XXXX ${value.slice(-4)}` : value}
+                        mono
+                      />
+                    );
+                  })}
                   <PreviewRow
                     label="Documents"
                     value={`${

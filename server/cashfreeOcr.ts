@@ -1,6 +1,11 @@
 /**
  * Cashfree VRS Smart OCR — reads the number off an uploaded identity document
- * and says whether it agrees with the number the customer typed.
+ * and says whether it agrees with the number of record.
+ *
+ * For the two identity slots that number is not what the customer typed: it is
+ * the value an authority already confirmed at the identity step (DigiLocker
+ * for Aadhaar, the Income Tax Department for PAN), which routes.ts substitutes
+ * for whatever the upload carried. It may be masked — see compareNumbers.
  *
  *   POST {base}/verification/bharat-ocr   multipart/form-data
  *   headers: x-client-id, x-client-secret, x-api-version
@@ -239,32 +244,47 @@ function extractNumber(
   return null;
 }
 
+/** `XXXXXXXX1234` or `****1234` — a number that discloses only its tail. */
+function isMaskedNumber(raw: string, normalized: string): boolean {
+  return /X{2,}/.test(normalized) || /\*{2,}/.test(raw);
+}
+
 /**
- * Compare what OCR read against what the customer typed.
+ * Compare what OCR read against the number of record.
  *
- * Aadhaar is routinely returned masked (`XXXXXXXX1234`) — by Cashfree, and by
- * the masked e-Aadhaar people download and upload. Comparing those in full
- * would reject every legitimate masked document, so a masked read is compared
- * on the last four digits, which is all the document itself discloses.
+ * Masking can arrive from either side, and both are routine:
+ *
+ *   • OCR reads a masked e-Aadhaar, the download UIDAI hands out and people
+ *     upload — so `extracted` is masked.
+ *   • The number of record came from DigiLocker, which returns `uid` masked
+ *     more often than not — so `expected` is masked. Since the DigiLocker
+ *     switch this is the common case for Aadhaar, and treating it as a
+ *     literal would fail every legitimate Aadhaar card upload.
+ *
+ * Either way the honest comparison is on the last four digits, which is all a
+ * masked value discloses. Comparing a masked value in full would reject the
+ * genuine article; comparing on four digits is what the document itself
+ * permits. Two unmasked values are still compared whole.
  */
 function compareNumbers(
   extracted: string,
-  typed: string
+  expected: string
 ): "match" | "mismatch" | "inconclusive" {
-  const typedNorm = normalize(typed);
+  const expectedNorm = normalize(expected);
   const extractedNorm = normalize(extracted);
-  if (!typedNorm || !extractedNorm) return "inconclusive";
+  if (!expectedNorm || !extractedNorm) return "inconclusive";
 
-  const maskedDigits = extractedNorm.replace(/[^0-9]/g, "");
-  const isMasked = /X{2,}/.test(extractedNorm) || /\*{2,}/.test(extracted);
+  const eitherMasked =
+    isMaskedNumber(extracted, extractedNorm) || isMaskedNumber(expected, expectedNorm);
 
-  if (isMasked) {
-    if (maskedDigits.length < 4) return "inconclusive";
-    const tail = maskedDigits.slice(-4);
-    return typedNorm.endsWith(tail) ? "match" : "mismatch";
+  if (eitherMasked) {
+    const extractedDigits = extractedNorm.replace(/[^0-9]/g, "");
+    const expectedDigits = expectedNorm.replace(/[^0-9]/g, "");
+    if (extractedDigits.length < 4 || expectedDigits.length < 4) return "inconclusive";
+    return extractedDigits.slice(-4) === expectedDigits.slice(-4) ? "match" : "mismatch";
   }
 
-  return extractedNorm === typedNorm ? "match" : "mismatch";
+  return extractedNorm === expectedNorm ? "match" : "mismatch";
 }
 
 /**
@@ -287,7 +307,14 @@ function tamperSignal(fraudChecks: Record<string, boolean | null> | undefined): 
 
 export interface RunSmartOcrInput {
   documentType: CashfreeDocumentType;
-  /** The number the customer typed, compared against what OCR reads. */
+  /**
+   * The number of record, compared against what OCR reads.
+   *
+   * Not what the customer typed: for the two identity slots this is the value
+   * an authority already confirmed at the identity step, which routes.ts
+   * substitutes for anything the upload carried. It may be masked — see
+   * compareNumbers.
+   */
   typedNumber: string;
   file: Buffer;
   filename: string;

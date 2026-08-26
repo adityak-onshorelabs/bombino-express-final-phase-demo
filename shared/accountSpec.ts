@@ -280,3 +280,29 @@ export function missingDocuments(
   const have = new Set(uploaded);
   return requiredDocuments(accountType, category).filter((slot) => !have.has(slot));
 }
+
+/**
+ * The identity numbers that must be verified against the issuing authority
+ * *before* any document is uploaded.
+ *
+ * Derived from the document matrix rather than listed separately, so the two
+ * cannot drift: every slot OCR is asked to read is a slot whose number we
+ * first confirm with Cashfree. In practice that is Aadhaar and PAN for a
+ * personal account, and PAN alone for all four corporate categories.
+ *
+ * The order matters to the customer: the number is proved first, and the
+ * document upload then only has to agree with a number that is already known
+ * to be real. See server/cashfreeIdentity.ts.
+ */
+export function requiredIdentityChecks(
+  accountType: AccountKind,
+  category?: CompanyCategory | null
+): OcrCheckedSlot[] {
+  return requiredDocuments(accountType, category).filter(isOcrCheckedSlot);
+}
+
+/** What the customer is asked for at the identity step, per check. */
+export const IDENTITY_CHECK_LABELS: Record<OcrCheckedSlot, string> = {
+  aadhaar_card: "Aadhaar",
+  pan_card: "PAN",
+};

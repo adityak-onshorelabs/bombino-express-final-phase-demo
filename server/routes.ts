@@ -139,6 +139,22 @@ import {
   type OcrResult,
 } from "./cashfreeOcr.js";
 import {
+  DIGILOCKER_TTL_MS,
+  createDigiLockerUrl,
+  fetchDigiLockerAadhaar,
+  getDigiLockerStatus,
+  isIdentityBypassed,
+  isValidAadhaarNumber,
+  isValidPanNumber,
+  verifyPan,
+} from "./cashfreeIdentity.js";
+import {
+  claimSignupIdentityVerifications,
+  listIdentityVerificationsBySignupRef,
+  upsertIdentityVerification,
+  type IdentityKind,
+} from "./identityDb.js";
+import {
   toOcrColumns,
   claimSignupDocuments,
   deleteSignupDocument,
@@ -158,12 +174,16 @@ import {
   COMPANY_CATEGORY_SPECS,
   DOC_SLOT_SPECS,
   EXTRA_FIELD_SPECS,
+  IDENTITY_CHECK_LABELS,
   isDocSlot,
+  isOcrCheckedSlot,
   missingDocuments,
   requiredExtraFields,
+  requiredIdentityChecks,
   type CompanyCategory,
   type DocSlot,
   type ExtraField,
+  type OcrCheckedSlot,
 } from "../shared/accountSpec.js";
 import { validateGstin } from "../shared/gstin.js";
 import {
@@ -483,6 +503,436 @@ export async function registerRoutes(
     return result;
   }
 
+  /* ── Identity verification ───────────────────────────────────────────────
+   *
+   * The step ahead of the document upload. Aadhaar is proved through the
+   * customer's own DigiLocker, under their consent — they open a link in a
+   * second tab and this one polls until it completes, so nothing about the
+   * number is ever typed. PAN is proved by the Income Tax Department
+   * returning the name it is registered to. Only once both have answered does
+   * the customer reach the documents screen, where Smart OCR checks that the
+   * file they upload actually carries the number that was just proved.
+   *
+   * Rows are staged against the session's signup_ref exactly like documents,
+   * and claimed by the account at creation. See server/cashfreeIdentity.ts for
+   * the vendor contract and the refusal policy.
+   */
+
+  /** How many DigiLocker journeys one signup may start. Each is billed. */
+  const DIGILOCKER_MAX_JOURNEYS = 5;
+
+  const IDENTITY_KIND_BY_SLOT: Record<OcrCheckedSlot, IdentityKind> = {
+    aadhaar_card: "aadhaar",
+    pan_card: "pan",
+  };
+
+  /** The number an authority has already confirmed, per kind, for this signup. */
+  async function verifiedIdentityNumbers(req: Request): Promise<Map<IdentityKind, string>> {
+    const signupRef = req.session.signupRef;
+    if (!signupRef) return new Map();
+    const rows = await listIdentityVerificationsBySignupRef(signupRef);
+    return new Map(rows.map((row) => [row.kind, row.document_no]));
+  }
+
+  /**
+   * Answer an identity failure.
+   *
+   * `rejected` is 422 — the request was understood perfectly and the authority
+   * simply said no. `expired` is 410, which the form reads as "offer a fresh
+   * OTP" rather than "retype". `unavailable` is 503, so nothing about it can
+   * be mistaken for the customer's fault.
+   */
+  function sendIdentityFailure(
+    res: Response,
+    err: { failure: string; message: string; detail: string | null }
+  ): void {
+    if (err.detail) console.error("[signup/identity]", err.failure, "-", err.detail);
+    const status = err.failure === "rejected" ? 422 : err.failure === "expired" ? 410 : 503;
+    res.status(status).json({ message: err.message, failure: err.failure });
+  }
+
+  /**
+   * Write one confirmed number against the in-flight signup.
+   *
+   * Answers the request itself on failure and returns false, so callers read
+   * as a straight line. Minting the signup_ref here rather than at the first
+   * upload is what lets identity verification come *before* any document.
+   */
+  async function recordIdentity(
+    req: Request,
+    res: Response,
+    input: {
+      kind: IdentityKind;
+      document_no: string;
+      status: "verified" | "bypassed";
+      reference_id: string | null;
+      verified_name: string | null;
+      name_submitted?: string | null;
+      name_match_result?: string | null;
+      name_match_score?: number | null;
+      details: Record<string, unknown> | null;
+    }
+  ): Promise<boolean> {
+    try {
+      const saved = await upsertIdentityVerification({
+        signup_ref: getOrCreateSignupRef(req),
+        ...input,
+      });
+      if (!saved) {
+        res.status(500).json({ message: "Could not record the verification. Please try again." });
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.error(`[signup/identity] failed to record ${input.kind}:`, err);
+      res.status(500).json({ message: "Could not record the verification. Please try again." });
+      return false;
+    }
+  }
+
+  // GET /api/signup/identity — what this signup has proved so far
+  app.get("/api/signup/identity", async (req: Request, res: Response) => {
+    const signupRef = req.session.signupRef;
+    if (!signupRef) {
+      res.json({ verifications: [] });
+      return;
+    }
+    const rows = await listIdentityVerificationsBySignupRef(signupRef);
+    res.set("Cache-Control", "no-store");
+    res.json({
+      verifications: rows.map((row) => ({
+        kind: row.kind,
+        // Echoed so returning to the step restores it instead of costing a
+        // second OTP. Session-scoped: the only reader is the browser that
+        // typed it, which is also the browser the OTP went to.
+        document_no: row.document_no,
+        status: row.status,
+        verified_name: row.verified_name,
+        name_submitted: row.name_submitted,
+        name_match_result: row.name_match_result,
+        verified_at: row.verified_at,
+      })),
+    });
+  });
+
+  // POST /api/signup/identity/aadhaar/digilocker — start the consent journey
+  app.post("/api/signup/identity/aadhaar/digilocker", async (req: Request, res: Response) => {
+    const phone = await assertPhoneVerified(req.body?.phone, res);
+    if (!phone) return;
+
+    // Nothing is asked and nothing is checked; the client falls back to a
+    // typed number and banks it unproved. See isIdentityBypassed.
+    if (isIdentityBypassed("aadhaar")) {
+      res.json({ bypassed: true });
+      return;
+    }
+
+    const started = req.session.digilocker?.started ?? 0;
+    if (started >= DIGILOCKER_MAX_JOURNEYS) {
+      res.status(429).json({
+        message: "Too many DigiLocker attempts. Please start the signup again in a little while.",
+      });
+      return;
+    }
+
+    // Ours, and unique per journey — Cashfree 409s on a repeat. Every poll
+    // quotes it, and it is held in the session rather than accepted from the
+    // client so one browser cannot poll another signup's journey.
+    const verificationId = `bmb-dl-${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
+
+    const created = await createDigiLockerUrl(verificationId);
+    if (!created.ok) {
+      sendIdentityFailure(res, created);
+      return;
+    }
+
+    req.session.digilocker = {
+      verificationId: created.verificationId,
+      createdAt: Date.now(),
+      started: started + 1,
+    };
+    // The poll that follows reads this, and without an explicit save it can
+    // race ahead of the store write and find no journey at all.
+    req.session.save((err) => {
+      if (err) console.error("[signup/identity] session save error:", err);
+      res.json({ bypassed: false, url: created.url });
+    });
+  });
+
+  /**
+   * GET /api/signup/identity/aadhaar/digilocker — where the journey has got to
+   *
+   * The signup tab polls this while the customer is on DigiLocker in another
+   * tab. It answers `waiting` for as long as there is nothing to say, and on
+   * AUTHENTICATED it goes and reads the Aadhaar in the same call — so the
+   * client never has to know there are two vendor endpoints behind this.
+   */
+  app.get("/api/signup/identity/aadhaar/digilocker", async (req: Request, res: Response) => {
+    const journey = req.session.digilocker;
+    if (!journey) {
+      res.status(410).json({
+        message: "That DigiLocker session is no longer valid. Please start it again.",
+        failure: "expired",
+      });
+      return;
+    }
+    if (Date.now() - journey.createdAt > DIGILOCKER_TTL_MS) {
+      delete req.session.digilocker;
+      res.status(410).json({
+        message: "The DigiLocker link has expired. Please start it again.",
+        failure: "expired",
+      });
+      return;
+    }
+
+    const status = await getDigiLockerStatus(journey.verificationId);
+    if (!status.ok) {
+      if (status.failure === "expired") delete req.session.digilocker;
+      sendIdentityFailure(res, status);
+      return;
+    }
+
+    // Still on DigiLocker's site. Not a failure, and nothing to tell them.
+    if (status.state === "PENDING") {
+      res.set("Cache-Control", "no-store");
+      res.json({ state: "waiting" });
+      return;
+    }
+
+    if (status.state === "EXPIRED") {
+      delete req.session.digilocker;
+      res.status(410).json({
+        message: "The DigiLocker link has expired. Please start it again.",
+        failure: "expired",
+      });
+      return;
+    }
+
+    // A refusal is the customer's decision, not an error — but it is terminal
+    // for this journey, and without Aadhaar there is no personal account.
+    if (status.state === "CONSENT_DENIED") {
+      delete req.session.digilocker;
+      res.status(422).json({
+        message:
+          "You did not share your Aadhaar with us in DigiLocker. We cannot open the account without it.",
+        failure: "rejected",
+      });
+      return;
+    }
+
+    const document = await fetchDigiLockerAadhaar(journey.verificationId);
+    if (!document.ok) {
+      if (document.failure === "expired") delete req.session.digilocker;
+      sendIdentityFailure(res, document);
+      return;
+    }
+
+    // Consent is in but Cashfree is still fetching from DigiLocker. Keep the
+    // journey alive and let the client poll again.
+    if (document.pending) {
+      res.set("Cache-Control", "no-store");
+      res.json({ state: "waiting" });
+      return;
+    }
+
+    // Stored exactly as DigiLocker returned it, commonly masked. The OCR
+    // comparison matches a masked value against a full one on the last four
+    // digits, so the Aadhaar card upload still verifies against this.
+    const banked = await recordIdentity(req, res, {
+      kind: "aadhaar",
+      document_no: document.uid,
+      status: "verified",
+      reference_id: document.referenceId,
+      verified_name: document.name,
+      details: document.details,
+    });
+    if (!banked) return;
+
+    delete req.session.digilocker;
+    req.session.save((err) => {
+      if (err) console.error("[signup/identity] session save error:", err);
+      res.json({
+        state: "verified",
+        kind: "aadhaar",
+        document_no: document.uid,
+        verified_name: document.name,
+        bypassed: false,
+      });
+    });
+  });
+
+  /**
+   * POST /api/signup/identity/aadhaar/bypass — bank a typed number unchecked
+   *
+   * Only reachable while IDENTITY_BYPASS names aadhaar. It exists because the
+   * DigiLocker journey has no number to type and no fallback of its own: with
+   * the check switched off there is nothing to consent to, so the form shows
+   * a plain field and this is where it lands. Guarded by the flag rather than
+   * by the form, because the form is not a control.
+   */
+  app.post("/api/signup/identity/aadhaar/bypass", async (req: Request, res: Response) => {
+    const phone = await assertPhoneVerified(req.body?.phone, res);
+    if (!phone) return;
+
+    if (!isIdentityBypassed("aadhaar")) {
+      res.status(404).json({ message: "Not found" });
+      return;
+    }
+
+    const aadhaar =
+      typeof req.body?.aadhaar_number === "string"
+        ? req.body.aadhaar_number.replace(/\s/g, "")
+        : "";
+    if (!isValidAadhaarNumber(aadhaar)) {
+      res.status(400).json({ message: "Enter a valid 12-digit Aadhaar number" });
+      return;
+    }
+
+    console.warn(
+      `[signup/identity] IDENTITY_BYPASS — Aadhaar recorded unchecked (ending ${aadhaar.slice(-4)})`
+    );
+    const banked = await recordIdentity(req, res, {
+      kind: "aadhaar",
+      document_no: aadhaar,
+      status: "bypassed",
+      reference_id: null,
+      verified_name: null,
+      details: null,
+    });
+    if (!banked) return;
+
+    req.session.save((err) => {
+      if (err) console.error("[signup/identity] session save error:", err);
+      res.json({ state: "verified", kind: "aadhaar", document_no: aadhaar, bypassed: true });
+    });
+  });
+
+  // POST /api/signup/identity/pan — verify a PAN against the name on the account
+  app.post("/api/signup/identity/pan", async (req: Request, res: Response) => {
+    const phone = await assertPhoneVerified(req.body?.phone, res);
+    if (!phone) return;
+
+    const pan = typeof req.body?.pan === "string" ? req.body.pan.trim().toUpperCase() : "";
+    if (!isValidPanNumber(pan)) {
+      res.status(400).json({ message: "Enter a valid 10-character PAN" });
+      return;
+    }
+
+    // The account's own name: the individual's on a personal account, the
+    // company's on a corporate one — which is right, because a company account
+    // gives its company PAN. Stored as name_submitted and re-checked when the
+    // account is written, so verifying under one name and registering under
+    // another does not get through.
+    const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+    if (!name) {
+      res.status(400).json({ message: "Enter the name this account is for" });
+      return;
+    }
+
+    if (isIdentityBypassed("pan")) {
+      console.warn(`[signup/identity] IDENTITY_BYPASS — PAN recorded unchecked (${pan})`);
+      const banked = await recordIdentity(req, res, {
+        kind: "pan",
+        document_no: pan,
+        status: "bypassed",
+        reference_id: null,
+        verified_name: null,
+        name_submitted: name,
+        details: null,
+      });
+      if (!banked) return;
+      req.session.save((err) => {
+        if (err) console.error("[signup/identity] session save error:", err);
+        res.json({ verified: true, bypassed: true, kind: "pan", document_no: pan });
+      });
+      return;
+    }
+
+    const result = await verifyPan(pan, name);
+    if (!result.ok) {
+      sendIdentityFailure(res, result);
+      return;
+    }
+
+    const banked = await recordIdentity(req, res, {
+      kind: "pan",
+      document_no: pan,
+      status: "verified",
+      reference_id: result.referenceId,
+      verified_name: result.registeredName,
+      name_submitted: name,
+      name_match_result: result.nameMatchResult,
+      name_match_score: result.nameMatchScore,
+      details: result.details,
+    });
+    if (!banked) return;
+
+    req.session.save((err) => {
+      if (err) console.error("[signup/identity] session save error:", err);
+      res.json({
+        verified: true,
+        bypassed: false,
+        kind: "pan",
+        document_no: pan,
+        verified_name: result.registeredName,
+        name_match_result: result.nameMatchResult,
+      });
+    });
+  });
+
+  /** Names differ in spacing, case and punctuation far more often than in fact. */
+  function sameName(a: string, b: string): boolean {
+    const norm = (v: string): string => v.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    return norm(a) === norm(b);
+  }
+
+  /**
+   * Refuse the account until every identity number it needs has been proved.
+   *
+   * Runs before assertDocumentsStaged, mirroring the order on screen: the
+   * number first, the paper second. A `bypassed` row counts, for the same
+   * reason a `bypassed` OCR verdict does — IDENTITY_BYPASS said not to ask.
+   */
+  async function assertIdentityVerified(
+    req: Request,
+    res: Response,
+    accountType: "personal" | "company",
+    category: CompanyCategory | null,
+    accountName: string
+  ): Promise<boolean> {
+    const required = requiredIdentityChecks(accountType, category);
+    if (required.length === 0) return true;
+
+    const signupRef = req.session.signupRef;
+    const rows = signupRef ? await listIdentityVerificationsBySignupRef(signupRef) : [];
+    const byKind = new Map(rows.map((row) => [row.kind, row]));
+
+    const missing = required.filter((slot) => !byKind.has(IDENTITY_KIND_BY_SLOT[slot]));
+    if (missing.length > 0) {
+      res.status(422).json({
+        message: `Please verify your ${missing
+          .map((slot) => IDENTITY_CHECK_LABELS[slot])
+          .join(" and ")} before creating the account.`,
+        unverified_identity: missing.map((slot) => IDENTITY_KIND_BY_SLOT[slot]),
+      });
+      return false;
+    }
+
+    // The PAN was verified against a name the client chose. Nothing stops that
+    // client from then submitting a different one here, so the two are tied
+    // together at the only point that matters — the account being written.
+    const pan = byKind.get("pan");
+    if (pan?.name_submitted && !sameName(pan.name_submitted, accountName)) {
+      res.status(422).json({
+        message: `Your PAN was verified for "${pan.name_submitted}". Please verify it again for "${accountName}".`,
+        unverified_identity: ["pan"],
+      });
+      return false;
+    }
+
+    return true;
+  }
+
   // POST /api/signup/documents — stage one document of an in-flight signup
   app.post(
     "/api/signup/documents",
@@ -502,15 +952,38 @@ export async function registerRoutes(
         return;
       }
 
-      const docNo = normalizeDocumentNo(slot, req.body?.document_no);
-      if (!docNo.ok) {
-        res.status(400).json({ message: docNo.message });
-        return;
+      // For the two slots that carry an identity number, the number OCR is
+      // asked to agree with is the one an authority already confirmed at the
+      // identity step — not whatever this request carried. The form shows the
+      // field read-only for the same reason, but the form is not the control:
+      // a client that verified Aadhaar A and then uploaded a card for Aadhaar
+      // B, typing B, would otherwise earn a clean `match` on a number nobody
+      // proved. Resolved ahead of normalizeDocumentNo so a client that omits
+      // the field entirely — correctly, since the server supplies it — is not
+      // turned away for leaving out a value it does not get to choose.
+      let documentNo: string | null;
+      if (isOcrCheckedSlot(slot)) {
+        const proved = (await verifiedIdentityNumbers(req)).get(IDENTITY_KIND_BY_SLOT[slot]);
+        if (!proved) {
+          res.status(422).json({
+            message: `Please verify your ${IDENTITY_CHECK_LABELS[slot]} number before uploading the document.`,
+            unverified_identity: [IDENTITY_KIND_BY_SLOT[slot]],
+          });
+          return;
+        }
+        documentNo = proved;
+      } else {
+        const parsed = normalizeDocumentNo(slot, req.body?.document_no);
+        if (!parsed.ok) {
+          res.status(400).json({ message: parsed.message });
+          return;
+        }
+        documentNo = parsed.value;
       }
 
       const ocr = await verifyDocumentOrRefuse(res, {
         cashfreeType: ocrTypeForDocSlot(slot),
-        typedNumber: docNo.value,
+        typedNumber: documentNo,
         file: req.file,
         tag: `signup-${slot}`,
       });
@@ -520,7 +993,7 @@ export async function registerRoutes(
         const saved = await upsertAccountDocument({
           signup_ref: getOrCreateSignupRef(req),
           doc_slot: slot,
-          document_no: docNo.value,
+          document_no: documentNo,
           original_filename: req.file.originalname,
           mime_type: req.file.mimetype,
           file_size_bytes: req.file.size,
@@ -708,11 +1181,16 @@ export async function registerRoutes(
     if (!signupRef) return;
     try {
       await claimSignupDocuments(signupRef, userId);
+      // The proved numbers move with the files they belong to. A failure here
+      // leaves the rows on the signup_ref side — recoverable, and the account
+      // still stands, same trade as the documents themselves.
+      await claimSignupIdentityVerifications(signupRef, userId);
     } catch (err) {
-      console.error("[signup] claimSignupDocuments failed:", err);
+      console.error("[signup] claiming staged signup rows failed:", err);
       return;
     }
     delete req.session.signupRef;
+    delete req.session.digilocker;
   }
 
   // GET /api/account/documents/:id/file — capability URL, same contract as the
@@ -776,8 +1254,12 @@ export async function registerRoutes(
       return;
     }
 
-    // Aadhaar and PAN both, before the account exists — the document set is a
-    // precondition of opening it, not a follow-up task.
+    // Aadhaar and PAN both, before the account exists — the numbers are a
+    // precondition of opening it, and so is the document set. In that order:
+    // the identity check proves the number with UIDAI and the Income Tax
+    // Department, and the OCR check proves the uploaded card carries it.
+    if (!(await assertIdentityVerified(req, res, "personal", null, full_name))) return;
+
     const staged = await assertDocumentsStaged(req, res, "personal", null);
     if (!staged) return;
 
@@ -939,6 +1421,10 @@ export async function registerRoutes(
     }
 
     const categorySpec = COMPANY_CATEGORY_SPECS[company_category];
+
+    // The company PAN, verified against the company's own name — every
+    // corporate category compels a PAN card, none compels an Aadhaar.
+    if (!(await assertIdentityVerified(req, res, "company", company_category, company_name))) return;
 
     const staged = await assertDocumentsStaged(req, res, "company", company_category);
     if (!staged) return;

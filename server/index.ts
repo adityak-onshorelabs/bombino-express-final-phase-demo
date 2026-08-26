@@ -14,6 +14,7 @@ import { registerRoutes } from "./routes";
 import { assertDatabaseUrl, getPgPoolConfig } from "./pgPoolConfig";
 import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode";
 import { warnIfOcrBypassEnabled } from "./cashfreeOcr";
+import { warnIfIdentityBypassEnabled } from "./cashfreeIdentity";
 import { warnIfFixedOtpEnabled } from "./otp";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -328,6 +329,7 @@ app.use((req, res, next) => {
 
   warnIfPaymentsTestModeEnabled();
   warnIfOcrBypassEnabled();
+  warnIfIdentityBypassEnabled();
   warnIfFixedOtpEnabled();
 
   await registerRoutes(httpServer, app);
