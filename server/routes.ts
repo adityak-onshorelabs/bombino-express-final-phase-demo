@@ -132,6 +132,7 @@ import {
   toKycSummary,
 } from "../shared/kyc.js";
 import {
+  bypassedOcr,
   ocrTypeForDocSlot,
   ocrTypeForKycDocumentType,
   runSmartOcr,
@@ -145,9 +146,12 @@ import {
   getDigiLockerStatus,
   isIdentityBypassed,
   isValidAadhaarNumber,
+  isValidGstinFormat,
   isValidPanNumber,
+  verifyGstin,
   verifyPan,
 } from "./cashfreeIdentity.js";
+import { checkGstCertificate } from "./gstCertificate.js";
 import {
   claimSignupIdentityVerifications,
   listIdentityVerificationsBySignupRef,
@@ -177,13 +181,14 @@ import {
   IDENTITY_CHECK_LABELS,
   isDocSlot,
   isOcrCheckedSlot,
+  isVerifiedDocSlot,
   missingDocuments,
   requiredExtraFields,
   requiredIdentityChecks,
   type CompanyCategory,
   type DocSlot,
   type ExtraField,
-  type OcrCheckedSlot,
+  type VerifiedDocSlot,
 } from "../shared/accountSpec.js";
 import { validateGstin } from "../shared/gstin.js";
 import {
@@ -521,9 +526,10 @@ export async function registerRoutes(
   /** How many DigiLocker journeys one signup may start. Each is billed. */
   const DIGILOCKER_MAX_JOURNEYS = 5;
 
-  const IDENTITY_KIND_BY_SLOT: Record<OcrCheckedSlot, IdentityKind> = {
+  const IDENTITY_KIND_BY_SLOT: Record<VerifiedDocSlot, IdentityKind> = {
     aadhaar_card: "aadhaar",
     pan_card: "pan",
+    gst_certificate: "gstin",
   };
 
   /** The number an authority has already confirmed, per kind, for this signup. */
@@ -880,6 +886,79 @@ export async function registerRoutes(
     });
   });
 
+  // POST /api/signup/identity/gstin — verify a GST number against the GST portal
+  app.post("/api/signup/identity/gstin", async (req: Request, res: Response) => {
+    const phone = await assertPhoneVerified(req.body?.phone, res);
+    if (!phone) return;
+
+    const gstin = typeof req.body?.gstin === "string" ? req.body.gstin.trim().toUpperCase() : "";
+    // Shape and mod-36 checksum first, so a typo never costs a billed lookup.
+    const shapeCheck = validateGstin(gstin);
+    if (!shapeCheck.valid) {
+      res.status(400).json({ message: shapeCheck.message ?? "Enter a valid 15-character GST number" });
+      return;
+    }
+
+    // The company's own name. Stored as name_submitted and re-checked when the
+    // account is written, so verifying under one name and registering under
+    // another does not get through.
+    const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+    if (!name) {
+      res.status(400).json({ message: "Enter the company name this account is for" });
+      return;
+    }
+
+    if (isIdentityBypassed("gstin")) {
+      console.warn(`[signup/identity] IDENTITY_BYPASS — GSTIN recorded unchecked (${gstin})`);
+      const banked = await recordIdentity(req, res, {
+        kind: "gstin",
+        document_no: gstin,
+        status: "bypassed",
+        reference_id: null,
+        verified_name: null,
+        name_submitted: name,
+        details: null,
+      });
+      if (!banked) return;
+      req.session.save((err) => {
+        if (err) console.error("[signup/identity] session save error:", err);
+        res.json({ verified: true, bypassed: true, kind: "gstin", document_no: gstin });
+      });
+      return;
+    }
+
+    const result = await verifyGstin(gstin, name);
+    if (!result.ok) {
+      sendIdentityFailure(res, result);
+      return;
+    }
+
+    const banked = await recordIdentity(req, res, {
+      kind: "gstin",
+      document_no: result.gstin,
+      status: "verified",
+      reference_id: result.referenceId,
+      verified_name: result.legalName,
+      name_submitted: name,
+      details: result.details,
+    });
+    if (!banked) return;
+
+    req.session.save((err) => {
+      if (err) console.error("[signup/identity] session save error:", err);
+      res.json({
+        verified: true,
+        bypassed: false,
+        kind: "gstin",
+        document_no: result.gstin,
+        // The GST portal's own spelling, plus the trading name where it
+        // differs — a business often knows itself by the latter.
+        verified_name: result.legalName,
+        trade_name: result.tradeName,
+      });
+    });
+  });
+
   /** Names differ in spacing, case and punctuation far more often than in fact. */
   function sameName(a: string, b: string): boolean {
     const norm = (v: string): string => v.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
@@ -918,19 +997,63 @@ export async function registerRoutes(
       return false;
     }
 
-    // The PAN was verified against a name the client chose. Nothing stops that
-    // client from then submitting a different one here, so the two are tied
-    // together at the only point that matters — the account being written.
-    const pan = byKind.get("pan");
-    if (pan?.name_submitted && !sameName(pan.name_submitted, accountName)) {
-      res.status(422).json({
-        message: `Your PAN was verified for "${pan.name_submitted}". Please verify it again for "${accountName}".`,
-        unverified_identity: ["pan"],
-      });
-      return false;
+    // PAN and GSTIN were each verified against a name the client chose.
+    // Nothing stops that client from then submitting a different one here, so
+    // the two are tied together at the only point that matters — the account
+    // being written.
+    for (const kind of ["pan", "gstin"] as const) {
+      const row = byKind.get(kind);
+      if (row?.name_submitted && !sameName(row.name_submitted, accountName)) {
+        res.status(422).json({
+          message: `Your ${kind === "pan" ? "PAN" : "GST number"} was verified for "${row.name_submitted}". Please verify it again for "${accountName}".`,
+          unverified_identity: [kind],
+        });
+        return false;
+      }
     }
 
     return true;
+  }
+
+  /**
+   * Read an uploaded GST certificate and check it carries the verified GSTIN.
+   *
+   * Same contract as verifyDocumentOrRefuse: answers the request itself and
+   * returns null when the document must be refused, so the caller reads as a
+   * straight line. A certificate for somebody else's GSTIN is blocking, for
+   * the same reason a PAN card for a different PAN is — it is bad data, and it
+   * reaches Indian customs if we let it through.
+   */
+  async function checkGstCertificateOrRefuse(
+    res: Response,
+    file: Express.Multer.File,
+    verifiedGstin: string
+  ): Promise<OcrResult | null> {
+    // The bypass covers the certificate as well as the number: with no GSTIN
+    // proved there is nothing to compare against, and refusing every upload
+    // would defeat the flag entirely.
+    if (isIdentityBypassed("gstin")) {
+      console.warn("[signup/documents] IDENTITY_BYPASS — GST certificate stored unchecked");
+      return bypassedOcr();
+    }
+
+    const check = await checkGstCertificate({
+      file: file.buffer,
+      mimeType: file.mimetype,
+      verifiedGstin,
+    });
+
+    if (check.source) {
+      console.log(`[signup/documents] GST certificate read via ${check.source}: ${check.status}`);
+    }
+
+    if (check.blocking) {
+      // 422: the request was well-formed and we understood it — the document
+      // itself is the problem.
+      res.status(422).json({ message: check.message, ocr: { status: check.status } });
+      return null;
+    }
+    return check;
   }
 
   // POST /api/signup/documents — stage one document of an in-flight signup
@@ -962,7 +1085,7 @@ export async function registerRoutes(
       // the field entirely — correctly, since the server supplies it — is not
       // turned away for leaving out a value it does not get to choose.
       let documentNo: string | null;
-      if (isOcrCheckedSlot(slot)) {
+      if (isVerifiedDocSlot(slot)) {
         const proved = (await verifiedIdentityNumbers(req)).get(IDENTITY_KIND_BY_SLOT[slot]);
         if (!proved) {
           res.status(422).json({
@@ -981,12 +1104,19 @@ export async function registerRoutes(
         documentNo = parsed.value;
       }
 
-      const ocr = await verifyDocumentOrRefuse(res, {
-        cashfreeType: ocrTypeForDocSlot(slot),
-        typedNumber: documentNo,
-        file: req.file,
-        tag: `signup-${slot}`,
-      });
+      // Two readers, one verdict shape. Cashfree Smart OCR handles the two
+      // identity cards; it has no GST certificate type at all, so that slot
+      // is read locally — the PDF's own text layer, falling back to a vision
+      // call for a photograph. See server/gstCertificate.ts.
+      const ocr =
+        slot === "gst_certificate"
+          ? await checkGstCertificateOrRefuse(res, req.file, documentNo!)
+          : await verifyDocumentOrRefuse(res, {
+              cashfreeType: ocrTypeForDocSlot(slot),
+              typedNumber: documentNo,
+              file: req.file,
+              tag: `signup-${slot}`,
+            });
       if (!ocr) return;
 
       try {
@@ -1103,19 +1233,26 @@ export async function registerRoutes(
       return null;
     }
 
-    // Present is not the same as verified. An identity document that OCR never
-    // actually read — a blurred scan, or Cashfree unreachable — is refused
-    // here rather than opening an account on a document nobody has checked.
+    // Present is not the same as verified. A document that was never actually
+    // read — a blurred scan, an unreachable Cashfree, a GST certificate with
+    // no legible number — is refused here rather than opening an account on a
+    // document nobody has checked.
     //
-    // This makes verification load-bearing: while Cashfree is unreachable, no
-    // account can open. That is the deliberate trade. `skipped` slots (GST
-    // certificate, bills) have no OCR equivalent and are unaffected, and
-    // `bypassed` rows pass because OCR_BYPASS said not to ask — those files
-    // are stored unchecked on purpose. See isOcrBypassed in cashfreeOcr.ts.
+    // Keyed on isVerifiedDocSlot, NOT on ocrTypeForDocSlot: the latter is the
+    // Cashfree document type, and it is null for the GST certificate because
+    // Smart OCR has no type for one. Testing that instead would silently
+    // exempt the certificate from this gate — present but unverified would be
+    // good enough, which is exactly what this check exists to prevent.
+    //
+    // This makes verification load-bearing: while the readers are unreachable,
+    // no account can open. That is the deliberate trade. Slots nothing checks
+    // (bills, the IEC and authorization letters) are unaffected, and
+    // `bypassed` rows pass because a bypass flag said not to ask — those files
+    // are stored unchecked on purpose.
     const unverified = staged
       .filter(
         (row) =>
-          ocrTypeForDocSlot(row.doc_slot) !== null &&
+          isVerifiedDocSlot(row.doc_slot) &&
           row.ocr_status !== "match" &&
           row.ocr_status !== "bypassed"
       )

@@ -10,7 +10,12 @@ import { supabase } from "./supabaseClient.js";
  * the other.
  */
 
-export type IdentityKind = "aadhaar" | "pan";
+/**
+ * Kept in step with the same-named type in cashfreeIdentity.ts and with the
+ * CHECK constraint on identity_verifications.kind. Adding a fourth means all
+ * three, plus a migration.
+ */
+export type IdentityKind = "aadhaar" | "pan" | "gstin";
 export type IdentityStatus = "verified" | "bypassed";
 
 export type IdentityVerificationRow = {

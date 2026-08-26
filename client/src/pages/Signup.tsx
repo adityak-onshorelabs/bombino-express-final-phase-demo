@@ -641,6 +641,7 @@ export default function Signup() {
                 category={accountType === 'company' ? category : null}
                 phone={phone}
                 accountName={accountName}
+                gstin={accountType === 'company' ? gstin.trim().toUpperCase() : ''}
                 onVerifiedChange={setVerifiedNumbers}
               />
             )}

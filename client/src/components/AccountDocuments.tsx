@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import {
   DOC_SLOT_SPECS,
-  isOcrCheckedSlot,
+  isVerifiedDocSlot,
   requiredDocuments,
   type AccountKind,
   type CompanyCategory,
@@ -62,14 +62,18 @@ const OCR_ACCEPTED = new Set(['match', 'bypassed']);
  * Whether a slot counts as done.
  *
  * Deliberately the same rule the server applies in assertDocumentsStaged: a
- * slot OCR cannot speak to is always fine, and one it can must have come back
- * `match` — or `bypassed`, which is the server saying it was told not to
- * look. Anything else — unreadable, unavailable, or a row from before OCR
- * existed with no status at all — leaves the slot outstanding, because the
- * server will refuse to open an account on it.
+ * slot nothing checks is always fine, and one that is checked must have come
+ * back `match` — or `bypassed`, which is the server saying it was told not to
+ * look. Anything else — unreadable, unavailable, or a row from before any of
+ * this existed with no status at all — leaves the slot outstanding, because
+ * the server will refuse to open an account on it.
+ *
+ * Keyed on isVerifiedDocSlot rather than isOcrCheckedSlot so the GST
+ * certificate counts: Cashfree has no OCR type for one, but it is read all the
+ * same (server/gstCertificate.ts) and the server gates on it.
  */
 function isSlotVerified(slot: string, ocrStatus: string | null | undefined): boolean {
-  if (!isOcrCheckedSlot(slot)) return true;
+  if (!isVerifiedDocSlot(slot)) return true;
   return OCR_ACCEPTED.has(ocrStatus ?? '');
 }
 

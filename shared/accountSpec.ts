@@ -245,9 +245,28 @@ export const OCR_SLOT_DOCUMENT_TYPES = {
 
 export type OcrCheckedSlot = keyof typeof OCR_SLOT_DOCUMENT_TYPES;
 
-/** True when this slot must come back verified before an account can open. */
+/** True when Cashfree Smart OCR is the thing that reads this slot. */
 export function isOcrCheckedSlot(slot: string): slot is OcrCheckedSlot {
   return slot in OCR_SLOT_DOCUMENT_TYPES;
+}
+
+/**
+ * Every slot whose document is checked against a number we already proved —
+ * which is a wider set than the one Cashfree can read.
+ *
+ * Smart OCR takes eight document types and a GST certificate is none of them,
+ * so that slot is read by server/gstCertificate.ts instead: the PDF's own text
+ * layer, falling back to a vision call for a photograph. The verdicts and the
+ * account-creation gate are identical either way, which is why these three
+ * belong in one list even though two different readers produce them.
+ */
+export const VERIFIED_DOC_SLOTS = ["pan_card", "aadhaar_card", "gst_certificate"] as const;
+
+export type VerifiedDocSlot = (typeof VERIFIED_DOC_SLOTS)[number];
+
+/** True when this slot must come back verified before an account can open. */
+export function isVerifiedDocSlot(slot: string): slot is VerifiedDocSlot {
+  return (VERIFIED_DOC_SLOTS as readonly string[]).includes(slot);
 }
 
 /**
@@ -286,9 +305,9 @@ export function missingDocuments(
  * *before* any document is uploaded.
  *
  * Derived from the document matrix rather than listed separately, so the two
- * cannot drift: every slot OCR is asked to read is a slot whose number we
- * first confirm with Cashfree. In practice that is Aadhaar and PAN for a
- * personal account, and PAN alone for all four corporate categories.
+ * cannot drift: every slot whose document gets checked is a slot whose number
+ * we first confirm. In practice that is Aadhaar and PAN for a personal
+ * account, and PAN plus GSTIN for all four corporate categories.
  *
  * The order matters to the customer: the number is proved first, and the
  * document upload then only has to agree with a number that is already known
@@ -297,12 +316,13 @@ export function missingDocuments(
 export function requiredIdentityChecks(
   accountType: AccountKind,
   category?: CompanyCategory | null
-): OcrCheckedSlot[] {
-  return requiredDocuments(accountType, category).filter(isOcrCheckedSlot);
+): VerifiedDocSlot[] {
+  return requiredDocuments(accountType, category).filter(isVerifiedDocSlot);
 }
 
 /** What the customer is asked for at the identity step, per check. */
-export const IDENTITY_CHECK_LABELS: Record<OcrCheckedSlot, string> = {
+export const IDENTITY_CHECK_LABELS: Record<VerifiedDocSlot, string> = {
   aadhaar_card: "Aadhaar",
   pan_card: "PAN",
+  gst_certificate: "GST",
 };

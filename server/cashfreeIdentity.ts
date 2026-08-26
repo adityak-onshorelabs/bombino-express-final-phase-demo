@@ -6,15 +6,19 @@
  *   GET  {base}/verification/digilocker                  ?verification_id=
  *   GET  {base}/verification/digilocker/document/AADHAAR ?verification_id=
  *   POST {base}/verification/pan                         { pan, name? }
+ *   POST {base}/verification/gstin                       { GSTIN, businessName? }
  *   headers: x-client-id, x-client-secret, (x-api-version on /pan)
  *
  * This is the step ahead of Smart OCR (server/cashfreeOcr.ts), and the two
  * are halves of one check:
  *
- *   identity  the number is real, and UIDAI/the Income Tax Department say
- *             whose it is. Aadhaar comes back from the customer's own
- *             DigiLocker, under their consent; PAN proves the name on file.
- *   OCR       the *document* uploaded afterwards carries that same number.
+ *   identity  the number is real, and the authority behind it says whose it
+ *             is. Aadhaar comes back from the customer's own DigiLocker under
+ *             their consent; PAN proves the name the Income Tax Department
+ *             holds; GSTIN proves the business the GST portal holds.
+ *   document  the *file* uploaded afterwards carries that same number. Smart
+ *             OCR does that for PAN and Aadhaar; it has no GST certificate
+ *             type at all, so server/gstCertificate.ts reads that one.
  *
  * Neither is sufficient alone. A verified number with no document is a claim
  * with no paper behind it; a document OCR agrees with, whose number was never
@@ -71,7 +75,7 @@ const REQUEST_TIMEOUT_MS = 25_000;
  */
 export const DIGILOCKER_TTL_MS = 9 * 60 * 1000;
 
-export type IdentityKind = "aadhaar" | "pan";
+export type IdentityKind = "aadhaar" | "pan" | "gstin";
 
 /**
  * Why a check did not succeed.
@@ -150,6 +154,23 @@ export interface PanVerified {
   referenceId: string | null;
 }
 
+export interface GstinVerified {
+  ok: true;
+  gstin: string;
+  /** The name the GST portal holds. Authoritative; the typed one is not. */
+  legalName: string;
+  /** What the business trades as, where that differs from the legal name. */
+  tradeName: string | null;
+  /** "Active" — anything else is refused. See verifyGstin. */
+  gstStatus: string | null;
+  taxpayerType: string | null;
+  dateOfRegistration: string | null;
+  constitutionOfBusiness: string | null;
+  principalPlaceAddress: string | null;
+  details: Record<string, unknown>;
+  referenceId: string | null;
+}
+
 interface CashfreeConfig {
   clientId: string;
   clientSecret: string;
@@ -181,8 +202,9 @@ export function isIdentityConfigured(): boolean {
  *
  *   IDENTITY_BYPASS=aadhaar        skip the DigiLocker journey only
  *   IDENTITY_BYPASS=pan            skip the PAN lookup only
- *   IDENTITY_BYPASS=aadhaar,pan    skip both
- *   IDENTITY_BYPASS=1              skip both (legacy spelling of the above)
+ *   IDENTITY_BYPASS=gstin          skip the GST portal lookup only
+ *   IDENTITY_BYPASS=aadhaar,pan    skip those two
+ *   IDENTITY_BYPASS=1              skip all three (legacy spelling)
  *
  * Per check rather than all-or-nothing because the two are not equally
  * available, and today they are not:
@@ -220,18 +242,18 @@ function bypassedKinds(): Set<IdentityKind> {
   // "1" predates the per-check spelling and still means everything, so an
   // environment already carrying it does not quietly start verifying again.
   if (raw === "1" || raw === "all" || raw === "true") {
-    return new Set<IdentityKind>(["aadhaar", "pan"]);
+    return new Set<IdentityKind>(["aadhaar", "pan", "gstin"]);
   }
 
   const kinds = new Set<IdentityKind>();
   for (const token of raw.split(/[,\s]+/).filter(Boolean)) {
-    if (token === "aadhaar" || token === "pan") {
+    if (token === "aadhaar" || token === "pan" || token === "gstin") {
       kinds.add(token);
     } else {
       // A typo'd value must not silently bypass nothing *or* everything.
       console.error(
         `[cashfreeIdentity] IDENTITY_BYPASS contains "${token}", which is not a check name. ` +
-          `Expected some of: aadhaar, pan (or 1 for both). Ignoring that token.`
+          `Expected some of: aadhaar, pan, gstin (or 1 for all). Ignoring that token.`
       );
     }
   }
@@ -248,7 +270,9 @@ export function warnIfIdentityBypassEnabled(): void {
   if (kinds.size === 0) return;
 
   const where = process.env.NODE_ENV === "production" ? "a PRODUCTION build" : "development";
-  const named = Array.from(kinds).map((k) => (k === "aadhaar" ? "Aadhaar" : "PAN")).join(" and ");
+  const named = Array.from(kinds)
+    .map((k) => (k === "aadhaar" ? "Aadhaar" : k === "pan" ? "PAN" : "GSTIN"))
+    .join(" and ");
 
   console.warn(
     [
@@ -259,6 +283,7 @@ export function warnIfIdentityBypassEnabled(): void {
       "  ##  UIDAI or the Income Tax Department.",
       kinds.has("aadhaar") ? "  ##  No DigiLocker consent is taken; any 12 digits pass." : null,
       kinds.has("pan") ? "  ##  No PAN lookup is made; any 10 characters pass." : null,
+      kinds.has("gstin") ? "  ##  No GST portal lookup is made; any GSTIN passes." : null,
       `  ##  Running in ${where}.`,
       "  ##  Unset this before this environment has real customers.",
       "  ############################################################",
@@ -783,4 +808,110 @@ export async function verifyPan(pan: string, name: string): Promise<PanVerified 
     details: body,
     referenceId: body.reference_id != null ? String(body.reference_id) : null,
   };
+}
+
+/* ── GSTIN ────────────────────────────────────────────────────────────────── */
+
+/**
+ * Verify a GSTIN exists, is active, and belongs to this company.
+ *
+ *   POST {base}/verification/gstin  { GSTIN, businessName? }
+ *
+ * Note the casing: `GSTIN` upper, `businessName` camel. Cashfree is snake_case
+ * everywhere else in this file; this one endpoint is not, and sending
+ * `gstin`/`business_name` gets a 400 that reads like the number is wrong.
+ *
+ * The shape of the answer differs from PAN's in two ways that matter:
+ *
+ *   • There is no `valid` boolean in practice. The schema documents one, and
+ *     the live sandbox omits it on both the valid and the invalid response.
+ *     What actually separates them is `legal_name_of_business`: present on a
+ *     real GSTIN, absent alongside "GSTIN Doesn't Exist" on a fake one.
+ *   • There is no name-match grade at all, not even sometimes. So the company
+ *     name is compared here, by the same one-shared-word rule verifyPan falls
+ *     back to — against the trade name as well as the legal one, because a
+ *     business commonly signs up under the name it trades as.
+ *
+ * `shared/gstin.ts` has already checked the format and the mod-36 checksum
+ * before anything reaches here; this is the registry lookup that checksum
+ * cannot be a substitute for.
+ */
+export async function verifyGstin(
+  gstin: string,
+  companyName: string
+): Promise<GstinVerified | IdentityError> {
+  const normalized = gstin.trim().toUpperCase();
+  if (!isValidGstinFormat(normalized)) {
+    return rejected("Enter a valid 15-character GST number.");
+  }
+
+  const answer = await callCashfree({
+    path: "/gstin",
+    body: { GSTIN: normalized, businessName: companyName.trim().slice(0, 100) },
+    sendApiVersion: false,
+  });
+  if (!answer.ok) return answer.error;
+
+  const { body } = answer;
+  const message = messageOf(body);
+  const legalName = stringOrNull(body.legal_name_of_business);
+  const tradeName = stringOrNull(body.trade_name_of_business);
+
+  // Explicitly false wins if it is ever actually sent; otherwise the legal
+  // name is the tell. Both, so this keeps working if they start sending it.
+  if (body.valid === false || !legalName) {
+    if (/not enabled/i.test(message)) return notEnabled("GSTIN Verification", message);
+    return rejected(
+      "This GST number was not found on the GST portal. Please check it and try again.",
+      message || "no legal_name_of_business"
+    );
+  }
+
+  // A GSTIN that exists but has been cancelled or suspended cannot be filed
+  // under, so it is refused with its own wording rather than folded into
+  // "not found" — the customer's next move is different.
+  const status = stringOrNull(body.gst_in_status);
+  if (status && status.toUpperCase() !== "ACTIVE") {
+    return rejected(
+      `This GST number is ${status.toLowerCase()} on the GST portal and cannot be used. Please use an active GST registration.`,
+      `gst_in_status=${status}`
+    );
+  }
+
+  // No grade is ever returned here, so the check is ours or it is nothing.
+  // Trade name counts: plenty of businesses sign up as what they trade as.
+  const matchesLegal = sharesAnyNameToken(companyName, legalName);
+  const matchesTrade = tradeName ? sharesAnyNameToken(companyName, tradeName) : false;
+  if (!matchesLegal && !matchesTrade) {
+    return rejected(
+      `This GST number is registered to "${legalName}". Please enter the GST number that belongs to this company.`,
+      `name mismatch: provided="${companyName}" legal="${legalName}" trade="${tradeName ?? "-"}"`
+    );
+  }
+
+  return {
+    ok: true,
+    gstin: stringOrNull(body.GSTIN) ?? normalized,
+    legalName,
+    tradeName,
+    gstStatus: status,
+    taxpayerType: stringOrNull(body.taxpayer_type),
+    dateOfRegistration: stringOrNull(body.date_of_registration),
+    constitutionOfBusiness: stringOrNull(body.constitution_of_business),
+    principalPlaceAddress: stringOrNull(body.principal_place_address),
+    details: body,
+    referenceId: body.reference_id != null ? String(body.reference_id) : null,
+  };
+}
+
+/**
+ * The 15-character GSTIN shape.
+ *
+ * Format only — `validateGstin` in shared/gstin.ts owns the checksum, and both
+ * the form and the signup route run it before this is reached. Duplicated as a
+ * shape test here so a direct call to verifyGstin cannot spend a billed lookup
+ * on something that was never a GSTIN.
+ */
+export function isValidGstinFormat(value: string): boolean {
+  return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(value.trim().toUpperCase());
 }

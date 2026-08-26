@@ -9,7 +9,7 @@ import {
   requiredIdentityChecks,
   type AccountKind,
   type CompanyCategory,
-  type OcrCheckedSlot,
+  type VerifiedDocSlot,
 } from '@shared/accountSpec';
 import { cn } from '@/lib/utils';
 
@@ -18,14 +18,15 @@ const POLL_INTERVAL_MS = 3000;
 /** Cashfree's consent URL lasts ten minutes; the server expires it at nine. */
 const POLL_CEILING_MS = 9 * 60 * 1000;
 
-export type IdentityKind = 'aadhaar' | 'pan';
+export type IdentityKind = 'aadhaar' | 'pan' | 'gstin';
 
 /** What the parent needs: the proved numbers, keyed by the slot they belong to. */
-export type VerifiedIdentityNumbers = Partial<Record<OcrCheckedSlot, string>>;
+export type VerifiedIdentityNumbers = Partial<Record<VerifiedDocSlot, string>>;
 
-const KIND_BY_SLOT: Record<OcrCheckedSlot, IdentityKind> = {
+const KIND_BY_SLOT: Record<VerifiedDocSlot, IdentityKind> = {
   aadhaar_card: 'aadhaar',
   pan_card: 'pan',
+  gst_certificate: 'gstin',
 };
 
 interface VerifiedState {
@@ -46,6 +47,12 @@ interface IdentityVerificationProps {
    * different one, so changing it upstream invalidates the PAN check.
    */
   accountName: string;
+  /**
+   * The GST number already typed at the details step. Not re-typed here —
+   * it is a first-class field on the form, and asking twice would invite the
+   * two to disagree. Empty on a personal account, which has no GST check.
+   */
+  gstin?: string;
   /** Fires with every proved number, so the parent can gate and prefill. */
   onVerifiedChange: (verified: VerifiedIdentityNumbers) => void;
 }
@@ -61,7 +68,9 @@ interface IdentityVerificationProps {
  * Aadhaar number at all.
  *
  * PAN goes to the Income Tax Department, which answers with the name the PAN
- * is registered to.
+ * is registered to. GSTIN goes to the GST portal, which answers with the legal
+ * name of the business — and unlike the other two its number is not typed
+ * here at all, because the form already collected it a step earlier.
  *
  * Nothing here is stored half-done. A number is either proved, in which case
  * the server has a row for it and this shows it back, or it is not, in which
@@ -73,6 +82,7 @@ export function IdentityVerification({
   category,
   phone,
   accountName,
+  gstin = '',
   onVerifiedChange,
 }: IdentityVerificationProps): React.JSX.Element {
   const checks = requiredIdentityChecks(accountType, category);
@@ -82,7 +92,7 @@ export function IdentityVerification({
   const [bypassAadhaar, setBypassAadhaar] = useState('');
   const [aadhaarBypassMode, setAadhaarBypassMode] = useState(false);
   const [waitingOnDigiLocker, setWaitingOnDigiLocker] = useState(false);
-  const [busy, setBusy] = useState<'aadhaar' | 'pan' | null>(null);
+  const [busy, setBusy] = useState<'aadhaar' | 'pan' | 'gstin' | null>(null);
   const [errors, setErrors] = useState<Partial<Record<IdentityKind, string>>>({});
   const [verified, setVerified] = useState<Partial<Record<IdentityKind, VerifiedState>>>({});
 
@@ -330,6 +340,34 @@ export function IdentityVerification({
     }
   }
 
+  async function handleVerifyGstin(): Promise<void> {
+    if (!accountName.trim()) {
+      setErrors((p) => ({ ...p, gstin: 'Go back and enter the company name' }));
+      return;
+    }
+    setBusy('gstin');
+    setErrors((p) => ({ ...p, gstin: '' }));
+    try {
+      const body = await call('POST', '/api/signup/identity/gstin', {
+        phone,
+        gstin,
+        name: accountName.trim(),
+      });
+      settle('gstin', {
+        documentNo: String(body.document_no ?? gstin),
+        verifiedName: typeof body.verified_name === 'string' ? body.verified_name : null,
+        bypassed: body.bypassed === true,
+      });
+    } catch (err) {
+      setErrors((p) => ({
+        ...p,
+        gstin: err instanceof Error ? err.message : 'Could not verify GST number',
+      }));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function handleVerifyPan(): Promise<void> {
     if (!DOC_SLOT_SPECS.pan_card.numberField!.pattern.test(pan)) {
       setErrors((p) => ({ ...p, pan: 'Enter a valid 10-character PAN' }));
@@ -387,7 +425,9 @@ export function IdentityVerification({
                 <p className="text-[11px] text-muted-foreground mt-0.5">
                   {kind === 'aadhaar'
                     ? 'Shared from your own DigiLocker — there is no number to type'
-                    : 'Verified against the name registered with the Income Tax Department'}
+                    : kind === 'gstin'
+                      ? 'Checked on the GST portal, then matched against your uploaded certificate'
+                      : 'Verified against the name registered with the Income Tax Department'}
                 </p>
               </div>
               {done ? (
@@ -492,6 +532,35 @@ export function IdentityVerification({
                   )}
                 </Button>
               )
+            ) : kind === 'gstin' ? (
+              <div className="space-y-3">
+                {/* Read-only: the GST number belongs to the details step. */}
+                <Input
+                  value={gstin}
+                  readOnly
+                  aria-readonly
+                  placeholder="22AAAAA0000A1Z5"
+                  className="h-11 text-sm bg-muted/30 border-border rounded-xl font-mono tracking-wider text-muted-foreground"
+                  data-testid="identity-gstin-number"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Checked against <span className="font-medium">{accountName || '—'}</span>. To
+                  change the number, go back a step.
+                </p>
+                <Button
+                  type="button"
+                  onClick={() => void handleVerifyGstin()}
+                  disabled={gstin.length !== 15 || busy !== null}
+                  className="h-10 rounded-xl"
+                  data-testid="identity-gstin-verify"
+                >
+                  {busy === 'gstin' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    'Verify GST number'
+                  )}
+                </Button>
+              </div>
             ) : (
               <div className="space-y-3">
                 <Input
