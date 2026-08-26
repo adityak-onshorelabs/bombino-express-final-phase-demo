@@ -285,3 +285,26 @@ export async function claimSignupDocuments(
   }
   return data?.length ?? 0;
 }
+
+/**
+ * Throw away every document staged against an abandoned signup.
+ *
+ * The companion to deleteIdentityVerificationsBySignupRef: when the verified
+ * phone changes mid-signup, the uploads belong to the number that made them.
+ */
+export async function deleteAllSignupDocuments(signupRef: string): Promise<number> {
+  const client = getClient();
+  if (!client) return 0;
+
+  const { data, error } = await client
+    .from("account_documents")
+    .delete()
+    .eq("signup_ref", signupRef)
+    .select("id");
+
+  if (error) {
+    logError("deleteAllSignupDocuments", error);
+    return 0;
+  }
+  return data?.length ?? 0;
+}

@@ -139,14 +139,23 @@ export function IdentityVerification({
 
   // Verifications live server-side from the moment they succeed, so stepping
   // back to fix a detail and returning must not cost a second journey.
-  const restored = useRef(false);
   useEffect(() => {
-    if (restored.current) return;
-    restored.current = true;
     let cancelled = false;
+    // Keyed on the phone: a change of number is a different signup, so
+    // whatever is on screen from the previous one is cleared first.
+    setVerified({});
+    setPan('');
+    setAadhaarBypassMode(false);
+    stopPolling();
+    onVerifiedChange({});
     void (async () => {
       try {
-        const res = await fetch('/api/signup/identity', { credentials: 'include' });
+        // Named phone, so a browser that has moved on to a different number
+        // is not handed what the previous one proved.
+        const res = await fetch(
+          `/api/signup/identity?phone=${encodeURIComponent(phone)}`,
+          { credentials: 'include' },
+        );
         if (!res.ok) return;
         const body = (await res.json()) as {
           verifications: Array<{
@@ -177,7 +186,7 @@ export function IdentityVerification({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [phone]);
 
   type ApiError = Error & { failure?: string };
 

@@ -213,3 +213,30 @@ export async function claimSignupIdentityVerifications(
   }
   return data?.length ?? 0;
 }
+
+/**
+ * Throw away every verification staged against an abandoned signup.
+ *
+ * Called when the verified phone changes mid-signup: the rows belong to the
+ * number that proved them, and nothing about them carries over to a different
+ * person. Leaving them would let the next signup in the same browser inherit
+ * an identity somebody else proved.
+ */
+export async function deleteIdentityVerificationsBySignupRef(
+  signupRef: string
+): Promise<number> {
+  const client = getClient();
+  if (!client) return 0;
+
+  const { data, error } = await client
+    .from("identity_verifications")
+    .delete()
+    .eq("signup_ref", signupRef)
+    .select("id");
+
+  if (error) {
+    logError("deleteIdentityVerificationsBySignupRef", error);
+    return 0;
+  }
+  return data?.length ?? 0;
+}

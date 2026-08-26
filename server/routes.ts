@@ -154,6 +154,7 @@ import {
 import { checkGstCertificate } from "./gstCertificate.js";
 import {
   claimSignupIdentityVerifications,
+  deleteIdentityVerificationsBySignupRef,
   listIdentityVerificationsBySignupRef,
   upsertIdentityVerification,
   type IdentityKind,
@@ -161,6 +162,7 @@ import {
 import {
   toOcrColumns,
   claimSignupDocuments,
+  deleteAllSignupDocuments,
   deleteSignupDocument,
   getAccountDocumentByCapabilityId,
   getSignupDocumentWithFile,
@@ -414,11 +416,64 @@ export async function registerRoutes(
   // same proof /api/auth/signup/* asks for a moment later.
 
   /** Mint the staging handle on first use; reuse it for the rest of the signup. */
-  function getOrCreateSignupRef(req: Request): string {
-    if (!req.session.signupRef) {
-      req.session.signupRef = crypto.randomUUID();
+  /**
+   * The handle this signup's staged rows are owned by, for this phone.
+   *
+   * Documents and identity verifications belong to a NUMBER, not to a browser.
+   * The ref used to be minted once per session and never revisited, so
+   * verifying a phone, proving an Aadhaar, then starting again with a
+   * different number left the second signup holding the first one's verified
+   * identity and uploaded files — and an account could open for one person on
+   * another person's Aadhaar and PAN.
+   *
+   * So the ref is bound to the phone that proved it. When the phone changes
+   * the old ref is abandoned, its rows are deleted, and a fresh one is minted.
+   * Deletion is best-effort: an orphaned row is recoverable, but handing it to
+   * the wrong person is not, and the new ref already guarantees the second
+   * part regardless of whether the delete lands.
+   *
+   * Every staging and reading endpoint goes through here, so there is one
+   * place where the binding can be got wrong.
+   */
+  async function signupRefForPhone(req: Request, phone: string): Promise<string> {
+    if (req.session.signupPhone === phone && req.session.signupRef) {
+      return req.session.signupRef;
     }
+
+    const abandoned = req.session.signupPhone !== undefined ? req.session.signupRef : undefined;
+
+    req.session.signupRef = crypto.randomUUID();
+    req.session.signupPhone = phone;
+    // A DigiLocker journey started under the old number proves nothing about
+    // the new one, and polling it would bank an Aadhaar against the wrong
+    // signup.
+    delete req.session.digilocker;
+
+    if (abandoned) {
+      console.warn(`[signup] phone changed mid-signup — discarding staged rows for ${abandoned}`);
+      try {
+        await Promise.all([
+          deleteAllSignupDocuments(abandoned),
+          deleteIdentityVerificationsBySignupRef(abandoned),
+        ]);
+      } catch (err) {
+        console.error("[signup] failed to discard abandoned signup rows:", err);
+      }
+    }
+
     return req.session.signupRef;
+  }
+
+  /**
+   * The ref for a read, without minting one.
+   *
+   * Returns null when this session has nothing staged for that phone, which
+   * the readers answer as an empty list. A GET must never hand back rows
+   * proved by a different number just because the same browser asked.
+   */
+  function signupRefForReading(req: Request, phone: string | undefined): string | null {
+    if (!phone || req.session.signupPhone !== phone) return null;
+    return req.session.signupRef ?? null;
   }
 
   async function assertPhoneVerified(
@@ -533,8 +588,8 @@ export async function registerRoutes(
   };
 
   /** The number an authority has already confirmed, per kind, for this signup. */
-  async function verifiedIdentityNumbers(req: Request): Promise<Map<IdentityKind, string>> {
-    const signupRef = req.session.signupRef;
+  async function verifiedIdentityNumbers(req: Request, phone: string): Promise<Map<IdentityKind, string>> {
+    const signupRef = signupRefForReading(req, phone);
     if (!signupRef) return new Map();
     const rows = await listIdentityVerificationsBySignupRef(signupRef);
     return new Map(rows.map((row) => [row.kind, row.document_no]));
@@ -567,6 +622,7 @@ export async function registerRoutes(
   async function recordIdentity(
     req: Request,
     res: Response,
+    phone: string,
     input: {
       kind: IdentityKind;
       document_no: string;
@@ -581,7 +637,7 @@ export async function registerRoutes(
   ): Promise<boolean> {
     try {
       const saved = await upsertIdentityVerification({
-        signup_ref: getOrCreateSignupRef(req),
+        signup_ref: await signupRefForPhone(req, phone),
         ...input,
       });
       if (!saved) {
@@ -598,8 +654,12 @@ export async function registerRoutes(
 
   // GET /api/signup/identity — what this signup has proved so far
   app.get("/api/signup/identity", async (req: Request, res: Response) => {
-    const signupRef = req.session.signupRef;
+    // Scoped to the phone the caller names: a browser that has moved on to a
+    // different number must not be handed what the previous one proved.
+    const phone = typeof req.query.phone === "string" ? req.query.phone : undefined;
+    const signupRef = signupRefForReading(req, phone);
     if (!signupRef) {
+      res.set("Cache-Control", "no-store");
       res.json({ verifications: [] });
       return;
     }
@@ -632,6 +692,13 @@ export async function registerRoutes(
       res.json({ bypassed: true });
       return;
     }
+
+    // Bind the staging ref to this phone before the journey starts, so the
+    // poll that follows — a GET with no body to carry a phone — can trust
+    // req.session.signupPhone. A phone change here also clears any journey
+    // already in flight, so a consent given under the old number cannot be
+    // banked against the new one.
+    await signupRefForPhone(req, phone);
 
     const started = req.session.digilocker?.started ?? 0;
     if (started >= DIGILOCKER_MAX_JOURNEYS) {
@@ -675,7 +742,10 @@ export async function registerRoutes(
    */
   app.get("/api/signup/identity/aadhaar/digilocker", async (req: Request, res: Response) => {
     const journey = req.session.digilocker;
-    if (!journey) {
+    // Set alongside the journey by the POST above. Its absence means the
+    // journey was abandoned by a phone change, and there is nothing to poll.
+    const phone = req.session.signupPhone;
+    if (!journey || !phone) {
       res.status(410).json({
         message: "That DigiLocker session is no longer valid. Please start it again.",
         failure: "expired",
@@ -744,7 +814,7 @@ export async function registerRoutes(
     // Stored exactly as DigiLocker returned it, commonly masked. The OCR
     // comparison matches a masked value against a full one on the last four
     // digits, so the Aadhaar card upload still verifies against this.
-    const banked = await recordIdentity(req, res, {
+    const banked = await recordIdentity(req, res, phone, {
       kind: "aadhaar",
       document_no: document.uid,
       status: "verified",
@@ -797,7 +867,7 @@ export async function registerRoutes(
     console.warn(
       `[signup/identity] IDENTITY_BYPASS — Aadhaar recorded unchecked (ending ${aadhaar.slice(-4)})`
     );
-    const banked = await recordIdentity(req, res, {
+    const banked = await recordIdentity(req, res, phone, {
       kind: "aadhaar",
       document_no: aadhaar,
       status: "bypassed",
@@ -837,7 +907,7 @@ export async function registerRoutes(
 
     if (isIdentityBypassed("pan")) {
       console.warn(`[signup/identity] IDENTITY_BYPASS — PAN recorded unchecked (${pan})`);
-      const banked = await recordIdentity(req, res, {
+      const banked = await recordIdentity(req, res, phone, {
         kind: "pan",
         document_no: pan,
         status: "bypassed",
@@ -860,7 +930,7 @@ export async function registerRoutes(
       return;
     }
 
-    const banked = await recordIdentity(req, res, {
+    const banked = await recordIdentity(req, res, phone, {
       kind: "pan",
       document_no: pan,
       status: "verified",
@@ -910,7 +980,7 @@ export async function registerRoutes(
 
     if (isIdentityBypassed("gstin")) {
       console.warn(`[signup/identity] IDENTITY_BYPASS — GSTIN recorded unchecked (${gstin})`);
-      const banked = await recordIdentity(req, res, {
+      const banked = await recordIdentity(req, res, phone, {
         kind: "gstin",
         document_no: gstin,
         status: "bypassed",
@@ -933,7 +1003,7 @@ export async function registerRoutes(
       return;
     }
 
-    const banked = await recordIdentity(req, res, {
+    const banked = await recordIdentity(req, res, phone, {
       kind: "gstin",
       document_no: result.gstin,
       status: "verified",
@@ -1086,7 +1156,7 @@ export async function registerRoutes(
       // turned away for leaving out a value it does not get to choose.
       let documentNo: string | null;
       if (isVerifiedDocSlot(slot)) {
-        const proved = (await verifiedIdentityNumbers(req)).get(IDENTITY_KIND_BY_SLOT[slot]);
+        const proved = (await verifiedIdentityNumbers(req, phone)).get(IDENTITY_KIND_BY_SLOT[slot]);
         if (!proved) {
           res.status(422).json({
             message: `Please verify your ${IDENTITY_CHECK_LABELS[slot]} number before uploading the document.`,
@@ -1121,7 +1191,7 @@ export async function registerRoutes(
 
       try {
         const saved = await upsertAccountDocument({
-          signup_ref: getOrCreateSignupRef(req),
+          signup_ref: await signupRefForPhone(req, phone),
           doc_slot: slot,
           document_no: documentNo,
           original_filename: req.file.originalname,
@@ -1160,8 +1230,10 @@ export async function registerRoutes(
 
   // GET /api/signup/documents — what this signup has staged so far
   app.get("/api/signup/documents", async (req: Request, res: Response) => {
-    const signupRef = req.session.signupRef;
+    const phone = typeof req.query.phone === "string" ? req.query.phone : undefined;
+    const signupRef = signupRefForReading(req, phone);
     if (!signupRef) {
+      res.set("Cache-Control", "no-store");
       res.json({ documents: [] });
       return;
     }
@@ -1327,6 +1399,7 @@ export async function registerRoutes(
       return;
     }
     delete req.session.signupRef;
+    delete req.session.signupPhone;
     delete req.session.digilocker;
   }
 

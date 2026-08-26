@@ -15,6 +15,7 @@ declare global {
         itdToken?: string;
         dbUserId?: string;
         signupRef?: string;
+        signupPhone?: string;
         digilocker?: DigiLockerSession;
       };
     }
@@ -32,6 +33,15 @@ declare module "express-session" {
      * the account claims the rows. See migrations/add_account_categories_and_documents.sql.
      */
     signupRef?: string;
+    /**
+     * The phone that signupRef belongs to.
+     *
+     * Staged documents and verifications are owned by a number, not by a
+     * browser. Without this the same signupRef survives a change of phone and
+     * the next person to use this browser inherits whatever the last one
+     * proved. See signupRefForPhone in routes.ts.
+     */
+    signupPhone?: string;
     /**
      * The live DigiLocker journey, between creating the consent URL and
      * reading the Aadhaar back. Session-scoped rather than stored, because it

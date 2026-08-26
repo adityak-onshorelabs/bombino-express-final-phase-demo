@@ -139,9 +139,14 @@ export function AccountDocuments({
   // make the customer find the files again.
   useEffect(() => {
     let cancelled = false;
+    // A change of phone is a different signup; drop what the last one staged.
+    setState({});
     void (async () => {
       try {
-        const res = await fetch('/api/signup/documents', { credentials: 'include' });
+        const res = await fetch(
+          `/api/signup/documents?phone=${encodeURIComponent(phone)}`,
+          { credentials: 'include' },
+        );
         if (!res.ok) return;
         const body = (await res.json()) as {
           documents: Array<{
@@ -180,7 +185,8 @@ export function AccountDocuments({
     return () => {
       cancelled = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phone]);
 
   // Report upward on every change. The parent gates "create account" on this,
   // and the server refuses the same set independently.
