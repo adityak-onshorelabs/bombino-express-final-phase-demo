@@ -2,10 +2,17 @@
  * Cashfree VRS Smart OCR — reads the number off an uploaded identity document
  * and says whether it agrees with the number of record.
  *
- * For the two identity slots that number is not what the customer typed: it is
- * the value an authority already confirmed at the identity step (DigiLocker
- * for Aadhaar, the Income Tax Department for PAN), which routes.ts substitutes
- * for whatever the upload carried. It may be masked — see compareNumbers.
+ * For the identity slots that number is not what this request carried: it is
+ * the value recorded at the identity step, which routes.ts substitutes for
+ * whatever the upload supplied. It may be masked; see compareNumbers.
+ *
+ * For Aadhaar and PAN alike that substitution is the whole of the check.
+ * Nothing verifies either number with an authority any more — not UIDAI, not
+ * the Income Tax Department — so all this proves is that the document
+ * uploaded reads as the number typed one screen earlier. It is still worth
+ * running: it is what stops a typed number and an unrelated document both
+ * being accepted. What it cannot do is tell whose document it is, because it
+ * reads numbers and never names. See server/cashfreeIdentity.ts.
  *
  *   POST {base}/verification/bharat-ocr   multipart/form-data
  *   headers: x-client-id, x-client-secret, x-api-version
@@ -256,10 +263,10 @@ function isMaskedNumber(raw: string, normalized: string): boolean {
  *
  *   • OCR reads a masked e-Aadhaar, the download UIDAI hands out and people
  *     upload — so `extracted` is masked.
- *   • The number of record came from DigiLocker, which returns `uid` masked
- *     more often than not — so `expected` is masked. Since the DigiLocker
- *     switch this is the common case for Aadhaar, and treating it as a
- *     literal would fail every legitimate Aadhaar card upload.
+ *   • An older Aadhaar row, recorded while DigiLocker was still in use, holds
+ *     the masked `uid` DigiLocker returned — so `expected` is masked. New
+ *     rows never are, since the customer now types all twelve digits, but
+ *     accounts created before the switch still carry them.
  *
  * Either way the honest comparison is on the last four digits, which is all a
  * masked value discloses. Comparing a masked value in full would reject the
@@ -317,10 +324,53 @@ export interface RunSmartOcrInput {
    */
   typedNumber: string;
   file: Buffer;
+  /** The customer's own filename. Never sent as-is — see safeUploadName. */
   filename: string;
   mimeType: string;
   /** Goes into `verification_id` so a support ticket can be traced back. */
   tag: string;
+}
+
+/**
+ * A filename Cashfree will accept.
+ *
+ * Their multipart endpoint validates the *name*, not just the bytes, and
+ * answers a name it dislikes with
+ *
+ *   400 {"code":"file_name_invalid","message":"File name is invalid"}
+ *
+ * which this file could only report as `unavailable` — "try again in a
+ * moment" — for a document that would never be accepted however many times it
+ * was retried. Phones produce exactly the names it rejects: a photo shared
+ * over WhatsApp arrives as `WhatsApp Image 2026-08-24 at 19.02.04.jpeg`,
+ * spaces and all.
+ *
+ * So the customer's name is not sent. It has no bearing on what OCR reads,
+ * the vendor never needs it, and account_documents.original_filename keeps the
+ * real one for anyone who does. What goes up is derived from the slot and the
+ * MIME type: `aadhaar-<id>.jpeg`.
+ *
+ * The id keeps two uploads of the same slot distinguishable in Cashfree's own
+ * logs, which is the only place this string is ever read.
+ */
+function safeUploadName(
+  original: string,
+  mimeType: string,
+  documentType: CashfreeDocumentType
+): string {
+  const byMime: Record<string, string> = {
+    "image/jpeg": "jpeg",
+    "image/png": "png",
+    "application/pdf": "pdf",
+  };
+  // The MIME type decides, not the customer's extension: multer already
+  // refused anything outside these three, and a name can claim anything.
+  const ext =
+    byMime[mimeType.toLowerCase()] ??
+    (original.toLowerCase().match(/\.(jpe?g|png|pdf)$/)?.[1] ?? "jpg");
+
+  const slot = documentType.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return `${slot}-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}.${ext}`;
 }
 
 /**
@@ -353,7 +403,7 @@ export async function runSmartOcr(input: RunSmartOcrInput): Promise<OcrResult> {
   form.append(
     "file",
     new Blob([new Uint8Array(input.file)], { type: input.mimeType }),
-    input.filename
+    safeUploadName(input.filename, input.mimeType, input.documentType)
   );
 
   let res: Response;

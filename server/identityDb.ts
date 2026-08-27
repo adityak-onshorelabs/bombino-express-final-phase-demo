@@ -1,8 +1,8 @@
 import { supabase } from "./supabaseClient.js";
 
 /**
- * Persistence for identity_verifications — the Aadhaar and PAN numbers an
- * authority has confirmed. See migrations/add_identity_verifications.sql.
+ * Persistence for identity_verifications — the numbers signup collected, and
+ * what each one is worth. See migrations/add_identity_verifications.sql.
  *
  * Deliberately shaped like accountDocsDb.ts: same signup_ref → user_id
  * ownership handover, same "list by signup", same claim-at-creation. The two
@@ -16,7 +16,25 @@ import { supabase } from "./supabaseClient.js";
  * three, plus a migration.
  */
 export type IdentityKind = "aadhaar" | "pan" | "gstin";
-export type IdentityStatus = "verified" | "bypassed";
+
+/**
+ * How much a recorded number is worth. Three states, and the difference
+ * between the last two matters:
+ *
+ *   verified       an authority answered yes. GSTIN, normally — and older
+ *                  Aadhaar and PAN rows, from when those still had lookups.
+ *   self_declared  the customer typed it and no authority was asked, because
+ *                  for this kind there is nobody to ask. Aadhaar and PAN,
+ *                  always — the design, not a switch. What backs each is the
+ *                  uploaded document, which OCR must read as this same number.
+ *   bypassed       a check that normally runs was switched off by
+ *                  IDENTITY_BYPASS. Nothing looked at this number at all.
+ *
+ * Conflating the last two would lose the only question ops actually asks of
+ * this column — "which accounts opened on a check somebody switched off" —
+ * because every account carries self_declared rows by design.
+ */
+export type IdentityStatus = "verified" | "self_declared" | "bypassed";
 
 export type IdentityVerificationRow = {
   id: string;

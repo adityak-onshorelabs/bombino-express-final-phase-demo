@@ -1,134 +1,67 @@
 /**
- * Confirm the Cashfree VRS identity integration is wired up and the
- * credentials work, using the sandbox's own test data.
+ * Check an Aadhaar or PAN the way signup will.
  *
- *   npx tsx --env-file=.env scripts/check-cashfree-identity.ts pan
- *   npx tsx --env-file=.env scripts/check-cashfree-identity.ts pan AZJPG7110R "JOHN SNOW"
- *   npx tsx --env-file=.env scripts/check-cashfree-identity.ts digilocker
- *   npx tsx --env-file=.env scripts/check-cashfree-identity.ts digilocker <verification_id>
+ *   npx tsx --env-file=.env scripts/check-cashfree-identity.ts aadhaar 234567890124
+ *   npx tsx --env-file=.env scripts/check-cashfree-identity.ts pan ABCPV1234D
  *
- * The digilocker mode with no argument creates a consent URL and prints it —
- * that alone proves the credentials and that the product is provisioned.
- * Open the URL, finish the journey, then re-run with the verification_id it
- * printed to poll the status and read the Aadhaar back.
+ * NEITHER MODE CALLS CASHFREE ANY MORE, and neither costs anything. There is
+ * nothing left here to call: the DigiLocker journey, Offline Aadhaar
+ * Verification and the Income Tax PAN lookup have all been removed, so an
+ * Aadhaar or a PAN is only ever checked for its own shape. These modes
+ * exercise those validators, which are the entire server-side check on each
+ * number — see shared/aadhaar.ts and isValidPanNumber.
  *
- * Sandbox test data (docs.cashfree.com — "VRS Sandbox Test Data"):
- *
- *   PAN   ABCPV1234D, XYZPP4321W, AZJPG7110R      valid, individual
- *         ABCCD8000T, XYZHP2000L, AAAHU4383C      valid, business
- *         DEFPV0126D, TUVPP5678W, LMNCD8010T      invalid
- *
- *   DigiLocker runs its own sandbox journey; there is no canned Aadhaar to
- *   pass in, because the number is never typed — it comes back from the
- *   consent flow.
- *
- * Every call is billed against the VRS balance of whichever environment
- * CASHFREE_VRS_ENV names. It defaults to sandbox. Point the PAN mode at your
- * own PAN if you run it against production, never a customer's.
+ * The one number still verified with an authority is the GSTIN. It has its
+ * own script: scripts/check-gst.ts.
  */
 
-import crypto from "node:crypto";
-import {
-  createDigiLockerUrl,
-  fetchDigiLockerAadhaar,
-  getDigiLockerStatus,
-  isIdentityBypassed,
-  isIdentityConfigured,
-  verifyPan,
-} from "../server/cashfreeIdentity.js";
+import { isValidPanNumber } from "../server/cashfreeIdentity.js";
+import { validateAadhaar } from "../shared/aadhaar.js";
 
-const SANDBOX_PAN = "AZJPG7110R";
-const SANDBOX_PAN_NAME = "JOHN SNOW";
+const UNVERIFIED_NOTE =
+  "Nothing has confirmed it is issued, or whose it is. The document uploaded " +
+  "at the next step must carry it, and OCR reads numbers, never names.";
 
 async function main(): Promise<void> {
-  if (!isIdentityConfigured()) {
-    console.error(
-      "CASHFREE_VRS_CLIENT_ID / CASHFREE_VRS_CLIENT_SECRET are not set.\n" +
-        "Identity verification is disabled in this state, and no account can be created."
-    );
-    process.exit(1);
-  }
-
   const [mode, ...args] = process.argv.slice(2);
-  const env = process.env.CASHFREE_VRS_ENV === "production" ? "PRODUCTION" : "sandbox";
-  console.log(`environment : ${env}\n`);
 
-  if (mode === "pan") {
-    // With this check bypassed the app never reaches Cashfree either, so a
-    // green run here would prove nothing about the credentials.
-    if (isIdentityBypassed("pan")) {
-      console.error(
-        'IDENTITY_BYPASS includes "pan": PAN numbers are accepted WITHOUT being checked\n' +
-          "and no call is made. Drop pan from the flag to exercise the real path."
-      );
+  if (mode === "aadhaar") {
+    const aadhaar = args[0];
+    if (!aadhaar) {
+      console.error("Usage: check-cashfree-identity.ts aadhaar <12-digit number>");
       process.exit(1);
     }
-    const pan = args[0] ?? SANDBOX_PAN;
-    const name = args[1] ?? SANDBOX_PAN_NAME;
-    console.log(`PAN  : ${pan}`);
-    console.log(`name : ${name}`);
-    console.log("calling /verification/pan…\n");
+    console.log(`Aadhaar : ${aadhaar}`);
+    console.log("no call is made — the number is only checked for its Verhoeff check digit\n");
 
-    const result = await verifyPan(pan, name);
+    const result = validateAadhaar(aadhaar);
     console.log(JSON.stringify(result, null, 2));
     console.log(
-      `\nverdict: ${result.ok ? "VERIFIED" : `${result.failure.toUpperCase()} — would refuse`}`
+      `\nverdict: ${
+        result.valid
+          ? `WELL-FORMED — accepted at signup and recorded self_declared. ${UNVERIFIED_NOTE}`
+          : "REJECTED — the form would refuse this"
+      }`
     );
     return;
   }
 
-  if (mode === "digilocker") {
-    if (isIdentityBypassed("aadhaar")) {
-      console.error(
-        'IDENTITY_BYPASS includes "aadhaar": no DigiLocker journey is started and any\n' +
-          "12 digits are accepted. Drop aadhaar from the flag to exercise the real path."
-      );
+  if (mode === "pan") {
+    const pan = args[0];
+    if (!pan) {
+      console.error("Usage: check-cashfree-identity.ts pan <10-character PAN>");
       process.exit(1);
     }
+    console.log(`PAN : ${pan}`);
+    console.log("no call is made — the Income Tax lookup was removed\n");
 
-    const existing = args[0];
-    if (!existing) {
-      const verificationId = `bmb-dl-${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
-      console.log(`verification_id : ${verificationId}`);
-      console.log("calling POST /verification/digilocker…\n");
-
-      const created = await createDigiLockerUrl(verificationId);
-      console.log(JSON.stringify(created, null, 2));
-      if (!created.ok) {
-        console.log(`\nverdict: ${created.failure.toUpperCase()} — no journey started`);
-        return;
-      }
-      console.log(
-        `\nOpen this URL, finish the DigiLocker journey, then re-run:\n\n` +
-          `  ${created.url}\n\n` +
-          `  npx tsx --env-file=.env scripts/check-cashfree-identity.ts digilocker ${created.verificationId}\n`
-      );
-      return;
-    }
-
-    console.log(`verification_id : ${existing}`);
-    console.log("calling GET /verification/digilocker…\n");
-    const status = await getDigiLockerStatus(existing);
-    console.log(JSON.stringify(status, null, 2));
-    if (!status.ok) {
-      console.log(`\nverdict: ${status.failure.toUpperCase()}`);
-      return;
-    }
-    if (status.state !== "AUTHENTICATED") {
-      console.log(`\nverdict: ${status.state} — nothing to read yet`);
-      return;
-    }
-
-    console.log("\ncalling GET /verification/digilocker/document/AADHAAR…\n");
-    const document = await fetchDigiLockerAadhaar(existing);
-    console.log(JSON.stringify(document, null, 2));
+    const valid = isValidPanNumber(pan);
+    console.log(JSON.stringify({ valid }, null, 2));
     console.log(
       `\nverdict: ${
-        !document.ok
-          ? `${document.failure.toUpperCase()} — would refuse`
-          : document.pending
-            ? "still fetching — poll again"
-            : "VERIFIED"
+        valid
+          ? `WELL-FORMED — accepted at signup and recorded self_declared. ${UNVERIFIED_NOTE}`
+          : "REJECTED — the form would refuse this"
       }`
     );
     return;
@@ -136,8 +69,9 @@ async function main(): Promise<void> {
 
   console.error(
     "Usage:\n" +
-      "  check-cashfree-identity.ts pan [pan] [name]\n" +
-      "  check-cashfree-identity.ts digilocker [verification_id]"
+      "  check-cashfree-identity.ts aadhaar <12-digit number>\n" +
+      "  check-cashfree-identity.ts pan <10-character PAN>\n" +
+      "\nBoth are offline. For the GSTIN check, which does call out, see scripts/check-gst.ts."
   );
   process.exit(1);
 }

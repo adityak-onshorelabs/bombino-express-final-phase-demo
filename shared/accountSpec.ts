@@ -301,17 +301,22 @@ export function missingDocuments(
 }
 
 /**
- * The identity numbers that must be verified against the issuing authority
- * *before* any document is uploaded.
+ * The identity numbers that must be recorded *before* any document is
+ * uploaded.
  *
  * Derived from the document matrix rather than listed separately, so the two
  * cannot drift: every slot whose document gets checked is a slot whose number
- * we first confirm. In practice that is Aadhaar and PAN for a personal
- * account, and PAN plus GSTIN for all four corporate categories.
+ * we take first. In practice that is Aadhaar and PAN for a personal account,
+ * and PAN plus GSTIN for all four corporate categories.
  *
- * The order matters to the customer: the number is proved first, and the
- * document upload then only has to agree with a number that is already known
- * to be real. See server/cashfreeIdentity.ts.
+ * "Recorded", not "verified against the issuing authority" — only the GSTIN
+ * still is. Aadhaar and PAN are typed and self-asserted, and what stands
+ * behind them is the OCR match at the document step.
+ *
+ * The order matters either way: the number is taken first, so the document
+ * upload has to agree with a value the customer can no longer change. For the
+ * two self-asserted kinds that ordering is the whole of the check. See
+ * server/cashfreeIdentity.ts.
  */
 export function requiredIdentityChecks(
   accountType: AccountKind,

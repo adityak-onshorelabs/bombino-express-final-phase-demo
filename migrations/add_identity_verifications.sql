@@ -1,14 +1,20 @@
--- Aadhaar and PAN verified against the issuing authority, before any document
--- is uploaded (server/cashfreeIdentity.ts).
+-- The identity numbers signup collects, and what each one is worth, recorded
+-- before any document is uploaded (server/cashfreeIdentity.ts).
 --
 -- Additive only. Run AFTER add_account_categories_and_documents.sql — the
 -- ownership model here is copied from account_documents and the FK needs
 -- itd_users to exist.
 --
--- A row is written only when an authority said yes. There is no "unverified
--- number" state, because unlike a document there is nothing to store: a
--- refused Aadhaar or PAN never reaches this table, and account creation
--- refuses to proceed without one row per required check.
+-- Where a number is checked with an authority — GSTIN alone, now — a row is
+-- written only when that authority said yes. There is no "refused" state,
+-- because unlike a document there is nothing to store: a rejected GSTIN never
+-- reaches this table, and account creation refuses to proceed without one row
+-- per required check.
+--
+-- Aadhaar and PAN are the exceptions and `status` is where it shows. Nothing
+-- checks either number any more — DigiLocker and the Income Tax lookup were
+-- both removed — so the customer types them and the documents they upload
+-- have to carry them. Those rows land as `self_declared`.
 --
 -- Ownership works exactly as account_documents does: the row starts life
 -- against an in-flight signup (signup_ref) and is claimed — user_id set,
@@ -24,7 +30,11 @@ CREATE TABLE IF NOT EXISTS public.identity_verifications (
   -- no-op. Either order works, and running both twice changes nothing.
   kind text NOT NULL CHECK (kind IN ('aadhaar', 'pan', 'gstin')),
   document_no text NOT NULL,
-  status text NOT NULL CHECK (status IN ('verified', 'bypassed')),
+  -- 'self_declared' is here from the start for the same reason 'gstin' is
+  -- above: a fresh database needs this file alone.
+  -- add_self_declared_identity_status.sql widens the same constraint for a
+  -- database that already ran an earlier copy of this migration.
+  status text NOT NULL CHECK (status IN ('verified', 'self_declared', 'bypassed')),
   reference_id text,
   verified_name text,
   name_submitted text,
@@ -49,24 +59,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS identity_verifications_signup_kind_key
 CREATE INDEX IF NOT EXISTS identity_verifications_signup_ref_created_idx
   ON public.identity_verifications (signup_ref, created_at) WHERE signup_ref IS NOT NULL;
 
--- The ops queue: every account that opened on a number nobody checked.
+-- The ops queue: every account that opened on a check somebody switched off.
+--
+-- Deliberately not `status <> 'verified'`. Aadhaar is self_declared on every
+-- personal account by design, so that predicate would match everything and
+-- queue nothing. Aadhaar rows are found by kind.
 CREATE INDEX IF NOT EXISTS identity_verifications_bypassed_idx
   ON public.identity_verifications (status, created_at DESC)
-  WHERE status <> 'verified';
+  WHERE status = 'bypassed';
 
 COMMENT ON TABLE public.identity_verifications IS
-  'Aadhaar and PAN numbers confirmed with UIDAI / the Income Tax Department via Cashfree VRS, before the matching document is uploaded. Owned by user_id once the account exists; by signup_ref while the signup is in flight.';
+  'The identity numbers signup collected, recorded before the matching document is uploaded. GSTIN is confirmed with the GST portal via Cashfree VRS; Aadhaar and PAN are typed by the customer and confirmed only by the document they upload - see status. Owned by user_id once the account exists; by signup_ref while the signup is in flight.';
 COMMENT ON COLUMN public.identity_verifications.document_no IS
   'The number that was verified. Plaintext, consistent with account_documents.document_no and kyc_documents.document_no, which already hold the same Aadhaar. Encrypting one copy while two others sit in the clear would buy nothing — if this is ever addressed it has to be all three at once.';
 COMMENT ON COLUMN public.identity_verifications.status IS
-  'verified = an authority answered yes. bypassed = IDENTITY_BYPASS=1 and the check never ran; the number is unproven. Nothing else is ever written — a refused check leaves no row.';
+  'verified = an authority answered yes (GSTIN with the GST portal; also older Aadhaar and PAN rows, from when those had lookups). self_declared = the customer typed it and no authority was asked because for this kind there is none to ask; Aadhaar and PAN are always this, and what backs each is the OCR match against the uploaded document. bypassed = IDENTITY_BYPASS switched off a check that normally runs, so nothing looked at the number at all. A refused check leaves no row.';
 COMMENT ON COLUMN public.identity_verifications.reference_id IS
-  'Cashfree''s own id for the call (ref_id for Aadhaar, reference_id for PAN), for support tickets.';
+  'Cashfree''s own id for the call, for support tickets. NULL for Aadhaar and PAN, which make no call.';
 COMMENT ON COLUMN public.identity_verifications.verified_name IS
-  'The name the authority holds against the number: UIDAI''s for Aadhaar, the registered name for PAN. This is the authoritative spelling — the name typed on the signup form is not.';
+  'The name the authority holds against the number: the legal name of the business for GSTIN, and the registered name on older PAN rows from when that lookup existed. This is the authoritative spelling - the name typed on the signup form is not. NULL for Aadhaar and for new PAN rows, where no authority is asked and there is no name of record.';
 COMMENT ON COLUMN public.identity_verifications.name_submitted IS
-  'PAN only. The name the PAN was verified against — the account name as it stood at that moment. Account creation refuses to write an account whose name is not this one, so a PAN cannot be proved under one name and registered under another.';
+  'GSTIN, and older PAN rows. The name the number was verified against - the account name as it stood at that moment. Account creation refuses to write an account whose name is not this one, so a number cannot be proved under one name and registered under another. NULL on new PAN rows: with no lookup there is no name to have proved it under.';
 COMMENT ON COLUMN public.identity_verifications.name_match_result IS
-  'PAN only. DIRECT_MATCH through NO_MATCH, as graded by Cashfree against the account name. NO_MATCH is refused at signup, so only the accepted grades appear here; a POOR_PARTIAL_MATCH row is worth an ops look.';
+  'Historical, PAN only. DIRECT_MATCH through NO_MATCH, as graded by Cashfree against the account name while the Income Tax lookup existed. Nothing writes this column any more.';
 COMMENT ON COLUMN public.identity_verifications.details IS
-  'The vendor payload, minus photo_link. Holds dob/gender/address for Aadhaar and pan_status/aadhaar_seeding_status for PAN.';
+  'The vendor payload, minus photo_link. Holds the registered business details for GSTIN, and pan_status/aadhaar_seeding_status on older PAN rows. NULL for Aadhaar and for new PAN rows, which have no vendor payload.';

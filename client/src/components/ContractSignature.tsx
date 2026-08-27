@@ -120,7 +120,10 @@ export function ContractSignature({
       </div>
 
       {/* The signature as it will stand on the contract — what they typed,
-          dated, so it reads as a signature rather than one more form field. */}
+          dated, so it reads as a signature rather than one more form field.
+          The date is the browser's, for display only; the moment of signing
+          that counts is contract_accepted_at, written server-side from the
+          server's own clock when the account is created. */}
       <div className="rounded-lg border border-dashed border-border px-3 py-2.5">
         <p
           className={cn(

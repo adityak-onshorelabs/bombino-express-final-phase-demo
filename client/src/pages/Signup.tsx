@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { User, Mail, Phone, Building2, Loader2, ShieldCheck, UserRound } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
@@ -13,15 +13,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { AccountDocuments } from '@/components/AccountDocuments';
-import {
-  IdentityVerification,
-  type VerifiedIdentityNumbers,
-} from '@/components/IdentityVerification';
 import { ContractSignature } from '@/components/ContractSignature';
 import { AuthShell } from '@/components/auth/AuthShell';
 import { useAppStore, type AuthUser } from '@/lib/store';
 import { apiRequest } from '@/lib/queryClient';
-import { parseApiErrorMessage } from '@/lib/apiError';
+import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
 import { validateGstin } from '@shared/gstin';
 import { SIGNATURE_ERROR, isValidSignature } from '@shared/contract';
 import {
@@ -29,9 +25,7 @@ import {
   COMPANY_CATEGORY_SPECS,
   DOC_SLOT_SPECS,
   EXTRA_FIELD_SPECS,
-  IDENTITY_CHECK_LABELS,
   requiredExtraFields,
-  requiredIdentityChecks,
   type CompanyCategory,
   type DocSlot,
   type ExtraField,
@@ -51,15 +45,17 @@ const ACCOUNT_TYPES = ['personal', 'company'] as const satisfies readonly Accoun
  * are staged server-side against the session and claimed when the account is
  * written — see POST /api/signup/documents.
  *
- * `identity` sits ahead of `documents` for the same reason in miniature: the
- * Aadhaar and PAN *numbers* are proved with UIDAI and the Income Tax
- * Department first, and the upload that follows then only has to agree with a
- * number already known to be real. Both stages stage against the same session
- * and are claimed together.
+ * The numbers those documents carry are collected in the same step, on the
+ * same card as the document itself. They used to have a step of their own
+ * ahead of this one, which meant a customer typed an Aadhaar, moved on, and
+ * only discovered a screen later that the card they had did not match it.
+ * Within a card the order still holds — the number is recorded first, so the
+ * upload has something fixed to be judged against. See AccountDocuments and
+ * server/cashfreeIdentity.ts.
  */
-type Step = 'details' | 'otp' | 'identity' | 'documents' | 'preview';
+type Step = 'details' | 'otp' | 'documents' | 'preview';
 
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 4;
 
 export default function Signup() {
   const [, setLocation] = useLocation();
@@ -90,10 +86,6 @@ export default function Signup() {
   const [email, setEmail] = useState('');
   const [missingDocs, setMissingDocs] = useState<DocSlot[]>([]);
   const [flaggedDocs, setFlaggedDocs] = useState<readonly DocSlot[]>([]);
-  // Proved at the identity step, then handed to the documents step, where the
-  // matching number fields are shown read-only. The server substitutes these
-  // values on upload regardless, so this is convenience, not enforcement.
-  const [verifiedNumbers, setVerifiedNumbers] = useState<VerifiedIdentityNumbers>({});
 
   // The contract is signed by typing, at the last step. `contractSignedName`
   // is seeded from the name already on the form — the customer can correct it,
@@ -119,18 +111,64 @@ export default function Signup() {
 
   const categorySpec = COMPANY_CATEGORY_SPECS[category];
   const activeExtras = accountType === 'company' ? requiredExtraFields(category) : [];
-  /** Whose PAN this is: the individual's on a personal account, the company's
-   *  on a corporate one. The server refuses to open an account under a name
-   *  the PAN was not verified against, so the two must be the same string. */
+  /** The name this account is for: the individual's on a personal account,
+   *  the company's on a corporate one. Only the GSTIN check reads it — the
+   *  server refuses to open a company account under a name the GSTIN was not
+   *  verified against, so the two must be the same string. Nothing reads it
+   *  on a personal account, since neither Aadhaar nor PAN is checked. */
   const accountName = accountType === 'personal' ? fullName.trim() : companyName.trim();
-  const identityChecks = requiredIdentityChecks(accountType, accountType === 'company' ? category : null);
-  const missingIdentity = identityChecks.filter((slot) => verifiedNumbers[slot] === undefined);
 
   useEffect(() => {
     if (cooldown <= 0) return;
     const timer = setTimeout(() => setCooldown((c) => c - 1), 1000);
     return () => clearTimeout(timer);
   }, [cooldown]);
+
+  /**
+   * Make each step a history entry, so the browser's back button walks the
+   * flow instead of leaving it.
+   *
+   * The four steps all live at /signup, so without this the only entry in
+   * history is the page the customer arrived from — and back from *any* step
+   * dropped them out of signup entirely, usually onto /login. The in-app
+   * arrow always moved a step at a time; the browser's did not, and on a
+   * phone the browser's is the one people reach for.
+   *
+   * `poppingBack` is what keeps the two directions apart. Without it, a
+   * popstate sets the step, the effect below sees the step change and pushes
+   * a fresh entry, and the customer can never actually go back.
+   */
+  const poppingBack = useRef(false);
+  const historySeeded = useRef(false);
+
+  useEffect(() => {
+    const onPop = (event: PopStateEvent): void => {
+      const state = event.state as { signupStep?: Step } | null;
+      // Only entries this page wrote. Anything else is a real navigation out
+      // of signup — let wouter handle it rather than trapping them here.
+      if (!state?.signupStep) return;
+      poppingBack.current = true;
+      setStep(state.signupStep);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  useEffect(() => {
+    if (poppingBack.current) {
+      poppingBack.current = false;
+      return;
+    }
+    // The first step replaces the entry the customer arrived on rather than
+    // adding one, so a single back from the first step leaves signup instead
+    // of appearing to do nothing.
+    if (!historySeeded.current) {
+      historySeeded.current = true;
+      window.history.replaceState({ signupStep: step }, '');
+      return;
+    }
+    window.history.pushState({ signupStep: step }, '');
+  }, [step]);
 
   /** Left/Right (and Home/End) move between tabs, per the WAI-ARIA tabs
    *  pattern. Selection follows focus, which is correct here — switching is
@@ -162,10 +200,6 @@ export default function Signup() {
     setOtp('');
     setCooldown(0);
     setFlaggedDocs([]);
-    // Personal asks for Aadhaar and PAN, a company for PAN alone. What was
-    // proved still stands server-side; this only re-reads it on the way back
-    // into the step.
-    setVerifiedNumbers({});
     // A tick made against one account shape does not carry to the other —
     // the documents and the signatory both differ.
     setContractAccepted(false);
@@ -212,9 +246,9 @@ export default function Signup() {
 
   const handleSubmitDetails = (): void => {
     if (!validateDetails()) return;
-    // Already verified upstream at /login — go straight to the identity check.
+    // Already verified upstream at /login — go straight to the documents.
     if (preVerified) {
-      setStep('identity');
+      setStep('documents');
       return;
     }
     void requestOtp();
@@ -234,7 +268,7 @@ export default function Signup() {
     setErrors({});
     try {
       await apiRequest('POST', '/api/auth/otp/verify', { phone, purpose, code: otp });
-      setStep('identity');
+      setStep('documents');
     } catch (err) {
       setErrors({ otp: parseApiErrorMessage(err, 'Incorrect code') });
     } finally {
@@ -242,17 +276,33 @@ export default function Signup() {
     }
   };
 
-  const handleSubmitIdentity = (): void => {
-    if (missingIdentity.length > 0) {
-      setErrors({
-        form: `Please verify your ${missingIdentity
-          .map((slot) => IDENTITY_CHECK_LABELS[slot])
-          .join(' and ')} to continue.`,
-      });
-      return;
-    }
-    setErrors({});
-    setStep('documents');
+  /**
+   * The OTP that authorised this signup ran out.
+   *
+   * Nothing on this page can succeed once that happens — every signup
+   * endpoint is authorised by a recent verification of the phone rather than
+   * by a session, because the account does not exist yet — so leaving the
+   * customer here means every button failing with the same message.
+   *
+   * Sent to /login rather than back to the details step. The details step
+   * cannot fix this: when the customer arrived from /login the form is in its
+   * `preVerified` state, where the primary action reads "Continue" and jumps
+   * straight to the documents — so pressing it would walk them back into the
+   * identical failure. /login is the screen that actually issues a code.
+   *
+   * The number goes with them so they do not retype it, and `reason` tells
+   * that screen to say why they are there. Once the code checks out it routes
+   * a number with no account back to /signup on its own.
+   *
+   * What they typed on the details step is lost, which is the cost of leaving
+   * the page. Everything the server was holding was discarded when the
+   * verification lapsed anyway.
+   */
+  const handlePhoneVerificationExpired = (): void => {
+    const search = new URLSearchParams({ reason: 'signup_otp' });
+    if (/^\d{10}$/.test(phone.trim())) search.set('phone', phone.trim());
+    if (redirect) search.set('redirect', redirect);
+    setLocation(`/login?${search.toString()}`);
   };
 
   const handleSubmitDocuments = (): void => {
@@ -308,29 +358,40 @@ export default function Signup() {
       login(user);
       setLocation(redirect || '/home');
     } catch (err) {
-      // Stay on the review step: the signature and the tick are here, and a
-      // failure is nearly always a detail to correct rather than a missing
-      // file. `missing_documents` in the body says otherwise when it is.
+      // The one failure that is not a detail to correct here: the OTP that
+      // authorised the whole signup has run out, and no amount of editing
+      // this screen fixes it.
+      if (parseApiErrorCode(err) === 'phone_unverified') {
+        handlePhoneVerificationExpired();
+        return;
+      }
+      // Otherwise stay on the review step: the signature and the tick are
+      // here, and a failure is nearly always a detail to correct rather than
+      // a missing file. `missing_documents` in the body says otherwise when
+      // it is.
       setErrors({ form: parseApiErrorMessage(err, 'Could not create account') });
     } finally {
       setIsLoading(false);
     }
   };
 
+  /** The step behind each one, for both the arrow and the browser. */
+  const PREVIOUS_STEP: Partial<Record<Step, Step>> = {
+    otp: 'details',
+    documents: 'details',
+    preview: 'documents',
+  };
+
   const handleBack = (): void => {
-    if (step === 'otp' || step === 'identity') {
-      setStep('details');
+    const previous = PREVIOUS_STEP[step];
+    if (previous) {
+      setStep(previous);
       return;
     }
-    if (step === 'documents') {
-      setStep('identity');
-      return;
-    }
-    if (step === 'preview') {
-      setStep('documents');
-      return;
-    }
-    setLocation('/home');
+    // Off the front of the flow. /login rather than /home: nobody on this
+    // screen is signed in, so /home would only bounce them there anyway, and
+    // going somewhere that immediately redirects reads as a glitch.
+    setLocation('/login');
   };
 
   const primaryAction =
@@ -338,11 +399,9 @@ export default function Signup() {
       ? handleSubmitDetails
       : step === 'otp'
         ? () => void handleVerifyOtp()
-        : step === 'identity'
-          ? handleSubmitIdentity
-          : step === 'documents'
-            ? handleSubmitDocuments
-            : () => void handleCreateAccount();
+        : step === 'documents'
+          ? handleSubmitDocuments
+          : () => void handleCreateAccount();
 
   const primaryLabel =
     step === 'details'
@@ -351,7 +410,7 @@ export default function Signup() {
         : 'Send code'
       : step === 'otp'
         ? 'Verify & continue'
-        : step === 'identity' || step === 'documents'
+        : step === 'documents'
           ? 'Continue'
           : 'Confirm & create account';
 
@@ -360,11 +419,9 @@ export default function Signup() {
       ? 1
       : step === 'otp'
         ? 2
-        : step === 'identity'
+        : step === 'documents'
           ? 3
-          : step === 'documents'
-            ? 4
-            : 5;
+          : 4;
 
   const stepSubtitle =
     step === 'details' ? (
@@ -377,10 +434,11 @@ export default function Signup() {
         </span>
         .
       </>
-    ) : step === 'identity' ? (
-      'Verify your identity numbers before you upload anything.'
     ) : step === 'documents' ? (
-      'Upload the documents your account type requires.'
+      // Deliberately not "verify": of the numbers on this screen only the GST
+      // one is checked with an authority. The rest are matched against the
+      // document uploaded beside them. See server/cashfreeIdentity.ts.
+      'Enter each number and upload the document that carries it.'
     ) : (
       'Check your details, then sign the contract to open the account.'
     );
@@ -635,25 +693,16 @@ export default function Signup() {
               </div>
             )}
 
-            {step === 'identity' && (
-              <IdentityVerification
-                accountType={accountType}
-                category={accountType === 'company' ? category : null}
-                phone={phone}
-                accountName={accountName}
-                gstin={accountType === 'company' ? gstin.trim().toUpperCase() : ''}
-                onVerifiedChange={setVerifiedNumbers}
-              />
-            )}
-
             {step === 'documents' && (
               <AccountDocuments
                 accountType={accountType}
                 category={accountType === 'company' ? category : null}
                 phone={phone}
+                accountName={accountName}
+                gstin={accountType === 'company' ? gstin.trim().toUpperCase() : ''}
                 onMissingChange={setMissingDocs}
                 highlight={flaggedDocs}
-                verifiedNumbers={verifiedNumbers}
+                onPhoneUnverified={handlePhoneVerificationExpired}
               />
             )}
 
@@ -686,22 +735,6 @@ export default function Signup() {
                       mono
                     />
                   ))}
-                  {/* The proved numbers, masked as the documents themselves
-                      mask them. Worth showing here because the account is
-                      about to be opened on them and this is the last screen
-                      before it is. */}
-                  {identityChecks.map((slot) => {
-                    const value = verifiedNumbers[slot];
-                    if (!value) return null;
-                    return (
-                      <PreviewRow
-                        key={slot}
-                        label={`${IDENTITY_CHECK_LABELS[slot]} (verified)`}
-                        value={slot === 'aadhaar_card' ? `XXXX XXXX ${value.slice(-4)}` : value}
-                        mono
-                      />
-                    );
-                  })}
                   <PreviewRow
                     label="Documents"
                     value={`${
