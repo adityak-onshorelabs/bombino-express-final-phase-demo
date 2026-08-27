@@ -1,4 +1,5 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Loader2, X } from 'lucide-react';
 import { CONTRACT_TITLE } from '@shared/contract';
 
@@ -105,7 +106,11 @@ export function ContractPreview({
     </div>
   );
 
-  return (
+  // Portalled to <body>. The signing card is several levels down a layout
+  // that may one day animate or clip; a fixed overlay inside a transformed or
+  // overflow-hidden ancestor is positioned against that ancestor instead of
+  // the viewport, and the first thing to disappear is the bar at the top.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex flex-col bg-black/60"
       role="dialog"
@@ -113,7 +118,11 @@ export function ContractPreview({
       aria-label={CONTRACT_TITLE}
       data-testid="contract-preview"
     >
-      <div className="flex items-center justify-between gap-3 bg-card px-4 py-3 border-b border-border">
+      {/* shrink-0 is load-bearing. Without it this is a flex item that can be
+          compressed by the viewer below, which wants every pixel it can get —
+          on a short viewport the bar collapses and the close button goes with
+          it, leaving no way out of the overlay. */}
+      <div className="shrink-0 flex items-center justify-between gap-3 bg-card px-4 py-3 border-b border-border">
         <div className="min-w-0">
           <p className="text-sm font-semibold truncate">{CONTRACT_TITLE}</p>
           <p className="text-[11px] text-muted-foreground truncate">
@@ -123,7 +132,7 @@ export function ContractPreview({
         <button
           type="button"
           onClick={onClose}
-          className="p-2 -mr-2 rounded-lg hover:bg-muted shrink-0"
+          className="shrink-0 h-10 w-10 grid place-items-center rounded-lg border border-border bg-background hover:bg-muted"
           aria-label="Close the contract"
           data-testid="contract-preview-close"
         >
@@ -144,6 +153,21 @@ export function ContractPreview({
           <PdfCanvasViewer base64={base64} title={CONTRACT_TITLE} />
         </Suspense>
       )}
-    </div>
+
+      {/* A second way out, at the end of the document where someone who has
+          just finished reading four pages already is. Same shrink-0 reasoning
+          as the bar above. */}
+      <div className="shrink-0 bg-card px-4 py-3 border-t border-border">
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full h-11 rounded-xl border border-border bg-background text-sm font-medium hover:bg-muted"
+          data-testid="contract-preview-close-footer"
+        >
+          Close
+        </button>
+      </div>
+    </div>,
+    document.body,
   );
 }
