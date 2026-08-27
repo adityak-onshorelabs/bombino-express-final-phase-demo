@@ -1,11 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'wouter';
-import { ScrollText } from 'lucide-react';
+import { ScrollText, FileText, ChevronRight } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ContractPreview } from '@/components/ContractPreview';
 import {
-  CONTRACT_CLAUSES,
+  CONTRACT_PAGE_COUNT,
   CONTRACT_TITLE,
   CONTRACT_VERSION,
   SIGNATURE_MAX_LENGTH,
@@ -18,6 +19,10 @@ interface ContractSignatureProps {
   onAcceptedChange: (accepted: boolean) => void;
   signedName: string;
   onSignedNameChange: (name: string) => void;
+  /** The verified phone — the server's authorisation for the preview call. */
+  phone: string;
+  /** Whose account it is; goes on the "For M/s" line of the contract. */
+  accountName: string;
   /** Set after a blocked submit, so the gaps are marked rather than hunted for. */
   error?: string;
 }
@@ -25,18 +30,31 @@ interface ContractSignatureProps {
 /**
  * The contract, and the signature that closes signup.
  *
- * Signing is typing: the customer ticks acceptance and types their name, and
- * that name is what stands on the contract. The server stamps it with
- * CONTRACT_VERSION, so an acceptance stays readable later as the text that
- * was actually on screen.
+ * What is signed is the document itself — client/public/contract-2026.pdf,
+ * opened from here. It used to be six summary clauses written into
+ * shared/contract.ts, which were never the operative text; they are gone,
+ * because a customer signing a summary of a contract has not signed the
+ * contract.
+ *
+ * The document opens in its own tab rather than an embedded viewer: it is
+ * four pages, mobile browsers render PDFs natively far more reliably than in
+ * an iframe, and a new tab leaves the half-finished signup untouched behind
+ * it.
+ *
+ * Signing is typing: the customer ticks acceptance and types their name. The
+ * server stamps it with CONTRACT_VERSION, so an acceptance stays readable
+ * later as the document that was actually on offer.
  */
 export function ContractSignature({
   accepted,
   onAcceptedChange,
   signedName,
   onSignedNameChange,
+  phone,
+  accountName,
   error,
 }: ContractSignatureProps): React.JSX.Element {
+  const [previewOpen, setPreviewOpen] = useState(false);
   const signatureValid = isValidSignature(signedName);
   const signedOn = new Date().toLocaleDateString('en-IN', {
     day: 'numeric',
@@ -62,31 +80,53 @@ export function ContractSignature({
         </div>
       </div>
 
-      {/* Scrolls inside itself: the contract must be readable in full without
-          pushing the signature off the bottom of a phone screen. */}
-      <div
-        className="max-h-56 overflow-y-auto rounded-lg bg-muted/40 border border-border p-3 space-y-3 text-xs leading-relaxed text-muted-foreground"
-        tabIndex={0}
-        role="region"
-        aria-label="Contract terms"
-        data-testid="contract-terms"
+      {/* The document, not a description of it, and shown in the app rather
+          than handed to a new tab — the customer is mid-signup and should not
+          have to find their way back. Disabled until the signature is valid,
+          because the whole point is that the name is already on the page: an
+          empty signature block would show them the wrong document. */}
+      <button
+        type="button"
+        onClick={() => setPreviewOpen(true)}
+        disabled={!signatureValid}
+        className={cn(
+          'w-full flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition-colors',
+          signatureValid
+            ? 'border-border bg-muted/40 hover:border-[#F2A123]'
+            : 'border-border bg-muted/20 opacity-60 cursor-not-allowed',
+        )}
+        data-testid="contract-view-document"
       >
-        {CONTRACT_CLAUSES.map((clause) => (
-          <section key={clause.heading}>
-            <h3 className="font-semibold text-foreground text-[11px] uppercase tracking-wide mb-1">
-              {clause.heading}
-            </h3>
-            <p>{clause.body}</p>
-          </section>
-        ))}
-        <p className="pt-1 border-t border-border">
-          Personal data is handled as described in our{' '}
-          <Link href="/privacy" className="text-[#F2A123] underline">
-            Privacy Policy
-          </Link>
-          .
-        </p>
-      </div>
+        <FileText className="w-5 h-5 text-[#F2A123] shrink-0" />
+        <span className="flex-1 min-w-0">
+          <span className="block text-sm font-medium text-foreground">
+            {signatureValid ? 'Read the contract you are signing' : 'Read the contract'}
+          </span>
+          <span className="block text-[11px] text-muted-foreground mt-0.5">
+            {signatureValid
+              ? `${CONTRACT_PAGE_COUNT} pages · your name is on the last page`
+              : 'Type your name below to see it signed'}
+          </span>
+        </span>
+        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+      </button>
+
+      {previewOpen && (
+        <ContractPreview
+          phone={phone}
+          signedName={signedName}
+          accountName={accountName}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
+
+      <p className="text-[11px] text-muted-foreground">
+        Read the document before you sign. Personal data is handled as described in our{' '}
+        <Link href="/privacy" className="text-[#F2A123] underline">
+          Privacy Policy
+        </Link>
+        .
+      </p>
 
       <label className="flex items-start gap-2.5 cursor-pointer">
         <Checkbox
@@ -96,7 +136,7 @@ export function ContractSignature({
           data-testid="checkbox-accept-contract"
         />
         <span className="text-xs text-foreground leading-snug">
-          I have read and agree to the {CONTRACT_TITLE}, and I am authorised to sign it for this
+          I have read this document and agree to it, and I am authorised to sign it for this
           account.
         </span>
       </label>

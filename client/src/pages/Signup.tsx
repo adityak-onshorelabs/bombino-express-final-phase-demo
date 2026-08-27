@@ -746,6 +746,8 @@ export default function Signup() {
 
                 <div className="mt-5">
                   <ContractSignature
+                    phone={phone}
+                    accountName={accountName}
                     accepted={contractAccepted}
                     onAcceptedChange={(v) => {
                       setContractAccepted(v);

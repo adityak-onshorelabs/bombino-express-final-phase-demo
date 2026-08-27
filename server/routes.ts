@@ -147,6 +147,7 @@ import {
   verifyGstin,
 } from "./cashfreeIdentity.js";
 import { checkGstCertificate } from "./gstCertificate.js";
+import { signContractPdf } from "./contractPdf.js";
 import {
   claimSignupIdentityVerifications,
   deleteIdentityVerificationsBySignupRef,
@@ -675,6 +676,61 @@ export async function registerRoutes(
       return false;
     }
   }
+
+  /**
+   * POST /api/signup/contract/preview — the contract with the signature on it
+   *
+   * Answers the PDF itself, so the signing screen can show the customer the
+   * document they are about to sign with their own name already in the
+   * signature block — rather than a description of it, or the blank form with
+   * the name alongside.
+   *
+   * Generated per request and never stored. Nothing here is a record: the
+   * account does not exist yet, the customer may still change the name, and a
+   * preview kept on disk would be one more copy to keep in step with the
+   * acceptance that actually counts. The stored copy, when there is one, is
+   * made from the same function at account creation.
+   *
+   * Authorised the same way every other pre-account endpoint is, by a recent
+   * OTP on the phone. Without that this would hand anyone a contract with any
+   * name they liked stamped on it.
+   */
+  app.post("/api/signup/contract/preview", async (req: Request, res: Response) => {
+    const phone = await assertPhoneVerified(req.body?.phone, res);
+    if (!phone) return;
+
+    const signedName =
+      typeof req.body?.signed_name === "string" ? req.body.signed_name.trim() : "";
+    if (!isValidSignature(signedName)) {
+      res.status(400).json({ message: SIGNATURE_ERROR });
+      return;
+    }
+
+    const accountName =
+      typeof req.body?.account_name === "string"
+        ? req.body.account_name.trim().slice(0, SIGNATURE_MAX_LENGTH)
+        : "";
+
+    try {
+      const pdf = await signContractPdf({
+        signedName,
+        accountName,
+        // The preview is dated now; the copy that counts is dated when the
+        // account is written, from contractColumns.
+        signedAt: new Date(),
+      });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Length", String(pdf.length));
+      // Rendered in the page, not downloaded, and never cached: the name on
+      // it changes as the customer edits the field.
+      res.setHeader("Content-Disposition", 'inline; filename="contract-2026.pdf"');
+      res.setHeader("Cache-Control", "no-store");
+      res.end(pdf);
+    } catch (err) {
+      console.error("[signup/contract] preview failed:", err);
+      res.status(500).json({ message: "Could not prepare the contract. Please try again." });
+    }
+  });
 
   /**
    * GET /api/signup/identity — what this signup has recorded so far

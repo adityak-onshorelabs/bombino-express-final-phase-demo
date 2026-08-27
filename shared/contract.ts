@@ -1,58 +1,49 @@
 /**
  * The customer contract a new account signs on its way in.
  *
- * Signing is typed, not uploaded: at the last step the customer ticks
- * acceptance and types their name, and that name is what appears on the
- * contract. Corporate accounts still hand over a countersigned copy as the
- * authorization letter — the two are different artefacts and both are kept.
+ * The operative text is a document, not a list of clauses in this file:
+ * client/public/contract-2026.pdf, the Bombino Express customer contract
+ * dated 1 January 2026. It is served from the app rather than living only in
+ * a mailbox, so an acceptance can be read back later against the exact pages
+ * that were on offer when it was made.
  *
- * `CONTRACT_VERSION` is stamped onto every acceptance. Never edit the clauses
- * below without bumping it: an accepted contract must stay readable years
- * later as the text that was actually on screen.
+ * Signing is typed, not uploaded: at the last step the customer ticks
+ * acceptance and types their name. Corporate accounts still hand over a
+ * countersigned copy as the authorization letter — page 4 of the document
+ * asks for a signature and rubber stamp on all pages by an authorised
+ * signatory, which a typed name is not, so the two are different artefacts
+ * and both are kept.
+ *
+ * `CONTRACT_VERSION` is stamped onto every acceptance. Never change the
+ * document without bumping it.
  */
-
-export const CONTRACT_VERSION = "CONTRACT-2026";
-export const CONTRACT_TITLE = "Bombino Express Customer Contract (2026)";
-
-export interface ContractClause {
-  heading: string;
-  body: string;
-}
 
 /**
- * Summary presented at signing.
- *
- * TODO(accounts): replace with the operative text of CONTRACT 2026.pdf, the
- * attachment to the 14 Aug 2026 onboarding mail, and bump CONTRACT_VERSION in
- * the same change. Until then this states the terms the customer is actually
- * held to today and points at the full document.
+ * Bumped from the bare "CONTRACT-2026" when the PDF replaced the six summary
+ * clauses that used to stand in for it. Acceptances already carrying the old
+ * value agreed to that summary and not to this document — pointing the same
+ * string at both would make the stored record claim otherwise.
  */
-export const CONTRACT_CLAUSES: readonly ContractClause[] = [
-  {
-    heading: "Scope",
-    body: "Bombino Express Pvt Ltd carries parcels tendered by the customer from India to the destinations it serves, on the rates and transit times quoted at the time of each booking.",
-  },
-  {
-    heading: "Customs and declarations",
-    body: "The customer declares the contents, value and nature of every shipment truthfully, and is responsible for the accuracy of the KYC and export documents supplied with this account. Duties, taxes and penalties arising from a wrong or incomplete declaration are the customer's.",
-  },
-  {
-    heading: "Prohibited goods",
-    body: "The customer will not tender anything barred by Indian export law, by the destination country's import law, or by the carrier's own restricted list. Bombino Express may open, hold or return any shipment it believes to be in breach.",
-  },
-  {
-    heading: "Charges",
-    body: "Freight is billed on the greater of actual and volumetric weight, as re-weighed at the hub. Fuel surcharge, remote-area and customs-clearance charges apply where they arise and are shown on the invoice.",
-  },
-  {
-    heading: "Liability",
-    body: "Liability for loss or damage is limited to the amount declared and insured for that shipment. Consequential loss is excluded. Claims must be raised within 30 days of the delivery date or the expected delivery date.",
-  },
-  {
-    heading: "Account information",
-    body: "The customer keeps the details and documents on this account current, and tells Bombino Express when its GST, IEC or banking particulars change.",
-  },
-];
+export const CONTRACT_VERSION = "CONTRACT-2026-01-01";
+export const CONTRACT_TITLE = "Bombino Express Customer Contract (2026)";
+
+/**
+ * Where the blank document lives.
+ *
+ * client/public is copied into dist/public by the client build and served by
+ * Vite in development, so the path is the same either way and there is no
+ * route to keep in step. server/contractPdf.ts reads the same file off disk
+ * to stamp the signature into it.
+ *
+ * The signing screen does NOT link here. What a customer is shown is the
+ * signed copy from POST /api/signup/contract/preview, because a blank form is
+ * not the thing they are agreeing to. This stays exported as the one place
+ * the filename is written down, and because a blank copy is worth being able
+ * to hand someone.
+ */
+export const CONTRACT_PDF_PATH = "/contract-2026.pdf";
+/** Shown beside the link, so nobody taps it expecting a page of text. */
+export const CONTRACT_PAGE_COUNT = 4;
 
 /**
  * What a signature has to be for us to hold someone to it.
