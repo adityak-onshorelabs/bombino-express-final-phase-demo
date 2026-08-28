@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient.js";
+import { decryptField, encryptField } from "./fieldCrypto.js";
 
 /**
  * Persistence for identity_verifications — the numbers signup collected, and
@@ -8,6 +9,12 @@ import { supabase } from "./supabaseClient.js";
  * ownership handover, same "list by signup", same claim-at-creation. The two
  * halves of onboarding move together, and a reader of one should recognise
  * the other.
+ *
+ * Identity fields are encrypted at rest: `document_no` and `file_data` go
+ * through server/fieldCrypto.ts on the way in and back out, so nothing above
+ * this module handles a stored ciphertext and nothing below it holds a
+ * plaintext Aadhaar. Rows written before encryption existed are plaintext and
+ * decrypt to themselves until scripts/encrypt-existing-documents.ts has run.
  */
 
 /**
@@ -80,6 +87,11 @@ function logError(operation: string, error: { message?: string; code?: string } 
   });
 }
 
+/** Undo the encryption on the way out of every read in this module. */
+function decodeIdentity(row: IdentityVerificationMeta): IdentityVerificationMeta {
+  return { ...row, document_no: decryptField(row.document_no) };
+}
+
 export type UpsertIdentityVerificationInput = {
   /** Exactly one of these two identifies the owner. */
   signup_ref?: string;
@@ -115,7 +127,8 @@ export async function upsertIdentityVerification(
 
   const now = new Date().toISOString();
   const payload = {
-    document_no: input.document_no,
+    // Throws without ENCRYPTION_KEY rather than banking a bare Aadhaar.
+    document_no: encryptField(input.document_no),
     status: input.status,
     reference_id: input.reference_id,
     verified_name: input.verified_name,
@@ -146,7 +159,7 @@ export async function upsertIdentityVerification(
       logError("upsertIdentityVerification:update", error);
       return null;
     }
-    return data as IdentityVerificationMeta;
+    return decodeIdentity(data as IdentityVerificationMeta);
   }
 
   const { data, error } = await client
@@ -164,7 +177,7 @@ export async function upsertIdentityVerification(
     logError("upsertIdentityVerification:insert", error);
     return null;
   }
-  return data as IdentityVerificationMeta;
+  return decodeIdentity(data as IdentityVerificationMeta);
 }
 
 export async function listIdentityVerificationsBySignupRef(
@@ -183,7 +196,7 @@ export async function listIdentityVerificationsBySignupRef(
     logError("listIdentityVerificationsBySignupRef", error);
     return [];
   }
-  return (data ?? []) as IdentityVerificationMeta[];
+  return ((data ?? []) as IdentityVerificationMeta[]).map(decodeIdentity);
 }
 
 export async function listIdentityVerificationsByUserId(
@@ -202,7 +215,7 @@ export async function listIdentityVerificationsByUserId(
     logError("listIdentityVerificationsByUserId", error);
     return [];
   }
-  return (data ?? []) as IdentityVerificationMeta[];
+  return ((data ?? []) as IdentityVerificationMeta[]).map(decodeIdentity);
 }
 
 /**

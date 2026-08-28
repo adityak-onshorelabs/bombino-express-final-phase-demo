@@ -148,6 +148,8 @@ import {
 } from "./cashfreeIdentity.js";
 import { checkGstCertificate } from "./gstCertificate.js";
 import { signContractPdf } from "./contractPdf.js";
+import { sweepAbandonedSignups, ABANDONED_SIGNUP_RETENTION_DAYS } from "./retention.js";
+import { logDocumentAccess } from "./documentAccessLog.js";
 import {
   claimSignupIdentityVerifications,
   deleteIdentityVerificationsBySignupRef,
@@ -1228,6 +1230,49 @@ export async function registerRoutes(
     }
   );
 
+  /**
+   * POST /api/admin/retention/sweep — delete abandoned signups' documents
+   *
+   * Driven by the same external scheduler as the WhatsApp digests, with the
+   * same bearer secret, rather than a setInterval: a dyno that sleeps or a
+   * second instance would otherwise mean the sweep never runs or runs twice.
+   * Daily is ample for a fourteen-day window.
+   *
+   * Deliberately reachable by hand as well, because the first thing anyone
+   * asks of a retention policy is proof that it ran. It answers with what it
+   * deleted, and it is safe to call repeatedly — a second call in the same
+   * minute finds nothing left to do.
+   */
+  app.post("/api/admin/retention/sweep", async (req: Request, res: Response) => {
+    const expected = process.env.WA_CRON_SECRET;
+    if (!expected) {
+      res.status(503).json({ message: "Scheduler secret is not configured." });
+      return;
+    }
+    const header = req.header("authorization") ?? "";
+    const presented = header.startsWith("Bearer ") ? header.slice(7) : "";
+    // Length check first: timingSafeEqual throws on a length mismatch.
+    if (
+      presented.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(presented), Buffer.from(expected))
+    ) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    try {
+      const result = await sweepAbandonedSignups();
+      res.json({
+        retention_days: ABANDONED_SIGNUP_RETENTION_DAYS,
+        ...result,
+        ok: result.errors.length === 0,
+      });
+    } catch (err) {
+      console.error("[retention] sweep failed:", err);
+      res.status(500).json({ message: "Sweep failed." });
+    }
+  });
+
   // GET /api/signup/documents — what this signup has staged so far
   app.get("/api/signup/documents", async (req: Request, res: Response) => {
     const phone = typeof req.query.phone === "string" ? req.query.phone : undefined;
@@ -1465,15 +1510,30 @@ export async function registerRoutes(
     try {
       const doc = await getAccountDocumentByCapabilityId(req.params.id);
       if (!doc) {
+        logDocumentAccess(req, {
+          source: "account",
+          capabilityId: req.params.id,
+          outcome: "not_found",
+        });
         res.status(404).json({ message: "Document not found." });
         return;
       }
+      logDocumentAccess(req, {
+        source: "account",
+        capabilityId: req.params.id,
+        outcome: "served",
+        documentId: doc.id,
+        userId: doc.user_id,
+      });
       const buffer = Buffer.from(doc.file_data, "base64");
       res.set({
         "Content-Type": doc.mime_type,
         "Content-Length": String(buffer.length),
         // Re-uploads keep the capability_id, so a cached copy would go stale.
         "Cache-Control": "no-store",
+        "X-Robots-Tag": "noindex, nofollow, noarchive",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
         "Content-Disposition": `inline; filename="${doc.original_filename}"`,
       });
       res.send(buffer);
@@ -4203,9 +4263,23 @@ export async function registerRoutes(
     try {
       const doc = await getKycByCapabilityId(req.params.id);
       if (!doc) {
+        // Logged too: a run of these from one address is somebody guessing.
+        logDocumentAccess(req, {
+          source: "kyc",
+          capabilityId: req.params.id,
+          outcome: "not_found",
+        });
         res.status(404).json({ message: "Document not found." });
         return;
       }
+
+      logDocumentAccess(req, {
+        source: "kyc",
+        capabilityId: req.params.id,
+        outcome: "served",
+        documentId: doc.id,
+        userId: doc.user_id,
+      });
 
       const buffer = Buffer.from(doc.file_data, "base64");
       res.set({
@@ -4213,6 +4287,12 @@ export async function registerRoutes(
         "Content-Length": String(buffer.length),
         // Re-uploads reuse the capability_id, so a cached copy would go stale.
         "Cache-Control": "no-store",
+        // A leaked URL must not end up in a search index, and a browser must
+        // not be talked into treating an identity document as something it can
+        // execute. See migrations/add_document_access_log.sql.
+        "X-Robots-Tag": "noindex, nofollow, noarchive",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
         "Content-Disposition": `inline; filename="${doc.original_filename}"`,
       });
       res.send(buffer);

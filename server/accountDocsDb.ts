@@ -1,10 +1,22 @@
 import { supabase } from "./supabaseClient.js";
+import {
+  decryptField,
+  decryptNullable,
+  encryptField,
+  encryptNullable,
+} from "./fieldCrypto.js";
 import type { DocSlot } from "../shared/accountSpec.js";
 import type { OcrResult } from "./cashfreeOcr.js";
 
 /**
  * The OCR verdict, flattened onto whichever document row it belongs to.
  * Shared by both document tables, which carry the same seven columns.
+ *
+ * Identity fields are encrypted at rest: `document_no` and `file_data` go
+ * through server/fieldCrypto.ts on the way in and back out, so nothing above
+ * this module handles a stored ciphertext and nothing below it holds a
+ * plaintext Aadhaar. Rows written before encryption existed are plaintext and
+ * decrypt to themselves until scripts/encrypt-existing-documents.ts has run.
  */
 export type OcrColumns = {
   ocr_status: string;
@@ -81,6 +93,19 @@ function logError(operation: string, error: { message?: string; code?: string } 
   });
 }
 
+/** Undo the encryption on the way out of every read in this module. */
+function decodeMeta(row: AccountDocumentMeta): AccountDocumentMeta {
+  return { ...row, document_no: decryptNullable(row.document_no) };
+}
+
+function decodeRow(row: AccountDocumentRow): AccountDocumentRow {
+  return {
+    ...row,
+    document_no: decryptNullable(row.document_no),
+    file_data: decryptField(row.file_data),
+  };
+}
+
 export type UpsertAccountDocumentInput = {
   /** Exactly one of these two identifies the owner. */
   signup_ref?: string;
@@ -118,12 +143,16 @@ export async function upsertAccountDocument(
     .eq("doc_slot", input.doc_slot)
     .maybeSingle();
 
+  // Throws when ENCRYPTION_KEY is absent, which fails the upload rather than
+  // writing an identity document in the clear.
   const payload = {
-    document_no: input.document_no,
+    document_no: encryptNullable(input.document_no),
     original_filename: input.original_filename,
     mime_type: input.mime_type,
+    // file_size_bytes stays the size of the ORIGINAL file, not the ciphertext:
+    // it is shown to the customer and sent to ITD as the size of their upload.
     file_size_bytes: input.file_size_bytes,
-    file_data: input.file_data,
+    file_data: encryptField(input.file_data),
     updated_at: now,
     ...(input.ocr ?? {}),
   };
@@ -140,7 +169,7 @@ export async function upsertAccountDocument(
       logError("upsertAccountDocument:update", error);
       return null;
     }
-    return data as AccountDocumentMeta;
+    return decodeMeta(data as AccountDocumentMeta);
   }
 
   const { data, error } = await client
@@ -158,7 +187,7 @@ export async function upsertAccountDocument(
     logError("upsertAccountDocument:insert", error);
     return null;
   }
-  return data as AccountDocumentMeta;
+  return decodeMeta(data as AccountDocumentMeta);
 }
 
 /** Metadata only — the base64 blobs are megabytes and nothing here needs them. */
@@ -178,7 +207,7 @@ export async function listDocumentsBySignupRef(
     logError("listDocumentsBySignupRef", error);
     return [];
   }
-  return (data ?? []) as AccountDocumentMeta[];
+  return ((data ?? []) as AccountDocumentMeta[]).map(decodeMeta);
 }
 
 export async function listDocumentsByUserId(userId: string): Promise<AccountDocumentMeta[]> {
@@ -195,7 +224,7 @@ export async function listDocumentsByUserId(userId: string): Promise<AccountDocu
     logError("listDocumentsByUserId", error);
     return [];
   }
-  return (data ?? []) as AccountDocumentMeta[];
+  return ((data ?? []) as AccountDocumentMeta[]).map(decodeMeta);
 }
 
 export async function getAccountDocumentByCapabilityId(
@@ -214,7 +243,7 @@ export async function getAccountDocumentByCapabilityId(
     logError("getAccountDocumentByCapabilityId", error);
     return null;
   }
-  return data as AccountDocumentRow | null;
+  return data ? decodeRow(data as AccountDocumentRow) : null;
 }
 
 /** The base64 blob for one slot of one owner — used to mirror Aadhaar into kyc_documents. */
@@ -236,7 +265,7 @@ export async function getSignupDocumentWithFile(
     logError("getSignupDocumentWithFile", error);
     return null;
   }
-  return data as AccountDocumentRow | null;
+  return data ? decodeRow(data as AccountDocumentRow) : null;
 }
 
 export async function deleteSignupDocument(
