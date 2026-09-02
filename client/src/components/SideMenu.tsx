@@ -1,6 +1,7 @@
 import { X, User, LogOut, LogIn, Bot, Phone } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
+import { useVerificationState } from '@/hooks/useVerificationState';
 import { apiRequest } from '@/lib/queryClient';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
@@ -12,6 +13,10 @@ interface SideMenuProps {
 
 export function SideMenu({ isOpen, onClose }: SideMenuProps) {
   const { isLoggedIn, user, logout } = useAppStore();
+  // Same live read as the standing banner, so the menu cannot say "pending"
+  // after the last document lands (or stay silent when one is rejected).
+  const { data: verification } = useVerificationState({ enabled: isLoggedIn });
+  const kycPending = isLoggedIn && !!verification && !verification.verified;
 
   if (!isOpen) return null;
 
@@ -66,6 +71,17 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
                     <User className="w-5 h-5 text-primary" />
                   </div>
                   <span className="font-medium">My Profile</span>
+                  {/* The menu is where someone goes looking for their account,
+                      so the outstanding document is marked here too — quiet,
+                      and pointing at the screen that clears it. */}
+                  {kycPending && (
+                    <span
+                      className="ml-auto shrink-0 rounded-full border border-[oklch(90%_0.042_74)] bg-[oklch(97.6%_0.017_78)] px-2 py-0.5 text-[10px] font-semibold text-[#8A5A00]"
+                      data-testid="badge-kyc-pending"
+                    >
+                      KYC pending
+                    </span>
+                  )}
                 </Link>
                 <button
                   onClick={() => {

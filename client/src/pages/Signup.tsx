@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Mail, Phone, Building2, Loader2, ShieldCheck, UserRound, MapPin } from 'lucide-react';
+import { User, Mail, Phone, Building2, Loader2, ShieldCheck, UserRound, MapPin, ArrowRight } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,7 @@ import { useAppStore, type AuthUser } from '@/lib/store';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorMessage } from '@/lib/apiError';
 import { usePincodeLookup } from '@/hooks/usePincodeLookup';
+import { useSignupConfig } from '@/hooks/useSignupConfig';
 import { validateGstin } from '@shared/gstin';
 import { INDIA_HUBS } from '@shared/hubs';
 import { SIGNATURE_ERROR, isValidSignature } from '@shared/contract';
@@ -96,6 +97,12 @@ export default function Signup() {
   const [contractError, setContractError] = useState('');
 
   // Shared
+  // Whether this deployment lets a personal signup defer its documents. The
+  // server re-checks its own flag, so this only decides whether to offer it.
+  const { data: signupConfig } = useSignupConfig();
+  const canSkipDocuments = accountType === 'personal' && signupConfig?.kyc_optional === true;
+  const [skippedDocuments, setSkippedDocuments] = useState(false);
+
   const searchParams = new URLSearchParams(window.location.search);
   // /login verifies the number before sending anyone here, so the OTP round
   // trip is already spent. Re-sending a second code to the same phone would
@@ -232,8 +239,8 @@ export default function Signup() {
     }
   };
 
-  const handleSubmitDocuments = (): void => {
-    if (missingDocs.length > 0) {
+  const handleSubmitDocuments = (skip = false): void => {
+    if (!skip && missingDocs.length > 0) {
       setFlaggedDocs(missingDocs);
       setErrors({
         form: `Still needed: ${missingDocs.map((s) => DOC_SLOT_SPECS[s].label).join(', ')}`,
@@ -242,6 +249,7 @@ export default function Signup() {
     }
     setFlaggedDocs([]);
     setErrors({});
+    setSkippedDocuments(skip && missingDocs.length > 0);
     if (!contractSignedName.trim()) {
       setContractSignedName(accountType === 'personal' ? fullName.trim() : contactPerson.trim());
     }
@@ -317,7 +325,7 @@ export default function Signup() {
       : step === 'otp'
         ? () => void handleVerifyOtp()
         : step === 'documents'
-          ? handleSubmitDocuments
+          ? () => handleSubmitDocuments()
           : () => void handleCreateAccount();
 
   const primaryLabel =
@@ -363,7 +371,46 @@ export default function Signup() {
       totalSteps={4}
       testId="screen-signup"
       beforeCard={
-        step === 'details' ? (
+        /* Above the form card, in the slot the account-type toggle uses.
+           Outside the card on purpose: someone without their documents to
+           hand should meet this before working down the upload list, and
+           inside the card it read as one more field rather than a way out of
+           the step.
+
+           Quiet, not loud. Uploading is the primary action on this step and it
+           already owns the amber button at the bottom of the form. A second
+           amber button leaves two things competing to be the obvious one, so
+           the secondary route is styled as one.
+
+           Deferring, not waiving. The account opens, the customer is reminded
+           on every screen afterwards, and their orders cannot be docketed
+           until the documents are verified. The copy says "later", never
+           "optional", and names the cost rather than letting them find it at
+           the hub. */
+        step === 'documents' && canSkipDocuments && missingDocs.length > 0 ? (
+          <div
+            className="mb-5 rounded-xl border border-[#E2E8F0] bg-[#F3F4F6] px-4 py-3.5"
+            data-testid="skip-documents-card"
+          >
+            <p className="text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">
+              Don&rsquo;t have them to hand?
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-[#64748B]">
+              Open your account now and add them later. You can book straight away.
+              We can only dispatch once they&rsquo;re verified.
+            </p>
+            <button
+              type="button"
+              onClick={() => handleSubmitDocuments(true)}
+              disabled={isLoading}
+              className="mt-2 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-[#2F4468] underline decoration-[#2F4468]/30 underline-offset-4 transition-colors duration-150 hover:decoration-[#2F4468] disabled:opacity-60"
+              data-testid="button-skip-documents"
+            >
+              Skip this step
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </div>
+        ) : step === 'details' ? (
           <div className="flex bg-muted rounded-xl p-1 mb-5" role="tablist" aria-label="Account type">
             {ACCOUNT_TYPES.map((type) => (
               <button
@@ -749,9 +796,13 @@ export default function Signup() {
                   ))}
                   <PreviewRow
                     label="Documents"
-                    value={`${
-                      accountType === 'company' ? categorySpec.documents.length : 2
-                    } uploaded`}
+                    value={
+                      skippedDocuments
+                        ? 'To be added later'
+                        : `${
+                            accountType === 'company' ? categorySpec.documents.length : 2
+                          } uploaded`
+                    }
                     last
                   />
                 </div>
@@ -786,6 +837,7 @@ export default function Signup() {
             >
               {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : primaryLabel}
             </Button>
+
     </AuthShell>
   );
 }

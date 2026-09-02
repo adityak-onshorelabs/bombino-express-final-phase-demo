@@ -30,6 +30,7 @@ import { registerRoutes } from "./routes.js";
 import { assertDatabaseUrl, getPgPoolConfig } from "./pgPoolConfig.js";
 import { warnIfPaymentsTestModeEnabled } from "./paymentsTestMode.js";
 import { warnIfFixedOtpEnabled } from "./otp.js";
+import { warnIfKycOptionalEnabled } from "./kycOptional.js";
 import { createServer, type Server } from "http";
 
 
@@ -354,6 +355,7 @@ export async function createApp(): Promise<{ app: Express; httpServer: Server }>
 
   warnIfPaymentsTestModeEnabled();
   warnIfFixedOtpEnabled();
+  warnIfKycOptionalEnabled();
 
   await registerRoutes(httpServer, app);
 

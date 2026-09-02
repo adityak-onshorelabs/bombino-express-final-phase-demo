@@ -35,6 +35,11 @@ export type OrderInsert = {
   packaging_required: boolean;
   payment_method: PaymentMethod;
   is_cod: boolean;
+  /**
+   * Booking stamps `kyc_verified` here. See shared/orderContract.ts §isKycHeld
+   * for why the fact is denormalised onto the order rather than joined.
+   */
+  metadata?: Json;
 };
 
 export type OrderRow = {
@@ -496,4 +501,65 @@ export async function listOrdersByUserId(userId: string): Promise<OrderRow[] | n
     return null;
   }
   return (data ?? []) as OrderRow[];
+}
+
+/**
+ * Re-stamp `metadata.kyc_verified` across a customer's open orders.
+ *
+ * Called when their document set changes — typically the moment the last one
+ * comes back verified. Without it an order booked while unverified keeps a
+ * stale `false` and stays held after the customer has done everything asked of
+ * them, which reads to ops as a system that ignores its own queue.
+ *
+ * Scoped to orders that have not been docketed (`awb_no IS NULL`): once an AWB
+ * exists the flag has already done its job and rewriting history buys nothing.
+ *
+ * Read-then-write per row for the same reason `recordCancellationRequest`
+ * does it — `metadata` is one whole jsonb value to PostgREST. Same caveat, and
+ * a narrower blast radius: the competing writer would have to touch a different
+ * key on the same order in the same instant.
+ *
+ * Best-effort by contract: it returns a count and throws nothing. The caller is
+ * an upload handler, and a customer whose document saved should not see a 500
+ * because a bookkeeping update lost a race.
+ */
+export async function refreshKycVerifiedOnOpenOrders(
+  userId: string,
+  verified: boolean
+): Promise<number> {
+  const client = getSupabaseClient();
+  if (!client) return 0;
+
+  const { data: rows, error: readError } = await client
+    .from("orders")
+    .select("id, metadata")
+    .eq("user_id", userId)
+    .is("awb_no", null);
+
+  if (readError) {
+    logSupabaseError("refreshKycVerifiedOnOpenOrders:read", readError);
+    return 0;
+  }
+
+  let updated = 0;
+  for (const row of rows ?? []) {
+    const metadata = (row.metadata as Record<string, unknown> | null) ?? {};
+    if (metadata.kyc_verified === verified) continue;
+
+    const { error } = await client
+      .from("orders")
+      .update({
+        metadata: { ...metadata, kyc_verified: verified },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", row.id)
+      .is("awb_no", null);
+
+    if (error) {
+      logSupabaseError("refreshKycVerifiedOnOpenOrders:update", error);
+      continue;
+    }
+    updated += 1;
+  }
+  return updated;
 }

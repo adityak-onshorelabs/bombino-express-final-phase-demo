@@ -98,6 +98,61 @@ Carried from §8 of the module spec. A-lane items only.
 
 ## 4. Known debt (accepted for now)
 
+### 4.0 `POST /api/shipments` reads the CALLER's KYC, not the order owner's
+
+`server/routes.ts`, inside the admin-only shipment path:
+
+```ts
+const kyc = await getKycByUserId(req.session.dbUserId);
+```
+
+`req.session.dbUserId` is the **admin firing the request**. The document that
+then goes into ITD's `kyc_details` — and the number that becomes
+`shipper_gstin_no` on the customs declaration — belongs to whoever is signed in
+at the ops console, not to the customer who booked.
+
+Currently harmless: the endpoint has no client caller, and ops' `generate_docket`
+is a mock AWB that makes no ITD call at all. It stops being harmless the moment
+**M5** reroutes the real `createShipment()` through it.
+
+**Fix, when M5 lands:** take the order's `user_id` and load that customer's KYC.
+Deliberately not fixed alongside the KYC_OPTIONAL work (§4.6) — that change
+touches the same line but has no way to test this path, and a blind edit to the
+customs payload is worse than a documented bug.
+
+### 4.6 Optional KYC leaves accounts that cannot be docketed
+
+`KYC_OPTIONAL=1` (`server/kycOptional.ts`) lets a **personal** signup skip its
+documents. Company signup is unchanged, and the contract and phone OTP stay
+mandatory in both.
+
+The enforcement moves rather than disappears:
+
+| Stage | Unverified account |
+|---|---|
+| Signup | allowed |
+| Booking, pickup, hub, weigh, settle | allowed |
+| `generate_docket` | **refused** — `isKycHeld` guard on the transition |
+
+**The accepted risk:** an order can be collected, weighed and paid for, and only
+then stop. Money is with Bombino and the parcel is at the hub while the customer
+finishes verifying. That is deliberate — the alternative is either refusing the
+booking (which is what the flag exists to avoid) or docketing without an
+identity number, which fails at Indian customs with the parcel in transit.
+
+Mitigations in place: a standing warning on every customer screen, a document
+centre at `/profile#documents`, and an **Unverified customers** queue on the ops
+dashboard (`GET /api/ops/verifications`) so someone can chase.
+
+`orders.metadata.kyc_verified` is **absent** on every order booked before this
+shipped, and absent reads as verified — those accounts could not have been
+created without complete documents. Only an explicit `false` is held.
+
+**Not built, deliberately:** any reminder message. There is no KYC WhatsApp
+template (all 16 are order/payment/auth) and no customer-facing scheduler, so a
+nag means a new Meta-approved template plus a cron endpoint. The warning is
+on-screen only.
+
 ### 4.1 OTP verification is a no-op — **live auth bypass**
 
 `server/routes.ts:~327`. Any 6-digit code is accepted; `hashOtp(code)` is stored

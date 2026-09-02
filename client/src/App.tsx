@@ -98,6 +98,11 @@ function Surfaces() {
     return <OpsRoutes />;
   }
 
+  // The verification banner is NOT mounted here. It has to sit below the nav
+  // rather than above it, which means living inside the sticky chrome itself:
+  // TopBar's `below` slot on mobile (via Header), and under DesktopTopBar in
+  // AppLayout. Mounted at this level it rendered above the whole shell and
+  // pushed the sidebar down the page.
   return (
     <AppLayout>
       <CustomerRouter />

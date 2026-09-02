@@ -6,6 +6,7 @@ import {
   findItdUserIdByPhone,
   findOrCreateAddress,
   generateSessionTitle,
+  getAccountShapeById,
   getItdUserProfileById,
   getItdUserTokenAndSecretsById,
   getOrCreateSupportSession,
@@ -35,6 +36,7 @@ import {
   getOrderByNumberForUser,
   getUserContactsByIds,
   insertOrderAndReturnRow,
+  refreshKycVerifiedOnOpenOrders,
   insertOrderEvent,
   listOrderEvents,
   listCancellationOrdersByUserId,
@@ -136,6 +138,7 @@ import {
 } from "../shared/kyc.js";
 import {
   ocrTypeForDocSlot,
+  ACCOUNT_SLOT_FOR_KYC_TYPE,
   ocrTypeForKycDocumentType,
   runSmartOcr,
   skippedOcr,
@@ -146,10 +149,15 @@ import {
   claimSignupDocuments,
   deleteSignupDocument,
   getAccountDocumentByCapabilityId,
+  deleteUserDocument,
   getSignupDocumentWithFile,
+  getUserDocumentWithFile,
+  getVerificationState,
+  listDocumentsByUserId,
   listDocumentsBySignupRef,
   upsertAccountDocument,
 } from "./accountDocsDb.js";
+import { isKycOptionalEnabled } from "./kycOptional.js";
 import {
   CONTRACT_VERSION,
   isValidSignature,
@@ -162,8 +170,9 @@ import {
   DOC_SLOT_SPECS,
   EXTRA_FIELD_SPECS,
   isDocSlot,
-  missingDocuments,
+  requiredDocuments,
   requiredExtraFields,
+  verificationState,
   type CompanyCategory,
   type DocSlot,
   type ExtraField,
@@ -496,6 +505,18 @@ export async function registerRoutes(
     return result;
   }
 
+  // GET /api/signup/config — what the signup form is allowed to offer.
+  //
+  // Unauthenticated on purpose: the form that reads it runs before an account
+  // exists. It discloses one boolean about this deployment's policy, nothing
+  // about any person. The client uses it only to decide whether to render
+  // "Skip for now" — the server re-checks its own flag either way, so a client
+  // that lies about it gains nothing.
+  app.get("/api/signup/config", (_req: Request, res: Response) => {
+    res.set("Cache-Control", "no-store");
+    res.json({ kyc_optional: isKycOptionalEnabled() });
+  });
+
   // POST /api/signup/documents — stage one document of an in-flight signup
   app.post(
     "/api/signup/documents",
@@ -616,11 +637,58 @@ export async function registerRoutes(
   });
 
   /**
-   * Refuse the account until every compelled document is present.
+   * Copy a verified Aadhaar into `kyc_documents`.
    *
-   * Returns null when the set is incomplete, having already answered the
-   * request; `missing_documents` is echoed back so the form can mark the gaps
-   * rather than making the customer hunt for them.
+   * `kyc_documents` is what the shipment path reads to build ITD's
+   * `kyc_details`, and it is one row per user by UNIQUE constraint;
+   * `account_documents` is the onboarding file, which for a corporate account
+   * holds six. The two are not interchangeable, so a personal Aadhaar has to
+   * exist in both.
+   *
+   * Called from two places now — at signup, and again from the document centre
+   * when a customer who skipped comes back to finish. Non-fatal by design in
+   * both: the document is safe in `account_documents` either way and the
+   * customer can re-upload, so losing an account (or a 200) over the copy would
+   * be the worse trade.
+   */
+  async function mirrorAadhaarToKyc(
+    userId: string,
+    aadhaar: { document_no: string | null; original_filename: string; mime_type: string; file_size_bytes: number; file_data: string } | null,
+    tag: string
+  ): Promise<void> {
+    // NOT NULL on kyc_documents.document_no — a slot without a typed number
+    // cannot be mirrored, and the Aadhaar slot always asks for one.
+    if (!aadhaar?.document_no) return;
+
+    const mirrored = await upsertKycDocument({
+      user_id: userId,
+      capability_id: crypto.randomUUID(),
+      document_type: "Aadhaar Number",
+      document_no: aadhaar.document_no,
+      original_filename: aadhaar.original_filename,
+      mime_type: aadhaar.mime_type,
+      file_size_bytes: aadhaar.file_size_bytes,
+      file_data: aadhaar.file_data,
+    });
+    if (!mirrored) {
+      console.error(`[${tag}] KYC mirror failed for user`, userId);
+    }
+  }
+
+  /**
+   * Refuse the account until every compelled document is present and verified.
+   *
+   * Returns null when the set falls short, having already answered the request;
+   * `missing_documents` / `unverified_documents` are echoed back so the form can
+   * mark the gaps rather than making the customer hunt for them.
+   *
+   * The verdict itself comes from `verificationState` in shared/accountSpec.ts,
+   * which the banner, the docket guard and the ops queue also read. This
+   * function owns only the HTTP shape of the refusal.
+   *
+   * Whatever is staged is returned even when the gate is waived, because the
+   * caller mirrors the Aadhaar out of it — a customer who uploaded one document
+   * and skipped the other should keep the one they gave us.
    */
   async function assertDocumentsStaged(
     req: Request,
@@ -630,11 +698,21 @@ export async function registerRoutes(
   ): Promise<Map<DocSlot, { document_no: string | null; capability_id: string }> | null> {
     const signupRef = req.session.signupRef;
     const staged = signupRef ? await listDocumentsBySignupRef(signupRef) : [];
-    const missing = missingDocuments(
-      accountType,
-      category,
-      staged.map((row) => row.doc_slot)
+    const stagedBySlot = new Map(
+      staged.map((row) => [
+        row.doc_slot,
+        { document_no: row.document_no, capability_id: row.capability_id },
+      ])
     );
+
+    // KYC_OPTIONAL waives the gate for personal accounts only — a corporate
+    // account still produces its four to six documents before it opens. See
+    // server/kycOptional.ts for the whole of the policy; the enforcement it
+    // trades away reappears on `generate_docket` in server/orderLifecycle.ts.
+    if (accountType === "personal" && isKycOptionalEnabled()) return stagedBySlot;
+
+    const { missing, unverified } = verificationState(accountType, category, staged);
+
     if (missing.length > 0) {
       res.status(400).json({
         message: `Please upload: ${missing.map((s) => DOC_SLOT_SPECS[s].label).join(", ")}`,
@@ -648,12 +726,9 @@ export async function registerRoutes(
     // here rather than opening an account on a document nobody has checked.
     //
     // This makes verification load-bearing: while Cashfree is unreachable, no
-    // account can open. That is the deliberate trade. `skipped` slots (GST
-    // certificate, bills) have no OCR equivalent and are unaffected.
-    const unverified = staged
-      .filter((row) => ocrTypeForDocSlot(row.doc_slot) !== null && row.ocr_status !== "match")
-      .map((row) => row.doc_slot);
-
+    // account can open. That is the deliberate trade, and the one KYC_OPTIONAL
+    // exists to suspend. `skipped` slots (GST certificate, bills) have no OCR
+    // equivalent and are unaffected.
     if (unverified.length > 0) {
       res.status(422).json({
         message:
@@ -665,12 +740,7 @@ export async function registerRoutes(
       return null;
     }
 
-    return new Map(
-      staged.map((row) => [
-        row.doc_slot,
-        { document_no: row.document_no, capability_id: row.capability_id },
-      ])
-    );
+    return stagedBySlot;
   }
 
   /**
@@ -746,6 +816,234 @@ export async function registerRoutes(
     }
   });
 
+  // ── The document centre: finishing verification after the account exists ──
+  //
+  // Twins of the three /api/signup/documents endpoints, keyed on user_id
+  // instead of the session's signupRef. They exist because a customer who
+  // skipped under KYC_OPTIONAL has to be able to come back and finish, and
+  // /api/kyc/upload cannot do it: that endpoint writes one row to
+  // kyc_documents, and a document set is two slots for a personal account and
+  // up to six for a corporate one.
+  //
+  // The upload rules are identical to signup's — same OCR policy, same
+  // refusals. Only the owner column and the authorisation differ (a session
+  // here, a recently verified phone there).
+
+  /** The account's shape, defaulted the same way the client defaults it. */
+  async function accountShapeFor(
+    userId: string
+  ): Promise<{ accountType: "personal" | "company"; category: CompanyCategory | null }> {
+    const row = await getAccountShapeById(userId);
+    // Undefined account_type — legacy ITD password logins — reads as personal,
+    // matching client/src/lib/store.ts and CreateShipment.tsx. Personal is the
+    // stricter of the two here as well: it is the only shape that compels an
+    // OCR-checked slot the customer may not have.
+    const accountType = row?.account_type === "company" ? "company" : "personal";
+    const raw = row?.company_category;
+    const category =
+      accountType === "company" && raw && (COMPANY_CATEGORIES as readonly string[]).includes(raw)
+        ? (raw as CompanyCategory)
+        : null;
+    return { accountType, category };
+  }
+
+  // GET /api/account/verification — what this account still owes.
+  //
+  // The banner reads this on every customer route, so it answers for verified
+  // accounts too rather than 404ing: "nothing outstanding" is a real answer.
+  app.get(
+    "/api/account/verification",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        res.status(401).json({ message: "Not authenticated" });
+        return;
+      }
+      try {
+        const { accountType, category } = await accountShapeFor(req.session.dbUserId);
+
+        // Only customers owe documents. Staff rows carry account_type
+        // 'personal' because the column is NOT NULL and every row must be one
+        // or the other (see open-items.md §4.4) — reading that literally would
+        // tell every agent and admin to go verify an Aadhaar they were never
+        // asked for. `role` is the discriminator that matters.
+        const role = req.session.user?.role;
+        if (role && role !== "customer") {
+          res.set("Cache-Control", "no-store");
+          res.json({
+            verified: true,
+            missing: [],
+            unverified: [],
+            account_type: accountType,
+            company_category: category,
+            required: [],
+          });
+          return;
+        }
+
+        const state = await getVerificationState(req.session.dbUserId, accountType, category);
+        res.set("Cache-Control", "no-store");
+        res.json({
+          ...state,
+          account_type: accountType,
+          company_category: category,
+          required: requiredDocuments(accountType, category),
+        });
+      } catch (err) {
+        console.error("[GET /api/account/verification] failed:", err);
+        res.status(500).json({ message: "Could not read verification status." });
+      }
+    }
+  );
+
+  // GET /api/account/documents — this account's own documents, metadata only
+  app.get(
+    "/api/account/documents",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        res.status(401).json({ message: "Not authenticated" });
+        return;
+      }
+      const rows = await listDocumentsByUserId(req.session.dbUserId);
+      res.set("Cache-Control", "no-store");
+      res.json({
+        documents: rows.map((row) => ({
+          doc_slot: row.doc_slot,
+          capability_id: row.capability_id,
+          document_no: row.document_no,
+          original_filename: row.original_filename,
+          mime_type: row.mime_type,
+          file_size_bytes: row.file_size_bytes,
+          updated_at: row.updated_at,
+          ocr_status: row.ocr_status,
+        })),
+      });
+    }
+  );
+
+  // POST /api/account/documents — upload one slot against the signed-in account
+  app.post(
+    "/api/account/documents",
+    requireUser,
+    ensureDbUser,
+    kycUpload.single("file"),
+    async (req: Request, res: Response) => {
+      const userId = req.session.dbUserId;
+      if (!userId) {
+        res.status(401).json({ message: "Not authenticated" });
+        return;
+      }
+      if (!req.file) {
+        res.status(400).json({ message: "No file uploaded." });
+        return;
+      }
+
+      const slot = typeof req.body?.doc_slot === "string" ? req.body.doc_slot.trim() : "";
+      if (!isDocSlot(slot)) {
+        res.status(400).json({ message: "Unknown document type" });
+        return;
+      }
+
+      // Only the slots this account actually owes. Without this an ecommerce
+      // customer could stash an electricity bill their category never asked
+      // for, and the ops queue would show a document nobody can action.
+      const { accountType, category } = await accountShapeFor(userId);
+      if (!requiredDocuments(accountType, category).includes(slot)) {
+        res.status(400).json({ message: "That document is not required for this account." });
+        return;
+      }
+
+      const docNo = normalizeDocumentNo(slot, req.body?.document_no);
+      if (!docNo.ok) {
+        res.status(400).json({ message: docNo.message });
+        return;
+      }
+
+      const ocr = await verifyDocumentOrRefuse(res, {
+        cashfreeType: ocrTypeForDocSlot(slot),
+        typedNumber: docNo.value,
+        file: req.file,
+        tag: `account-${slot}`,
+      });
+      if (!ocr) return;
+
+      try {
+        const saved = await upsertAccountDocument({
+          user_id: userId,
+          doc_slot: slot,
+          document_no: docNo.value,
+          original_filename: req.file.originalname,
+          mime_type: req.file.mimetype,
+          file_size_bytes: req.file.size,
+          file_data: req.file.buffer.toString("base64"),
+          ocr: toOcrColumns(ocr),
+        });
+        if (!saved) {
+          res.status(500).json({ message: "Failed to save document." });
+          return;
+        }
+
+        // The Aadhaar is the one document customs reads, so a personal account
+        // finishing it here has to reach kyc_documents exactly as it would have
+        // at signup — otherwise the order still cannot be docketed.
+        if (slot === "aadhaar_card" && ocr.status === "match") {
+          const withFile = await getUserDocumentWithFile(userId, "aadhaar_card");
+          await mirrorAadhaarToKyc(userId, withFile, "account/documents");
+        }
+
+        const state = await getVerificationState(userId, accountType, category);
+
+        // Release (or re-apply) the hold on anything this customer already
+        // booked. Best-effort: their document is saved either way, and a lost
+        // race here costs a stale flag that the next upload corrects — not the
+        // upload itself.
+        void refreshKycVerifiedOnOpenOrders(userId, state.verified);
+
+        res.json({
+          doc_slot: saved.doc_slot,
+          capability_id: saved.capability_id,
+          original_filename: saved.original_filename,
+          mime_type: saved.mime_type,
+          file_size_bytes: saved.file_size_bytes,
+          updated_at: saved.updated_at,
+          ocr: { status: ocr.status, message: ocr.message },
+          // Returned with the upload so the banner can clear on the same round
+          // trip rather than after a refetch the customer has to wait for.
+          verification: state,
+        });
+      } catch (err) {
+        console.error("[POST /api/account/documents] failed:", err);
+        res.status(500).json({ message: "Failed to save document." });
+      }
+    }
+  );
+
+  // DELETE /api/account/documents/:slot — replace-by-removing, same as signup
+  app.delete(
+    "/api/account/documents/:slot",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        res.status(401).json({ message: "Not authenticated" });
+        return;
+      }
+      if (!isDocSlot(req.params.slot)) {
+        res.status(400).json({ message: "Unknown document type" });
+        return;
+      }
+      const ok = await deleteUserDocument(req.session.dbUserId, req.params.slot);
+      if (!ok) {
+        res.status(500).json({ message: "Failed to remove document." });
+        return;
+      }
+      res.json({ removed: req.params.slot });
+    }
+  );
+
   const signupPersonalSchema = z
     .object({
       full_name: z.string().trim().min(1, "Full name is required"),
@@ -808,28 +1106,14 @@ export async function registerRoutes(
     // path reads to build ITD's `kyc_details` (buildItdKycPayload), and it
     // stays the one KYC document of record; account_documents is the
     // onboarding file, not a second source of truth for customs.
+    //
+    // Absent when the customer skipped the document step under KYC_OPTIONAL.
+    // The mirror then runs later, from the document centre, on the same helper.
     const aadhaar = req.session.signupRef
       ? await getSignupDocumentWithFile(req.session.signupRef, "aadhaar_card")
       : null;
     await claimDocumentsForUser(req, row.id);
-    if (aadhaar?.document_no) {
-      const mirrored = await upsertKycDocument({
-        user_id: row.id,
-        capability_id: crypto.randomUUID(),
-        document_type: "Aadhaar Number",
-        document_no: aadhaar.document_no,
-        original_filename: aadhaar.original_filename,
-        mime_type: aadhaar.mime_type,
-        file_size_bytes: aadhaar.file_size_bytes,
-        file_data: aadhaar.file_data,
-      });
-      if (!mirrored) {
-        // Non-fatal: the document is safe in account_documents either way, and
-        // the customer can re-upload from Profile. Losing the account over it
-        // would be the worse trade.
-        console.error("[signup/personal] KYC mirror failed for user", row.id);
-      }
-    }
+    await mirrorAadhaarToKyc(row.id, aadhaar, "signup/personal");
 
     const user = {
       id: itdCustomerId,
@@ -2255,6 +2539,24 @@ export async function registerRoutes(
     const isPickup = body.pickup_request === 1;
     const status = isPickup ? "pickup_requested" : "awaiting_dropoff";
 
+    // Stamp the account's verification state onto the order.
+    //
+    // Booking is deliberately not blocked by it — an unverified customer can
+    // book, and be collected from, and pay. The flag is read much later, by the
+    // `generate_docket` guard, at the last moment anything is still reversible.
+    // Denormalised because that guard is pure and synchronous (no DB reads),
+    // and refreshed by refreshKycVerifiedOnOpenOrders when a document lands.
+    //
+    // A failure to read it stamps `true`: the alternative is holding an order
+    // because Supabase blipped during booking, which is a worse answer than the
+    // one the pre-KYC_OPTIONAL system gave.
+    const bookingShape = await accountShapeFor(req.session.dbUserId);
+    const bookingKyc = await getVerificationState(
+      req.session.dbUserId,
+      bookingShape.accountType,
+      bookingShape.category
+    );
+
     const order = await insertOrderAndReturnRow({
       user_id: req.session.dbUserId,
       status,
@@ -2268,6 +2570,7 @@ export async function registerRoutes(
       packaging_required: body.packaging_required ?? false,
       payment_method: body.payment_method,
       is_cod: body.payment_method === "cod",
+      metadata: { kyc_verified: bookingKyc.verified },
     });
 
     if (!order) {
@@ -3575,6 +3878,43 @@ export async function registerRoutes(
         if (!saved) {
           res.status(500).json({ message: "Failed to save KYC document." });
           return;
+        }
+
+        // Mirror back into account_documents when this document is also one of
+        // the slots the account owes.
+        //
+        // This endpoint predates the document matrix and writes only
+        // kyc_documents. Left alone it would produce a half-verified account:
+        // customs has what it needs, but `verificationState` — which reads
+        // account_documents — still says outstanding, so the banner stays up
+        // and the docket stays held. Two surfaces still post here (the inline
+        // upload at booking, and the profile card), and a customer who
+        // completes their Aadhaar through either should be finished.
+        //
+        // Only a `match` is mirrored. An unreadable scan is worth keeping on
+        // the KYC row for ops, but writing it into the slot would present it as
+        // progress the customer has not actually made.
+        const mirrorSlot = ACCOUNT_SLOT_FOR_KYC_TYPE[documentType];
+        if (mirrorSlot && ocr.status === "match") {
+          const { accountType, category } = await accountShapeFor(req.session.dbUserId);
+          if (requiredDocuments(accountType, category).includes(mirrorSlot)) {
+            await upsertAccountDocument({
+              user_id: req.session.dbUserId,
+              doc_slot: mirrorSlot,
+              document_no: normalizedDocumentNo,
+              original_filename: req.file.originalname,
+              mime_type: req.file.mimetype,
+              file_size_bytes: req.file.size,
+              file_data: fileDataBase64,
+              ocr: toOcrColumns(ocr),
+            });
+            const state = await getVerificationState(
+              req.session.dbUserId,
+              accountType,
+              category
+            );
+            void refreshKycVerifiedOnOpenOrders(req.session.dbUserId, state.verified);
+          }
         }
 
         res.json({

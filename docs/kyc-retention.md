@@ -13,6 +13,22 @@ This document records the current KYC storage posture and deferred work.
 - `GET /api/kyc/me` returns metadata only — `document_type`, `last_four`, `original_filename`, `mime_type`, `file_size_bytes`, `updated_at` — never the raw number or bytes.
 - Both KYC serve endpoints send `Cache-Control: no-store`, since a replace reuses the same `capability_id`.
 
+## Accounts with no KYC document
+
+Since `KYC_OPTIONAL` (`server/kycOptional.ts`), a **personal** account can exist
+with no `kyc_documents` row at all — the customer skipped the step at signup and
+has not come back yet.
+
+- `getKycByUserId` returns null for them, so nothing here changes shape; the
+  readers already handle the absent case.
+- Their orders are held at `generate_docket` (`isKycHeld`, see
+  `docs/final-phase/markdowns/open-items.md` §4.6), so an undocketed order never
+  reaches ITD without a document behind it.
+- The document set of record is still `account_documents`; `kyc_documents` is
+  what customs reads. A personal Aadhaar reaching `match` through **either**
+  upload path — signup, the profile document centre, or `/api/kyc/upload` — is
+  mirrored into both, so "verified" cannot mean two different things.
+
 ## Accepted risk (confirm with Anas)
 
 If a user **replaces** their document, older ITD dockets that stored the same `file_path` will resolve to the **new file** on any late or async re-fetch by ITD.

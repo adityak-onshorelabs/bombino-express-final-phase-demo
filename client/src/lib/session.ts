@@ -23,8 +23,11 @@ import { useAppStore } from '@/lib/store';
  * report "wrong code", not bounce the user to the screen they are already on,
  * and the probe's own 401 is handled by its caller. `/api/kyc/me` returns 401
  * for "no document on file" and is read by a hook that treats it as null.
+ * `/api/account/verification` is the same shape: the banner asks it on every
+ * customer screen, including ones a signed-out visitor can reach, and its 401
+ * means "nobody is signed in" rather than "your session just died".
  */
-const NOT_AN_EXPIRY = ['/api/auth/', '/api/kyc/me'];
+const NOT_AN_EXPIRY = ['/api/auth/', '/api/kyc/me', '/api/account/verification'];
 
 function isExpiryPath(url: string): boolean {
   return !NOT_AN_EXPIRY.some((prefix) => url.includes(prefix));

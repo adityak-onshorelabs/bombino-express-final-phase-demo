@@ -65,12 +65,30 @@ function isSlotVerified(slot: string, ocrStatus: string | null | undefined): boo
 interface AccountDocumentsProps {
   accountType: AccountKind;
   category: CompanyCategory | null;
-  /** The verified number — the server's authorisation for a pre-account upload. */
-  phone: string;
+  /**
+   * The verified number — the server's authorisation for a pre-account upload.
+   * Omitted on the `account` endpoint, where the session is the authorisation.
+   */
+  phone?: string;
+  /**
+   * Which pair of endpoints to talk to.
+   *
+   *   signup   /api/signup/documents  — staged against the session's signupRef,
+   *                                     authorised by a recently verified phone
+   *   account  /api/account/documents — owned by the signed-in user
+   *
+   * The two are deliberately the same component. A customer who skipped their
+   * documents at signup meets the identical form when they come back to finish,
+   * and the slot list, the number validation and the OCR feedback cannot drift
+   * apart between the two places they appear.
+   */
+  endpoint?: 'signup' | 'account';
   /** Fires with the slots still outstanding, so the parent can gate its button. */
   onMissingChange: (missing: DocSlot[]) => void;
   /** Slots the parent wants marked, after a blocked submit. */
   highlight?: readonly DocSlot[];
+  /** Fires after any successful upload, with whatever the endpoint returned. */
+  onUploaded?: (body: unknown) => void;
 }
 
 /**
@@ -85,10 +103,13 @@ export function AccountDocuments({
   accountType,
   category,
   phone,
+  endpoint = 'signup',
   onMissingChange,
   highlight,
+  onUploaded,
 }: AccountDocumentsProps): React.JSX.Element {
   const slots = requiredDocuments(accountType, category);
+  const basePath = endpoint === 'account' ? '/api/account/documents' : '/api/signup/documents';
   const [state, setState] = useState<Record<string, SlotState>>({});
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   /** A file chosen before its number was valid; uploaded as soon as it is. */
@@ -110,7 +131,7 @@ export function AccountDocuments({
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch('/api/signup/documents', { credentials: 'include' });
+        const res = await fetch(basePath, { credentials: 'include' });
         if (!res.ok) return;
         const body = (await res.json()) as {
           documents: Array<{
@@ -149,7 +170,7 @@ export function AccountDocuments({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [basePath]);
 
   // Report upward on every change. The parent gates "create account" on this,
   // and the server refuses the same set independently.
@@ -174,11 +195,12 @@ export function AccountDocuments({
     const formData = new FormData();
     formData.append('file', file);
     formData.append('doc_slot', slot);
-    formData.append('phone', phone);
+    // Only the signup endpoint takes it; the account one reads the session.
+    if (phone) formData.append('phone', phone);
     if (documentNo) formData.append('document_no', documentNo);
 
     try {
-      const res = await fetch('/api/signup/documents', {
+      const res = await fetch(basePath, {
         method: 'POST',
         body: formData,
         credentials: 'include',
@@ -200,6 +222,10 @@ export function AccountDocuments({
         ocrNote: verified ? '' : (body.ocr?.message ?? 'This document could not be verified.'),
       });
       pendingFiles.current[slot] = null;
+      // The account endpoint returns the recomputed verification state with the
+      // upload, so the warning banner can clear on this round trip rather than
+      // after a refetch the customer waits for.
+      onUploaded?.(body);
     } catch (err) {
       patchSlot(slot, {
         status: 'error',
@@ -262,7 +288,7 @@ export function AccountDocuments({
     pendingFiles.current[slot] = null;
     patchSlot(slot, { status: 'idle', fileName: '', error: '' });
     try {
-      await fetch(`/api/signup/documents/${slot}`, {
+      await fetch(`${basePath}/${slot}`, {
         method: 'DELETE',
         credentials: 'include',
       });

@@ -72,6 +72,23 @@ export const OPS_ORDERS_KEY = ['/api/ops/orders'] as const;
 export const OPS_USERS_KEY = ['/api/ops/users'] as const;
 export const OPS_PAYMENTS_KEY = ['/api/ops/payments'] as const;
 export const OPS_CANCELLATIONS_KEY = ['/api/ops/cancellations'] as const;
+export const OPS_VERIFICATIONS_KEY = ['/api/ops/verifications'] as const;
+
+/** A customer account that still owes documents. */
+export interface OpsVerificationRow {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  account_type: string;
+  company_name: string | null;
+  company_category: string | null;
+  created_at: string | null;
+  /** Required slots with nothing uploaded. */
+  missing: string[];
+  /** Uploaded, but OCR never confirmed them. */
+  unverified: string[];
+}
 
 export type OpsPaymentRange = 'today' | '7d';
 
@@ -231,6 +248,26 @@ export function useOpsCancellations() {
     queryFn: async () => {
       const res = await fetch('/api/ops/cancellations', { credentials: 'include' });
       return readJson<{ cancellations: OpsPendingCancellation[]; count: number }>(res);
+    },
+    retry: false,
+    refetchOnMount: 'always',
+  });
+}
+
+/**
+ * Customers whose documents are outstanding.
+ *
+ * The only user-shaped query in ops. It exists because KYC_OPTIONAL lets a
+ * customer open an account without documents and offers them "contact the
+ * Bombino team" as a way to finish — which needs someone at Bombino able to
+ * see who is waiting.
+ */
+export function useOpsVerifications() {
+  return useQuery({
+    queryKey: OPS_VERIFICATIONS_KEY,
+    queryFn: async () => {
+      const res = await fetch('/api/ops/verifications', { credentials: 'include' });
+      return readJson<{ accounts: OpsVerificationRow[]; count: number }>(res);
     },
     retry: false,
     refetchOnMount: 'always',

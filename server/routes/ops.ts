@@ -8,6 +8,11 @@
 
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
+import {
+  COMPANY_CATEGORIES,
+  verificationState,
+  type CompanyCategory,
+} from "../../shared/accountSpec.js";
 import { isIndiaHubId } from "../../shared/hubs.js";
 import {
   ORDER_STATUSES,
@@ -21,8 +26,13 @@ import {
   findActiveAgentById,
   findItdUserIdByPhone,
   insertStaffUser,
+  listCustomerAccounts,
   listStaffUsers,
 } from "../appDb.js";
+import {
+  listDocumentVerdictsForUserIds,
+  listDocumentsByUserId,
+} from "../accountDocsDb.js";
 import { getCodeForOwner, issueCode } from "../handoverCodes.js";
 import { notifyOrderTransition } from "../notify.js";
 import { availableActions } from "../orderLifecycle.js";
@@ -261,6 +271,99 @@ export function registerOpsRoutes(app: Express): void {
       });
 
       res.json({ order: updated });
+    }
+  );
+
+  // ── Verification queue ───────────────────────────────────────────────────
+  //
+  // The other half of "skip for now". A customer can open an account without
+  // documents and be told to either finish online or call us — and the second
+  // of those is meaningless unless somebody at Bombino can see who is
+  // outstanding and what they are missing. Nothing else in ops is
+  // customer-shaped, so this is that surface.
+
+  /** One outstanding account, as the queue lists it. */
+  type VerificationRow = {
+    id: string;
+    full_name: string;
+    phone: string | null;
+    email: string | null;
+    account_type: string;
+    company_name: string | null;
+    company_category: string | null;
+    created_at: string | null;
+    missing: string[];
+    unverified: string[];
+  };
+
+  // GET /api/ops/verifications — customers who still owe documents
+  app.get(
+    "/api/ops/verifications",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (_req: Request, res: Response) => {
+      const accounts = await listCustomerAccounts();
+      if (accounts === null) {
+        res.status(502).json({ message: "Could not load accounts" });
+        return;
+      }
+
+      const verdicts = await listDocumentVerdictsForUserIds(accounts.map((a) => a.id));
+
+      const outstanding: VerificationRow[] = [];
+      for (const account of accounts) {
+        const accountType = account.account_type === "company" ? "company" : "personal";
+        const category =
+          accountType === "company" &&
+          account.company_category &&
+          (COMPANY_CATEGORIES as readonly string[]).includes(account.company_category)
+            ? (account.company_category as CompanyCategory)
+            : null;
+
+        const state = verificationState(
+          accountType,
+          category,
+          verdicts.get(account.id) ?? []
+        );
+        if (state.verified) continue;
+
+        outstanding.push({
+          ...account,
+          missing: state.missing,
+          unverified: state.unverified,
+        });
+      }
+
+      res.set("Cache-Control", "no-store");
+      res.json({ accounts: outstanding, count: outstanding.length });
+    }
+  );
+
+  // GET /api/ops/verifications/:userId/documents — what this customer has sent.
+  //
+  // Metadata plus the capability ids, never the bytes: the file itself is
+  // served by GET /api/account/documents/:id/file, which is deliberately
+  // unauthenticated so ITD can fetch it. That endpoint being open is exactly
+  // why *this* one has to be role-gated — it is what hands the ids out.
+  app.get(
+    "/api/ops/verifications/:userId/documents",
+    requireUser,
+    requireRole("admin", "super_admin"),
+    async (req: Request, res: Response) => {
+      const rows = await listDocumentsByUserId(req.params.userId);
+      res.set("Cache-Control", "no-store");
+      res.json({
+        documents: rows.map((row) => ({
+          doc_slot: row.doc_slot,
+          capability_id: row.capability_id,
+          document_no: row.document_no,
+          original_filename: row.original_filename,
+          mime_type: row.mime_type,
+          file_size_bytes: row.file_size_bytes,
+          updated_at: row.updated_at,
+          ocr_status: row.ocr_status,
+        })),
+      });
     }
   );
 

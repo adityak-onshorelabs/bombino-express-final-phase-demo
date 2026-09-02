@@ -44,6 +44,14 @@ import { BottomNav } from '@/components/BottomNav';
 import { KycUpload } from '@/components/KycUpload';
 import { KycOnFileCard } from '@/components/KycOnFileCard';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
+import { AccountDocuments } from '@/components/AccountDocuments';
+import {
+  publishVerificationState,
+  useVerificationState,
+  type VerificationState,
+} from '@/hooks/useVerificationState';
+import { useQueryClient } from '@tanstack/react-query';
+import type { CompanyCategory, DocSlot } from '@shared/accountSpec';
 
 function formatMemberSince(iso: string | undefined | null): string | null {
   if (!iso) return null;
@@ -76,6 +84,14 @@ export default function Profile() {
   const [isSavingUsername, setIsSavingUsername] = useState(false);
 
   const { data: kycOnFile } = useKycOnFile({ enabled: isLoggedIn });
+
+  // The document centre. This is where the standing warning banner sends a
+  // customer who skipped their documents at signup, and the only surface that
+  // can complete a whole document set — /api/kyc/upload takes one document and
+  // writes one row, which cannot express a two-to-six slot matrix.
+  const queryClient = useQueryClient();
+  const { data: verification } = useVerificationState({ enabled: isLoggedIn });
+  const [, setOutstandingDocs] = useState<DocSlot[]>([]);
 
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -400,30 +416,76 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Identity document (KYC) */}
-            <div
-              id="kyc"
-              className="bg-white rounded-2xl border border-border p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-3"
-              data-testid="profile-kyc-section"
-            >
-              <div>
-                <h3 className="text-sm font-semibold text-foreground">Identity document</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Required for Indian customs. Upload once — reused on every shipment.
+            {/* Account documents — the completion path for a skipped signup.
+                Rendered only while something is outstanding: a verified account
+                has no business being shown an upload form it does not need. */}
+            {verification && !verification.verified && (
+              <div
+                id="documents"
+                className="bg-white rounded-2xl border border-amber-200 p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-3"
+                data-testid="profile-documents-section"
+              >
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Finish verifying your account
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Indian customs requires these before we can dispatch a parcel.
+                    Your orders are held until they are verified.
+                  </p>
+                </div>
+
+                <AccountDocuments
+                  accountType={verification.account_type}
+                  category={(verification.company_category as CompanyCategory | null) ?? null}
+                  endpoint="account"
+                  onMissingChange={setOutstandingDocs}
+                  onUploaded={(body) => {
+                    // The endpoint returns the recomputed state, so the banner
+                    // clears on this round trip instead of after a refetch.
+                    const state = (body as { verification?: VerificationState })?.verification;
+                    if (state) publishVerificationState(queryClient, state);
+                  }}
+                />
+
+                <p className="text-xs text-muted-foreground">
+                  Would rather hand these over in person?{' '}
+                  <a
+                    href="https://api.whatsapp.com/send?phone=917045999553"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold text-primary underline underline-offset-2"
+                    data-testid="link-documents-contact-team"
+                  >
+                    Message the Bombino team
+                  </a>{' '}
+                  and we will take them from there.
                 </p>
               </div>
-              {kycOnFile && (
-                <>
-                  <KycOnFileCard kyc={kycOnFile} />
-                  <p className="text-xs text-muted-foreground">
-                    Replace your document below if your details have changed.
+            )}
+
+            {/* Identity document (KYC)
+                Replaces the document already on file. An account that has none
+                has nothing to replace — its path is the checklist above, whose
+                Aadhaar is mirrored into kyc_documents on upload — so the card
+                simply is not drawn. Company accounts never hold one either. */}
+            {kycOnFile && (
+              <div
+                id="kyc"
+                className="bg-white rounded-2xl border border-border p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-3"
+                data-testid="profile-kyc-section"
+              >
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Identity document</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    On file and sent with every shipment for Indian customs. Replace it
+                    below only if your details have changed.
                   </p>
-                </>
-              )}
-              {/* Rendered unconditionally so the upload card keeps its state
-                  when a document lands and the summary appears above it. */}
-              <KycUpload />
-            </div>
+                </div>
+                <KycOnFileCard kyc={kycOnFile} />
+                <KycUpload />
+              </div>
+            )}
 
             {/* Support card */}
             <div className="bg-white rounded-2xl border border-border divide-y divide-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">

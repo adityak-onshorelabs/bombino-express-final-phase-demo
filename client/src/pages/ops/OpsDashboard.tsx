@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   useOpsCancellations,
+  useOpsVerifications,
   useOpsOrders,
   useOpsPayments,
   type OpsBoardOrder,
@@ -66,6 +67,7 @@ export default function OpsDashboard() {
   const ordersQuery = useOpsOrders();
   const moneyQuery = useOpsPayments('today');
   const cancellationsQuery = useOpsCancellations();
+  const verificationsQuery = useOpsVerifications();
 
   const orders = ordersQuery.data ?? [];
   const counts = useMemo(
@@ -96,6 +98,8 @@ export default function OpsDashboard() {
   const totals = moneyQuery.data?.totals;
   const cancellations = cancellationsQuery.data?.cancellations ?? [];
   const cancelCount = cancellationsQuery.data?.count ?? 0;
+  const unverifiedAccounts = verificationsQuery.data?.accounts ?? [];
+  const unverifiedCount = verificationsQuery.data?.count ?? 0;
 
   return (
     <OpsShell title="Dashboard" subtitle="Overview" wide>
@@ -240,6 +244,63 @@ export default function OpsDashboard() {
                     {row.reason || 'No reason given'} · {formatIst(row.requested_at)}
                   </p>
                 </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Customers who opened an account without documents.
+          Their orders run normally right up to `generate_docket` and then
+          stop, so this list is the difference between "held, and someone is
+          chasing it" and a parcel sitting at the hub for reasons nobody can
+          see. It is also the other end of the "contact the Bombino team"
+          option the customer is offered. */}
+      <section
+        className="mt-5 rounded-2xl border border-border bg-white px-4 py-4"
+        data-testid="ops-dash-verifications"
+      >
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-xs font-semibold text-muted-foreground">
+            Unverified customers
+          </p>
+          <p
+            className="text-xs font-semibold tabular-nums"
+            data-testid="ops-dash-verification-count"
+          >
+            {unverifiedCount} outstanding
+          </p>
+        </div>
+        {verificationsQuery.isLoading && (
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mt-3" />
+        )}
+        {verificationsQuery.isError && (
+          <p className="text-sm text-red-600 mt-2">Could not load accounts.</p>
+        )}
+        {!verificationsQuery.isLoading &&
+          !verificationsQuery.isError &&
+          unverifiedAccounts.length === 0 && (
+            <p className="text-sm text-muted-foreground mt-3">
+              Every customer is verified
+            </p>
+          )}
+        {unverifiedAccounts.length > 0 && (
+          <ul className="mt-2 divide-y divide-border">
+            {unverifiedAccounts.map((row) => (
+              <li key={row.id} className="py-3">
+                <p className="font-extrabold text-foreground">
+                  {row.company_name || row.full_name || 'Unnamed account'}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {row.phone ? `+91 ${row.phone}` : 'No phone on file'}
+                  {' · '}
+                  {/* Missing and unverified read differently to whoever picks
+                      up the phone: one customer has sent nothing, the other
+                      sent something we could not read. */}
+                  {row.missing.length > 0 && `${row.missing.length} not sent`}
+                  {row.missing.length > 0 && row.unverified.length > 0 && ', '}
+                  {row.unverified.length > 0 && `${row.unverified.length} unreadable`}
+                </p>
               </li>
             ))}
           </ul>
