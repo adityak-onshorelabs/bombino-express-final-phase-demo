@@ -1,5 +1,13 @@
--- Ops document intake: accounts that opened without KYC, and documents that
--- reach Bombino through the hub rather than the app.
+-- Ops document intake: documents that reach Bombino through the hub rather
+-- than the app.
+--
+-- NOTE: this migration has been applied. The optional-KYC feature it was
+-- written alongside (KYC_OPTIONAL, server/kycOptional.ts) has since been
+-- removed — signup compels the full document set again — so itd_users
+-- kyc_deferred_at and kyc_verified_at are vestigial: nothing writes them and
+-- nothing reads them. They are left in place because dropping a column from
+-- a live table buys nothing here. The account_documents intake columns below
+-- are unaffected and still describe how a document arrives.
 --
 -- Additive only. No column is dropped, no existing row changes meaning, and
 -- every statement is idempotent — safe to re-run.

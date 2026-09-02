@@ -365,9 +365,9 @@ export interface DocumentVerdict {
  *
  * `bypassed` counts as verified, exactly as assertDocumentsStaged treats it:
  * OCR_BYPASS=1 means a flag said not to ask, and those files are stored
- * unchecked on purpose. Without this a staging environment — which is where
- * both OCR_BYPASS and KYC_OPTIONAL are actually used — would hold every order
- * at `generate_docket` forever and never clear the banner.
+ * unchecked on purpose. Without this a staging environment running that flag
+ * could not open an account at all, and would hold every order it had already
+ * taken at `generate_docket` forever.
  */
 export function verificationState(
   accountType: AccountKind,

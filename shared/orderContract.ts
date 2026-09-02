@@ -283,11 +283,11 @@ export function hasOpenCancellationRequest(order: Pick<Order, 'metadata' | 'stat
  * no DB reads (server/orderLifecycle.ts). It is refreshed whenever a document
  * lands, so a stale `false` costs a refresh and never a wrong docket.
  *
- * **Absent reads as verified.** Every order booked before KYC_OPTIONAL existed
- * belongs to an account that could not have been created without complete,
- * verified documents — that was the whole of the old gate. Defaulting those to
- * unverified would strand the entire existing book at `settled` on the day this
- * ships. Only an order explicitly stamped `false` is held.
+ * **Absent reads as verified.** An account cannot be created without a
+ * complete, verified document set, so an order carrying no stamp at all is one
+ * booked by an account that already satisfied the gate. Defaulting those to
+ * unverified would strand the entire existing book at `settled`. Only an order
+ * explicitly stamped `false` is held.
  */
 export function isKycHeld(order: Pick<Order, 'metadata'>): boolean {
   return order.metadata?.kyc_verified === false;

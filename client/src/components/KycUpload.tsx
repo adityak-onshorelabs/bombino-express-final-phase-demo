@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { CloudUpload, CheckCircle2, XCircle, Loader2, FileText, ChevronDown } from 'lucide-react';
+import { CloudUpload, CheckCircle2, XCircle, Loader2, FileText } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { publishKycOnFile, type KycOnFile } from '@/hooks/useKycOnFile';
 import { Label } from '@/components/ui/label';
@@ -29,29 +29,6 @@ interface KycUploadProps {
     document_no?: boolean;
     file?: boolean;
   };
-  /**
-   * Draw the card as an accordion: title and description always visible, the
-   * three fields behind a disclosure. Used where the document is not being
-   * demanded — a booking that can proceed without it — so the fields do not
-   * read as a wall of required inputs. Screens that already sit behind an
-   * explicit "add/update my document" action leave this off.
-   */
-  collapsible?: boolean;
-  /** Initial disclosure state when `collapsible`. Ignored otherwise. */
-  defaultOpen?: boolean;
-  /**
-   * Drive the disclosure from the parent. Pass with `onOpenChange` when a
-   * decision made outside this card has to open it — CreateShipment's "Add
-   * them now" on the defer prompt is exactly that. Omit to let the card own
-   * its own state.
-   */
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
-  /**
-   * Nothing on this screen forces the document. Drops the required markers,
-   * which are what made a skippable step look mandatory.
-   */
-  optional?: boolean;
 }
 
 type DocConfig = {
@@ -114,9 +91,9 @@ const OCR_SILENT = new Set(['match', 'skipped', 'bypassed']);
 const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB — must match kycUpload in server/routes.ts
 
-function StatusPill({ status, optional }: { status: UploadStatus; optional?: boolean }) {
+function StatusPill({ status }: { status: UploadStatus }) {
   const config: Record<UploadStatus, { label: string; className: string }> = {
-    idle:      { label: optional ? 'Not added' : 'Required', className: 'bg-muted text-muted-foreground' },
+    idle:      { label: 'Required', className: 'bg-muted text-muted-foreground' },
     pending:   { label: 'Selected',   className: 'bg-sky-100 text-sky-800' },
     uploading: { label: 'Uploading…', className: 'bg-amber-100 text-amber-700' },
     success:   { label: 'Uploaded',   className: 'bg-green-100 text-green-700' },
@@ -133,18 +110,7 @@ function StatusPill({ status, optional }: { status: UploadStatus; optional?: boo
 export function KycUpload({
   onValidChange = () => undefined,
   fieldErrors,
-  collapsible = false,
-  defaultOpen = true,
-  optional = false,
-  open: controlledOpen,
-  onOpenChange,
 }: KycUploadProps): React.JSX.Element {
-  const [uncontrolledOpen, setUncontrolledOpen] = useState(collapsible ? defaultOpen : true);
-  const open = !collapsible ? true : (controlledOpen ?? uncontrolledOpen);
-  const setOpen = (next: boolean): void => {
-    setUncontrolledOpen(next);
-    onOpenChange?.(next);
-  };
   const [selectedDocType, setSelectedDocType] = useState(KYC_DOCUMENT_TYPE);
   const [docNoRaw, setDocNoRaw] = useState('');
   const [docNoDisplay, setDocNoDisplay] = useState('');
@@ -372,13 +338,6 @@ export function KycUpload({
 
   const hasFieldError = !!fieldErrors?.document_no || !!fieldErrors?.file;
 
-  // A collapsed card cannot own an error the customer is being asked to fix,
-  // and CreateShipment's scroll-to-first-error looks for a field that is in
-  // the document. Open on the way in.
-  useEffect(() => {
-    if (hasFieldError) setOpen(true);
-  }, [hasFieldError]);
-
   const isDocNoValid = docConfig.validate(docNoRaw);
   const showDocNoError = fieldErrors?.document_no && !isDocNoValid;
   /** Pending = file selected, waiting for valid number — not a missing file for Continue validation */
@@ -399,53 +358,18 @@ export function KycUpload({
 
   return (
     <div className="bg-card rounded-xl border border-border p-4 shadow-sm space-y-4">
-      {collapsible ? (
-        <button
-          type="button"
-          onClick={() => setOpen(!open)}
-          aria-expanded={open}
-          aria-controls="kyc-details-fields"
-          className="w-full text-left"
-          data-testid="button-kyc-details-toggle"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <span className="text-sm font-semibold">
-                KYC Details {optional && (
-                  <span className="text-xs font-medium text-muted-foreground">(Optional)</span>
-                )}
-              </span>
-              {/* The consequence, stated where the choice is made. Skipping is
-                  not free — it moves the same conversation to the hub, later. */}
-              <p className="text-xs leading-relaxed text-muted-foreground mt-1">
-                Advised to add your KYC details now — it keeps customs moving. If you
-                skip, the hub will contact you for these details once your parcel
-                reaches the hub.
-              </p>
-            </div>
-            <ChevronDown
-              className={cn(
-                'w-4 h-4 shrink-0 mt-0.5 text-muted-foreground transition-transform duration-200',
-                open && 'rotate-180',
-              )}
-              aria-hidden
-            />
-          </div>
-        </button>
-      ) : (
-        <div className="flex items-center justify-between">
-          <Label className="text-sm font-semibold">KYC Details</Label>
-          <span className="text-[10px] text-muted-foreground">
-            {optional ? 'Optional' : 'Required for Indian customs'}
-          </span>
-        </div>
-      )}
+      <div className="flex items-center justify-between">
+        <Label className="text-sm font-semibold">KYC Details</Label>
+        <span className="text-[10px] text-muted-foreground">
+          Required for Indian customs
+        </span>
+      </div>
 
-      <div id="kyc-details-fields" className={cn('space-y-4', !open && 'hidden')}>
+      <div id="kyc-details-fields" className="space-y-4">
       {/* Document Type */}
       <div>
         <Label className="text-xs text-muted-foreground">
-          Document Type {!optional && <span className="text-red-400">*</span>}
+          Document Type <span className="text-red-400">*</span>
         </Label>
         <Select value={selectedDocType} onValueChange={resetForDocTypeChange}>
           <SelectTrigger className="mt-1">
@@ -464,7 +388,7 @@ export function KycUpload({
       {/* Document Number */}
       <div>
         <Label className="text-xs text-muted-foreground">
-          {docConfig.label} {!optional && <span className="text-red-400">*</span>}
+          {docConfig.label} <span className="text-red-400">*</span>
         </Label>
         <Input
           value={docNoDisplay}
@@ -497,9 +421,9 @@ export function KycUpload({
       <div>
         <div className="flex items-center justify-between mb-1">
           <Label className="text-xs text-muted-foreground">
-            {docConfig.label} Document {!optional && <span className="text-red-400">*</span>}
+            {docConfig.label} Document <span className="text-red-400">*</span>
           </Label>
-          <StatusPill status={uploadStatus} optional={optional} />
+          <StatusPill status={uploadStatus} />
         </div>
 
         <input

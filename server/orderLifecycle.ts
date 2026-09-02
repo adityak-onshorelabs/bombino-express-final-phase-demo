@@ -250,13 +250,13 @@ export const TRANSITIONS: readonly Transition[] = [
     // Irreversible in ITD. The double-fire guard is a DB-level precondition
     // (`awb_no IS NULL` in the UPDATE), not this check — M5 owns it.
     //
-    // The KYC half is the price of KYC_OPTIONAL. A customer who skipped their
-    // documents can book, be collected from, be weighed and settle — none of
-    // that is irreversible. This is, and a real docket carries the customer's
-    // identity number to Indian customs as `shipper_gstin_no`, derived from the
-    // very document they have not produced. So the hold sits here, at the last
-    // moment anything can still be undone, rather than at booking where it
-    // would cost the sale.
+    // The KYC half is the backstop behind the signup gate. Signup refuses to
+    // open an account without a complete, verified document set, so in the
+    // ordinary case this never fires — it catches the account whose document
+    // was later replaced or rejected. A real docket carries the customer's
+    // identity number to Indian customs as `shipper_gstin_no`, derived from
+    // that document, so the hold sits here, at the last moment anything can
+    // still be undone.
     guard: (order) => order.awb_no === null && !isKycHeld(order),
   },
 

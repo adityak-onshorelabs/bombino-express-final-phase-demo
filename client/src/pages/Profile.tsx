@@ -85,10 +85,10 @@ export default function Profile() {
 
   const { data: kycOnFile } = useKycOnFile({ enabled: isLoggedIn });
 
-  // The document centre. This is where the standing warning banner sends a
-  // customer who skipped their documents at signup, and the only surface that
-  // can complete a whole document set — /api/kyc/upload takes one document and
-  // writes one row, which cannot express a two-to-six slot matrix.
+  // The document centre. The only surface that can complete a whole document
+  // set — /api/kyc/upload takes one document and writes one row, which cannot
+  // express a two-to-six slot matrix. Used to replace a document that expired
+  // or was rejected.
   const queryClient = useQueryClient();
   const { data: verification } = useVerificationState({ enabled: isLoggedIn });
   const [, setOutstandingDocs] = useState<DocSlot[]>([]);

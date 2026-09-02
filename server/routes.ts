@@ -183,7 +183,6 @@ import {
   listDocumentsBySignupRef,
   upsertAccountDocument,
 } from "./accountDocsDb.js";
-import { isKycOptionalEnabled } from "./kycOptional.js";
 import {
   CONTRACT_VERSION,
   isValidSignature,
@@ -1055,14 +1054,7 @@ export async function registerRoutes(
    * assertDocumentsStaged, which still demands an OCR `match`.
    *
    * Runs before assertDocumentsStaged, mirroring the order on screen: the
-   * number first, the paper second — and waived by KYC_OPTIONAL on the same
-   * terms, for the same reason. The numbers are no longer a step of their own:
-   * each one is typed on the card of the document that has to carry it. A
-   * personal customer who skips that step therefore types neither, so demanding
-   * them here would refuse every skipped signup while assertDocumentsStaged
-   * waved it through — the flag would be on and nothing could be skipped.
-   *
-   * Company accounts are untouched, exactly as with the document set.
+   * number first, the paper second.
    */
   async function assertIdentityVerified(
     req: Request,
@@ -1071,8 +1063,6 @@ export async function registerRoutes(
     category: CompanyCategory | null,
     accountName: string
   ): Promise<boolean> {
-    if (accountType === "personal" && isKycOptionalEnabled()) return true;
-
     const required = requiredIdentityChecks(accountType, category);
     if (required.length === 0) return true;
 
@@ -1159,18 +1149,6 @@ export async function registerRoutes(
     }
     return check;
   }
-
-  // GET /api/signup/config — what the signup form is allowed to offer.
-  //
-  // Unauthenticated on purpose: the form that reads it runs before an account
-  // exists. It discloses one boolean about this deployment's policy, nothing
-  // about any person. The client uses it only to decide whether to render
-  // "Skip for now" — the server re-checks its own flag either way, so a client
-  // that lies about it gains nothing.
-  app.get("/api/signup/config", (_req: Request, res: Response) => {
-    res.set("Cache-Control", "no-store");
-    res.json({ kyc_optional: isKycOptionalEnabled() });
-  });
 
   // POST /api/signup/documents — stage one document of an in-flight signup
   app.post(
@@ -1381,11 +1359,10 @@ export async function registerRoutes(
    * holds six. The two are not interchangeable, so a personal Aadhaar has to
    * exist in both.
    *
-   * Called from two places now — at signup, and again from the document centre
-   * when a customer who skipped comes back to finish. Non-fatal by design in
-   * both: the document is safe in `account_documents` either way and the
-   * customer can re-upload, so losing an account (or a 200) over the copy would
-   * be the worse trade.
+   * Called from two places — at signup, and again from the document centre when
+   * a document is replaced. Non-fatal by design in both: the document is safe
+   * in `account_documents` either way and the customer can re-upload, so losing
+   * an account (or a 200) over the copy would be the worse trade.
    */
   async function mirrorAadhaarToKyc(
     userId: string,
@@ -1464,23 +1441,9 @@ export async function registerRoutes(
       ])
     );
 
-    // KYC_OPTIONAL waives the gate for personal accounts only — a corporate
-    // account still produces its four to six documents before it opens. See
-    // server/kycOptional.ts for the whole of the policy; the enforcement it
-    // trades away reappears on `generate_docket` in server/orderLifecycle.ts.
-    //
-    // What it waives is "you must have all of them, and they must be read":
-    // the two refusals below. It does NOT waive the outdated-number check at
-    // the end, which is about the honesty of a document that is here rather
-    // than the completeness of the set. Skipping is permitted; claiming a card
-    // uploaded for a number the customer has since replaced is not, and the
-    // check costs nothing on a signup that staged nothing — there is no row
-    // for it to look at.
-    const waived = accountType === "personal" && isKycOptionalEnabled();
-
     const { missing, unverified } = verificationState(accountType, category, staged);
 
-    if (!waived && missing.length > 0) {
+    if (missing.length > 0) {
       res.status(400).json({
         message: `Please upload: ${missing.map((s) => DOC_SLOT_SPECS[s].label).join(", ")}`,
         missing_documents: missing,
@@ -1494,15 +1457,14 @@ export async function registerRoutes(
     // document nobody has checked.
     //
     // This makes verification load-bearing: while the readers are unreachable,
-    // no account can open. That is the deliberate trade, and the one thing
-    // KYC_OPTIONAL suspends — for personal accounts, above.
+    // no account can open. That is the deliberate trade.
     //
     // Which slots that covers, and why `bypassed` passes, is decided once in
     // verificationState (shared/accountSpec.ts) so this gate, the customer's
     // banner and the docket guard cannot answer differently. Note the GST
     // certificate IS covered: Cashfree has no OCR type for one, but
     // server/gstCertificate.ts reads it and writes a real verdict.
-    if (!waived && unverified.length > 0) {
+    if (unverified.length > 0) {
       res.status(422).json({
         message:
           `We could not verify your ${unverified
@@ -1645,11 +1607,12 @@ export async function registerRoutes(
   // ── The document centre: finishing verification after the account exists ──
   //
   // Twins of the three /api/signup/documents endpoints, keyed on user_id
-  // instead of the session's signupRef. They exist because a customer who
-  // skipped under KYC_OPTIONAL has to be able to come back and finish, and
-  // /api/kyc/upload cannot do it: that endpoint writes one row to
-  // kyc_documents, and a document set is two slots for a personal account and
-  // up to six for a corporate one.
+  // instead of the session's signupRef. Signup compels the whole set, so an
+  // account arrives here verified — these exist for what happens afterwards: a
+  // document replaced because it expired or was rejected, and an intake taken
+  // by staff at the hub. /api/kyc/upload cannot do either: that endpoint writes
+  // one row to kyc_documents, and a document set is two slots for a personal
+  // account and up to six for a corporate one.
   //
   // The upload rules are identical to signup's — same OCR policy, same
   // refusals. Only the owner column and the authorisation differ (a session
@@ -1966,8 +1929,9 @@ export async function registerRoutes(
     // stays the one KYC document of record; account_documents is the
     // onboarding file, not a second source of truth for customs.
     //
-    // Absent when the customer skipped the document step under KYC_OPTIONAL.
-    // The mirror then runs later, from the document centre, on the same helper.
+    // Present in the ordinary case — signup refuses without it. Guarded anyway
+    // rather than asserted: if it ever is absent, the document centre runs the
+    // same mirror on the same helper later.
     const aadhaar = req.session.signupRef
       ? await getSignupDocumentWithFile(req.session.signupRef, "aadhaar_card")
       : null;
@@ -3450,8 +3414,8 @@ export async function registerRoutes(
     // and refreshed by refreshKycVerifiedOnOpenOrders when a document lands.
     //
     // A failure to read it stamps `true`: the alternative is holding an order
-    // because Supabase blipped during booking, which is a worse answer than the
-    // one the pre-KYC_OPTIONAL system gave.
+    // because Supabase blipped during booking, and signup already refused to
+    // open this account without its documents.
     const bookingShape = await accountShapeFor(req.session.dbUserId);
     const bookingKyc = await getVerificationState(
       req.session.dbUserId,

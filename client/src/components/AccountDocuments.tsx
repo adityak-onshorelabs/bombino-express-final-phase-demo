@@ -124,10 +124,10 @@ interface AccountDocumentsProps {
    *                                     authorised by a recently verified phone
    *   account  /api/account/documents — owned by the signed-in user
    *
-   * The two are deliberately the same component. A customer who skipped their
-   * documents at signup meets the identical form when they come back to finish,
-   * and the slot list, the number validation and the OCR feedback cannot drift
-   * apart between the two places they appear.
+   * The two are deliberately the same component. A customer replacing a
+   * document after the account is open meets the identical form they met at
+   * signup, and the slot list, the number validation and the OCR feedback
+   * cannot drift apart between the two places they appear.
    *
    * The difference is where the typed number is proved. On `signup` it is
    * recorded first, through /api/signup/identity/*, and the upload is judged

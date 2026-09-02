@@ -257,10 +257,9 @@ export function useOpsCancellations() {
 /**
  * Customers whose documents are outstanding.
  *
- * The only user-shaped query in ops. It exists because KYC_OPTIONAL lets a
- * customer open an account without documents and offers them "contact the
- * Bombino team" as a way to finish — which needs someone at Bombino able to
- * see who is waiting.
+ * The only user-shaped query in ops. A document can be rejected or fall out of
+ * date after the account is open, and the customer is told to contact the
+ * Bombino team — which needs someone at Bombino able to see who is waiting.
  */
 export function useOpsVerifications() {
   return useQuery({

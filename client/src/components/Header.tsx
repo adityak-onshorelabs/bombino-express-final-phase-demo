@@ -2,7 +2,6 @@ import { Menu, Bell } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { TopBar } from '@/components/TopBar';
-import { VerificationBanner } from '@/components/VerificationBanner';
 import { useUnreadNotificationCount } from '@/hooks/useCustomerOrders';
 
 interface HeaderProps {
@@ -28,7 +27,6 @@ export function Header({ onMenuClick }: HeaderProps) {
       // guard. Desktop gets its copy from AppLayout.
       below={
         <div className="md:hidden">
-          <VerificationBanner />
         </div>
       }
       left={
