@@ -1055,7 +1055,14 @@ export async function registerRoutes(
    * assertDocumentsStaged, which still demands an OCR `match`.
    *
    * Runs before assertDocumentsStaged, mirroring the order on screen: the
-   * number first, the paper second.
+   * number first, the paper second — and waived by KYC_OPTIONAL on the same
+   * terms, for the same reason. The numbers are no longer a step of their own:
+   * each one is typed on the card of the document that has to carry it. A
+   * personal customer who skips that step therefore types neither, so demanding
+   * them here would refuse every skipped signup while assertDocumentsStaged
+   * waved it through — the flag would be on and nothing could be skipped.
+   *
+   * Company accounts are untouched, exactly as with the document set.
    */
   async function assertIdentityVerified(
     req: Request,
@@ -1064,6 +1071,8 @@ export async function registerRoutes(
     category: CompanyCategory | null,
     accountName: string
   ): Promise<boolean> {
+    if (accountType === "personal" && isKycOptionalEnabled()) return true;
+
     const required = requiredIdentityChecks(accountType, category);
     if (required.length === 0) return true;
 
@@ -1459,11 +1468,19 @@ export async function registerRoutes(
     // account still produces its four to six documents before it opens. See
     // server/kycOptional.ts for the whole of the policy; the enforcement it
     // trades away reappears on `generate_docket` in server/orderLifecycle.ts.
-    if (accountType === "personal" && isKycOptionalEnabled()) return stagedBySlot;
+    //
+    // What it waives is "you must have all of them, and they must be read":
+    // the two refusals below. It does NOT waive the outdated-number check at
+    // the end, which is about the honesty of a document that is here rather
+    // than the completeness of the set. Skipping is permitted; claiming a card
+    // uploaded for a number the customer has since replaced is not, and the
+    // check costs nothing on a signup that staged nothing — there is no row
+    // for it to look at.
+    const waived = accountType === "personal" && isKycOptionalEnabled();
 
     const { missing, unverified } = verificationState(accountType, category, staged);
 
-    if (missing.length > 0) {
+    if (!waived && missing.length > 0) {
       res.status(400).json({
         message: `Please upload: ${missing.map((s) => DOC_SLOT_SPECS[s].label).join(", ")}`,
         missing_documents: missing,
@@ -1485,7 +1502,7 @@ export async function registerRoutes(
     // banner and the docket guard cannot answer differently. Note the GST
     // certificate IS covered: Cashfree has no OCR type for one, but
     // server/gstCertificate.ts reads it and writes a real verdict.
-    if (unverified.length > 0) {
+    if (!waived && unverified.length > 0) {
       res.status(422).json({
         message:
           `We could not verify your ${unverified
