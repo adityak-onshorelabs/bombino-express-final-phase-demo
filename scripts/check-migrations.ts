@@ -1,7 +1,7 @@
 /**
- * Read-only: report whether the onboarding, OCR and ops-intake migrations are
- * actually in the database, and whether what is there matches what the code
- * expects.
+ * Read-only: report whether the onboarding, OCR and guest-booking migrations
+ * are actually in the database, whether what is there matches what the code
+ * expects, and whether the optional-KYC schema has been reverted.
  *
  *   npx tsx --env-file=.env scripts/check-migrations.ts
  *
@@ -64,18 +64,16 @@ const OCR_COLUMNS = [
   "ocr_checked_at",
 ];
 
-/** add_ops_document_intake.sql — when an account deferred, and when it finished. */
-const ITD_USER_KYC_TIMESTAMPS = ["kyc_deferred_at", "kyc_verified_at"];
-
-/** add_ops_document_intake.sql — who put a document there, and who cleared it. */
-const OPS_INTAKE_COLUMNS = [
-  "uploaded_channel",
-  "uploaded_by",
-  "manual_review",
-  "reviewed_by",
-  "reviewed_at",
-  "review_note",
-];
+/**
+ * add_guest_orders.sql — the tables that may be owned by a guest instead of an
+ * account, and the column each one gains.
+ */
+const GUEST_OWNED_TABLES: Record<string, string[]> = {
+  orders: ["guest_ref", "guest_name", "guest_email", "guest_phone"],
+  addresses: ["guest_ref"],
+  payments: ["guest_ref"],
+  kyc_documents: ["guest_ref"],
+};
 
 const ACCOUNT_DOC_COLUMNS = [
   "id",
@@ -107,6 +105,27 @@ async function columnsOf(table: string): Promise<Map<string, string>> {
     [table]
   );
   return new Map(rows.map((r) => [r.column_name, r.data_type]));
+}
+
+/** null when the column is not there at all, which the caller reports separately. */
+async function isNullable(table: string, column: string): Promise<boolean | null> {
+  const { rows } = await client.query<{ is_nullable: string }>(
+    `SELECT is_nullable FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
+    [table, column]
+  );
+  if (rows.length === 0) return null;
+  return rows[0].is_nullable === "YES";
+}
+
+async function constraintExists(table: string, name: string): Promise<boolean> {
+  const { rows } = await client.query(
+    `SELECT 1 FROM pg_constraint con
+       JOIN pg_class rel ON rel.oid = con.conrelid
+      WHERE rel.relname = $1 AND con.conname = $2`,
+    [table, name]
+  );
+  return rows.length > 0;
 }
 
 async function tableExists(table: string): Promise<boolean> {
@@ -205,51 +224,78 @@ try {
     }
   }
 
-  console.log("\n── add_ops_document_intake.sql ─────────────────────────\n");
+  console.log("\n── revert_ops_document_intake.sql ─────────────────\n");
 
+  // The optional-KYC schema, which must be GONE. KYC_OPTIONAL was removed
+  // from the code and these columns were its record-keeping; one still here
+  // means revert_ops_document_intake.sql has not been run, and the schema
+  // still describes a state the application can no longer produce.
   if (itdUsers.size > 0) {
-    for (const col of ITD_USER_KYC_TIMESTAMPS) {
-      report(`itd_users.${col}`, itdUsers.has(col), itdUsers.get(col) ?? "");
+    for (const col of ["kyc_deferred_at", "kyc_verified_at"]) {
+      report(`itd_users.${col} is gone`, !itdUsers.has(col));
     }
   }
 
   if (hasAccountDocs) {
-    const opsCols = await columnsOf("account_documents");
-    for (const col of OPS_INTAKE_COLUMNS) {
-      report(`account_documents.${col}`, opsCols.has(col), opsCols.get(col) ?? "");
-    }
-
-    const opsIdx = await indexesOf("account_documents");
-    for (const name of [
-      "account_documents_awaiting_review_idx",
-      "account_documents_uploaded_channel_idx",
+    const docCols = await columnsOf("account_documents");
+    for (const col of [
+      "uploaded_channel",
+      "uploaded_by",
+      "manual_review",
+      "reviewed_by",
+      "reviewed_at",
+      "review_note",
     ]) {
-      report(`index ${name}`, opsIdx.has(name));
+      report(`account_documents.${col} is gone`, !docCols.has(col));
+    }
+  }
+
+  console.log("\n── add_guest_orders.sql ─────────────────────────────\n");
+
+  for (const [table, guestCols] of Object.entries(GUEST_OWNED_TABLES)) {
+    if (!(await tableExists(table))) {
+      report(`table ${table}`, false, "(cannot check its guest columns)");
+      continue;
+    }
+    const cols = await columnsOf(table);
+    for (const col of guestCols) {
+      report(`${table}.${col}`, cols.has(col), cols.get(col) ?? "");
     }
 
-    // uploaded_channel decides how a row reads back, so a CHECK that does not
-    // admit all three values turns an ops or hub intake into a 500 the first
-    // time staff use it.
-    const { rows: channel } = await client.query<{ def: string }>(
-      `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
-       WHERE conrelid = 'public.account_documents'::regclass AND contype = 'c'
-         AND pg_get_constraintdef(oid) ILIKE '%uploaded_channel%'`
-    );
-    console.log("");
-    if (channel.length === 0) {
-      report("uploaded_channel CHECK constraint", false);
-    } else {
-      for (const c of channel) {
-        const ok = ["customer", "ops", "hub"].every((v) => c.def.includes(`'${v}'`));
-        report("uploaded_channel CHECK admits customer, ops and hub", ok, c.def);
-      }
-    }
+    // The whole point of the migration: an order, address, payment or KYC row
+    // can exist without an account behind it. A user_id still marked NOT NULL
+    // means every guest booking fails at the insert.
+    const nullable = await isNullable(table, "user_id");
+    report(`${table}.user_id is nullable`, nullable === true, nullable === null ? "(no such column)" : "");
+  }
+
+  // Nullable on both sides would let a row exist owned by nobody — no
+  // consignor for a docket, and nobody to contact about a held parcel.
+  for (const [table, name] of [
+    ["orders", "orders_owner_present"],
+    ["orders", "orders_guest_contact_present"],
+    ["addresses", "addresses_owner_present"],
+    ["payments", "payments_owner_present"],
+    ["kyc_documents", "kyc_documents_owner_present"],
+  ] as const) {
+    report(`constraint ${name}`, await constraintExists(table, name));
+  }
+
+  for (const [table, name] of [
+    ["orders", "orders_guest_phone_unclaimed_idx"],
+    ["orders", "orders_guest_ref_idx"],
+    ["addresses", "addresses_guest_ref_idx"],
+    ["payments", "payments_guest_ref_idx"],
+    ["kyc_documents", "kyc_documents_guest_ref_key"],
+  ] as const) {
+    const idx = await indexesOf(table);
+    report(`index ${name}`, idx.has(name));
   }
 
   console.log(
     problems === 0
-      ? "\nAll four migrations are applied and match the code.\n"
-      : `\n${problems} item(s) missing — the migrations have not been fully applied.\n`
+      ? "\nSchema matches the code: compulsory-KYC migrations applied, optional-KYC schema reverted.\n"
+      : `\n${problems} item(s) wrong — a migration has not been applied, or revert_ops_document_intake.sql has not been run.\n`
   );
   process.exitCode = problems === 0 ? 0 : 1;
 } finally {

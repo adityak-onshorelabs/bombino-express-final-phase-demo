@@ -1063,7 +1063,9 @@ export async function registerRoutes(
     res: Response,
     accountType: "personal" | "company",
     category: CompanyCategory | null,
-    accountName: string
+    accountName: string,
+    /** What the customer is being refused, so the copy names the right thing. */
+    intent: "account" | "booking" = "account"
   ): Promise<boolean> {
     const required = requiredIdentityChecks(accountType, category);
     if (required.length === 0) return true;
@@ -1077,7 +1079,9 @@ export async function registerRoutes(
       res.status(422).json({
         message: `Please enter your ${missing
           .map((slot) => IDENTITY_CHECK_LABELS[slot])
-          .join(" and ")} before creating the account.`,
+          .join(" and ")} before ${
+          intent === "booking" ? "booking a shipment" : "creating the account"
+        }.`,
         unverified_identity: missing.map((slot) => IDENTITY_KIND_BY_SLOT[slot]),
       });
       return false;
@@ -3403,25 +3407,40 @@ export async function registerRoutes(
    * The only thing they skip is the account.
    */
   app.post("/api/orders", ensureDbUser, async (req: Request, res: Response) => {
-    // Who is booking. An account wins if both are somehow present: a signed-in
-    // customer with a stale guest ref in their session is an account booking.
-    const guestPhone = req.session.signupPhone;
-    const bookingAsGuest = !req.session.dbUserId && !!req.session.signupRef && !!guestPhone;
-
-    if (!req.session.dbUserId && !bookingAsGuest) {
-      res.status(401).json({
-        message: "Verify your phone number to book as a guest, or sign in.",
-        code: "GUEST_PHONE_UNVERIFIED",
-      });
-      return;
-    }
-
     const parsed = orderCreateSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid order payload" });
       return;
     }
     const body = parsed.data;
+
+    // Who is booking. An account wins when both could apply: a signed-in
+    // customer with a stale guest ref in their session is booking as themselves.
+    //
+    // A guest is authorised the way every pre-account endpoint is — by a
+    // recent OTP on the number they are booking under, checked here rather
+    // than taken on trust from the payload. This is the same test
+    // POST /api/auth/signup/personal applies before it opens an account.
+    //
+    // Deliberately NOT keyed on session.signupRef: that is minted by the first
+    // document upload, so keying on it would answer "verify your phone" to a
+    // guest whose phone is verified and whose real problem is that they have
+    // uploaded nothing yet. The KYC gates below say that properly.
+    const bookingAsGuest = !req.session.dbUserId;
+    const guestPhone = bookingAsGuest ? body.origin_address.phone.trim() : null;
+
+    if (bookingAsGuest) {
+      const verified =
+        !!guestPhone &&
+        (await hasRecentVerification(guestPhone, "auth", OTP_VERIFICATION_WINDOW_MINUTES));
+      if (!verified) {
+        res.status(401).json({
+          message: "Verify your phone number to book as a guest, or sign in.",
+          code: PHONE_UNVERIFIED,
+        });
+        return;
+      }
+    }
 
     // Authoritative pickup checks — coverage first, then the date, because a
     // pincode we do not serve has no cutoff worth quoting. The form applies
@@ -3468,14 +3487,33 @@ export async function registerRoutes(
     //
     // Both write their own refusal, so there is nothing to add here.
     if (bookingAsGuest) {
-      if (!(await assertIdentityVerified(req, res, "personal", null, body.origin_address.full_name))) {
+      if (
+        !(await assertIdentityVerified(
+          req,
+          res,
+          "personal",
+          null,
+          body.origin_address.full_name,
+          "booking"
+        ))
+      ) {
         return;
       }
       const staged = await assertDocumentsStaged(req, res, "personal", null, guestPhone!);
       if (!staged) return;
     }
 
+    // Only meaningful once the gates above have passed, which they cannot do
+    // without staged rows — and staged rows are what mint the ref. A guest who
+    // reaches here always has one.
     const guestRef = bookingAsGuest ? req.session.signupRef ?? null : null;
+    if (bookingAsGuest && !guestRef) {
+      res.status(422).json({
+        message: "Please add your identity documents before booking.",
+        code: PHONE_UNVERIFIED,
+      });
+      return;
+    }
 
     const originAddr = await findOrCreateAddress({
       user_id: req.session.dbUserId ?? null,
