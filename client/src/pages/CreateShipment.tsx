@@ -28,6 +28,7 @@ import { KycUpload, type KycUploadResult } from '@/components/KycUpload';
 import { KycOnFileCard } from '@/components/KycOnFileCard';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
 import { GuestVerification } from '@/components/GuestVerification';
+import { AccountDocuments } from '@/components/AccountDocuments';
 import type { DocSlot } from '@shared/accountSpec';
 import { ShipmentContentSearch } from '@/components/ShipmentContentSearch';
 import {
@@ -1596,45 +1597,32 @@ export default function CreateShipment() {
         <div className="lg:col-span-7 min-w-0">
         {currentStep === 1 && (
           <div className="space-y-4 animate-fade-in">
-            {/* First on the step, before the parcel is described.
+            {/* First on the step. Nothing else a guest does can be saved until
+                this passes — the endpoints that take their documents are
+                authorised by this OTP, not by a session — and the number proved
+                here is written into the sender field below, so it is typed once
+                rather than twice.
 
-                Two reasons, both about not wasting the customer's time. The
-                number is verified here and then carried into the sender field
-                below, so it is typed once rather than twice. And identity is
-                the one thing that can turn out to be a dead end — a document
-                they do not have to hand — so it is asked before four steps of
-                addresses and measurements, not after.
-
-                It renders instead of the account KYC card further down, not
-                beside it: the numbers and the files are asked for together,
-                one card per document. */}
+                Short on purpose. The documents are asked for further down,
+                after the address: a long form is easier to face once the
+                address behind it is settled. */}
             {guestMode && (
               <GuestVerification
                 onVerifiedPhoneChange={(verified) => {
                   setGuestVerifiedPhone(verified);
                   clearFieldError('guestPhone');
-                  // The number that authorised the booking is the number that
-                  // goes on it. Keeping them the same by construction is what
-                  // stops the server refusing a payload whose sender phone it
-                  // never verified.
                   if (verified) {
                     setSenderPhone(verified);
                     clearFieldError('senderPhone');
                   }
                 }}
-                onMissingDocsChange={(missing) => {
-                  setGuestMissingDocs(missing);
-                  if (missing.length === 0) clearFieldError('guestDocs');
-                }}
-                highlight={fieldErrors.guestDocs ? guestMissingDocs : undefined}
+                onReset={() => setGuestMissingDocs([])}
               />
             )}
 
-            {(fieldErrors.guestPhone || fieldErrors.guestDocs) && (
-              <p className="text-xs text-red-600" role="alert" data-testid="text-guest-kyc-error">
-                {fieldErrors.guestPhone
-                  ? 'Verify your phone number to carry on.'
-                  : 'Add your identity documents to carry on.'}
+            {fieldErrors.guestPhone && (
+              <p className="text-xs text-red-600" role="alert" data-testid="text-guest-phone-error">
+                Verify your phone number to carry on.
               </p>
             )}
 
@@ -1908,6 +1896,60 @@ export default function CreateShipment() {
                 </div>
               )}
             </div>
+
+            {/* The documents, in the same slot on the step where an account
+                holder meets their KYC card — after the address, so the long
+                form comes once the short answers are settled.
+
+                AccountDocuments in its `signup` mode, unchanged: it already
+                stages against a verified phone rather than a session, already
+                asks for each number beside the document that must carry it,
+                and already refuses a file that disagrees. A guest is an
+                in-flight signup that never reaches the account, so it is the
+                same form for the same reason — and a fix to either lands in
+                both. */}
+            {guestMode && (
+              guestVerifiedPhone ? (
+                <div className="space-y-2">
+                  <AccountDocuments
+                    accountType="personal"
+                    category={null}
+                    phone={guestVerifiedPhone}
+                    endpoint="signup"
+                    onMissingChange={(missing) => {
+                      setGuestMissingDocs(missing);
+                      if (missing.length === 0) clearFieldError('guestDocs');
+                    }}
+                    highlight={fieldErrors.guestDocs ? guestMissingDocs : undefined}
+                    // The staging endpoints are authorised by the OTP, which
+                    // lasts ten minutes. A document form takes longer than that
+                    // often enough to be ordinary, so send them back to the
+                    // code rather than letting every button fail the same way.
+                    onPhoneUnverified={() => {
+                      setGuestVerifiedPhone(null);
+                      setGuestMissingDocs([]);
+                    }}
+                  />
+                  {fieldErrors.guestDocs && (
+                    <p className="text-xs text-red-600" role="alert" data-testid="text-guest-docs-error">
+                      Add your identity documents to carry on.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                /* Stated rather than hidden. An empty gap here reads as a form
+                   that is still loading; this says what unlocks it. */
+                <div className="rounded-xl border border-dashed border-[#E2E8F0] bg-[#F3F4F6] px-4 py-3">
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    <span className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">
+                      Identity documents
+                    </span>{' '}
+                    — verify your number at the top of this step and we&rsquo;ll ask
+                    for them here.
+                  </p>
+                </div>
+              )
+            )}
 
             {/* Company accounts: nothing here. Identity was settled by GST at
                 signup — see A2. Personal accounts still need a document on

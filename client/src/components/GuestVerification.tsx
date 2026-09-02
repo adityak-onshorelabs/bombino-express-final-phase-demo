@@ -4,10 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
-import { AccountDocuments } from '@/components/AccountDocuments';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorMessage } from '@/lib/apiError';
-import type { DocSlot } from '@shared/accountSpec';
 
 const RESEND_COOLDOWN_SECONDS = 30;
 
@@ -18,38 +16,33 @@ interface GuestVerificationProps {
    * the order are the same by construction.
    */
   onVerifiedPhoneChange: (phone: string | null) => void;
-  /** Document slots still outstanding. Empty means the KYC set is complete. */
-  onMissingDocsChange: (missing: DocSlot[]) => void;
-  /** Set after a blocked Continue, to mark what is still needed. */
-  highlight?: readonly DocSlot[];
+  /**
+   * Called when a verified number is given up — changed, or its OTP expired.
+   * Whatever was staged belonged to that number, so the parent drops its view
+   * of the documents too rather than showing ticks for rows that are gone.
+   */
+  onReset: () => void;
 }
 
 /**
- * Everything a guest has to prove before they can book: their phone, then
- * their identity documents.
+ * The first half of what a guest has to prove: the phone number.
  *
- * Booking without an account is not booking without KYC. The server refuses a
- * guest order until every identity number is recorded and every required
- * document has been read — the same two gates that stand in front of account
- * creation, against the same staged rows. This component is the screen for
- * those gates, not a softer version of them.
+ * First on the Sender step, because everything else on the booking depends on
+ * it. The staging endpoints that take their documents are authorised by this
+ * OTP rather than by a session, so nothing can be uploaded until it passes,
+ * and the number proved here is written into the sender field below — typed
+ * once, not twice.
  *
- * Placed first on the Sender step. Identity is the one part of a booking that
- * can turn out to be a dead end — a document the customer does not have to
- * hand — and finding that out after four steps of addresses and measurements
- * is how a booking gets abandoned.
- *
- * The document half is `AccountDocuments` in its `signup` mode, unchanged.
- * That component already stages against a verified phone rather than a
- * session, already asks for each number beside the document that must carry
- * it, and already refuses a file that disagrees. A guest is an in-flight
- * signup that never reaches the account, so it is the same form for the same
- * reason — and a fix to either one lands in both.
+ * The documents themselves are asked for further down the step, after the
+ * address, by `AccountDocuments` in its `signup` mode. Kept apart deliberately:
+ * this card is short and always answerable, while the document form is long
+ * and needs the address settled first. Booking without an account is still not
+ * booking without KYC — the server refuses a guest order until both halves are
+ * done.
  */
 export function GuestVerification({
   onVerifiedPhoneChange,
-  onMissingDocsChange,
-  highlight,
+  onReset,
 }: GuestVerificationProps): React.JSX.Element {
   // Nothing to prefill from: this card is the first thing on the step, which
   // is the point — the number proved here is the one written into the sender
@@ -131,7 +124,7 @@ export function GuestVerification({
     setOtp('');
     setError('');
     setStep('phone');
-    onMissingDocsChange([]);
+    onReset();
   };
 
   return (
@@ -148,8 +141,9 @@ export function GuestVerification({
             Verify it&rsquo;s you
           </p>
           <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-            Indian customs needs an identity document for every shipment, so we ask
-            for the same details whether or not you open an account.
+            We&rsquo;ll send a 6-digit code. Indian customs needs an identity
+            document for every shipment, so we ask for the same details whether
+            or not you open an account.
           </p>
         </div>
       </div>
@@ -251,35 +245,19 @@ export function GuestVerification({
       )}
 
       {step === 'documents' && verifiedPhone && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between rounded-lg bg-[#F3F4F6] px-3 py-2">
-            <span className="text-xs text-[lab(34.0831_-9.57756_-27.7093)]">
-              <span className="font-semibold">+91 {verifiedPhone}</span> verified
-            </span>
-            <button
-              type="button"
-              onClick={handleEditPhone}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-[#2F4468] underline underline-offset-4"
-              data-testid="button-guest-edit-verified-phone"
-            >
-              <Pencil className="h-3 w-3" aria-hidden />
-              Change
-            </button>
-          </div>
-
-          <AccountDocuments
-            accountType="personal"
-            category={null}
-            phone={verifiedPhone}
-            endpoint="signup"
-            onMissingChange={onMissingDocsChange}
-            highlight={highlight}
-            // The staging endpoints are authorised by the OTP, which lasts ten
-            // minutes. Filling in a document form takes longer than that often
-            // enough to be ordinary, so send them back to the code rather than
-            // letting every button fail with the same message.
-            onPhoneUnverified={handleEditPhone}
-          />
+        <div className="flex items-center justify-between rounded-lg bg-[#F3F4F6] px-3 py-2">
+          <span className="text-xs text-[lab(34.0831_-9.57756_-27.7093)]">
+            <span className="font-semibold">+91 {verifiedPhone}</span> verified
+          </span>
+          <button
+            type="button"
+            onClick={handleEditPhone}
+            className="inline-flex items-center gap-1 text-xs font-semibold text-[#2F4468] underline underline-offset-4"
+            data-testid="button-guest-edit-verified-phone"
+          >
+            <Pencil className="h-3 w-3" aria-hidden />
+            Change
+          </button>
         </div>
       )}
 
