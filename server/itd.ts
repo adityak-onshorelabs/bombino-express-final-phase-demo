@@ -180,6 +180,7 @@ export interface AddCustomerPayload {
   city?: string;
   state?: string;
   contact_person?: string;
+  hub_id: number;
 }
 
 export interface AddCustomerResponse {
@@ -347,16 +348,14 @@ class ITDClient {
 
   // POST /api/customer_api/add_customer — registers a corporate customer with
   // ITD on company signup. Uses the shared company token, not a user token.
-  // hub_id/location_code default to Mumbai — the real assignment rule is an
-  // unresolved blocker (docs/final-phase/markdowns/final-phase-modules.md §8).
   async addCustomer(payload: AddCustomerPayload): Promise<AddCustomerResponse> {
     const token = await this.getToken();
-    const companyId = process.env.ITD_API_COMPANY_ID ?? "2";
+    const companyId = process.env.ITD_API_COMPANY_ID ?? "1";
 
     const form = new URLSearchParams({
       name: payload.name,
       customer_country: "IN",
-      location_code: "MUM", // TODO(A2): hub assignment rule unresolved, doc §8 blockers
+      location_code: "IN",
       customer_category: "Company",
       email: payload.email ?? "",
       contact_no: payload.contact_no,
@@ -366,7 +365,7 @@ class ITDClient {
       city: payload.city ?? "",
       state: payload.state ?? "",
       contact_person: payload.contact_person ?? payload.name,
-      hub_id: "1", // TODO(A2): hub assignment rule unresolved, doc §8 blockers — defaults to Mumbai
+      hub_id: String(payload.hub_id),
       company_id: companyId,
       gst_number: payload.gst_number,
       customer_setting: JSON.stringify({ show_kyc_after_login: 1, is_fsc_apply: 1 }),

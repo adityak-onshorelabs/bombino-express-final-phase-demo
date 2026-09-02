@@ -331,3 +331,67 @@ export const IDENTITY_CHECK_LABELS: Record<VerifiedDocSlot, string> = {
   pan_card: "PAN",
   gst_certificate: "GST",
 };
+/** One uploaded slot, reduced to the two facts a verdict depends on. */
+export interface DocumentVerdict {
+  doc_slot: string;
+  ocr_status: string | null;
+}
+
+/**
+ * Is this account's document set complete *and* verified?
+ *
+ * The single definition of "verified", shared by everything that has an opinion
+ * about it: the signup gate (assertDocumentsStaged), the customer's warning
+ * banner, the docket guard, and the ops queue. They cannot be allowed to
+ * disagree — a banner that clears while the docket guard still holds is a
+ * support ticket, and a signup that passes while the banner stays up is worse.
+ *
+ * Two ways to fall short, kept apart because they read differently to the
+ * customer:
+ *
+ *   missing     nothing was uploaded for that slot
+ *   unverified  something was, and the reader did not confirm it (a blurred
+ *               scan, or Cashfree unreachable). Note that a document which
+ *               actively *contradicted* the typed number never reaches storage
+ *               at all — that upload is refused. See server/cashfreeOcr.ts.
+ *
+ * Keyed on isVerifiedDocSlot, NOT isOcrCheckedSlot, and the difference is the
+ * GST certificate: Cashfree Smart OCR has no document type for one, so it is
+ * absent from OCR_SLOT_DOCUMENT_TYPES and would be treated as verified by its
+ * mere presence. It is not — server/gstCertificate.ts reads it locally and
+ * writes a real verdict. Keying on the Cashfree type would exempt exactly the
+ * one document a corporate account rests on. Slots nothing reads at all
+ * (bills, IEC and authorization letters) are verified by presence.
+ *
+ * `bypassed` counts as verified, exactly as assertDocumentsStaged treats it:
+ * OCR_BYPASS=1 means a flag said not to ask, and those files are stored
+ * unchecked on purpose. Without this a staging environment — which is where
+ * both OCR_BYPASS and KYC_OPTIONAL are actually used — would hold every order
+ * at `generate_docket` forever and never clear the banner.
+ */
+export function verificationState(
+  accountType: AccountKind,
+  category: CompanyCategory | null | undefined,
+  documents: readonly DocumentVerdict[]
+): { verified: boolean; missing: DocSlot[]; unverified: DocSlot[] } {
+  const required = requiredDocuments(accountType, category);
+  const bySlot = new Map(documents.map((row) => [row.doc_slot, row]));
+
+  const missing: DocSlot[] = [];
+  const unverified: DocSlot[] = [];
+
+  for (const slot of required) {
+    const row = bySlot.get(slot);
+    if (!row) {
+      missing.push(slot);
+    } else if (
+      isVerifiedDocSlot(slot) &&
+      row.ocr_status !== "match" &&
+      row.ocr_status !== "bypassed"
+    ) {
+      unverified.push(slot);
+    }
+  }
+
+  return { verified: missing.length === 0 && unverified.length === 0, missing, unverified };
+}

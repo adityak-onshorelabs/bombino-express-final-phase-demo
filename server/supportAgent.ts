@@ -7,21 +7,21 @@ import fs from "fs";
 import path from "path";
 import OpenAI from "openai";
 import { getRecentShipmentsByUserId } from "./appDb.js";
-import { itdClient } from "./itd";
-import type { ITDTrackingResult } from "./itd";
-import { guidance, escalation } from "./supportContent";
-import type { GuidanceKey } from "./supportContent";
+import { itdClient } from "./itd.js";
+import type { ITDTrackingResult } from "./itd.js";
+import { guidance, escalation } from "./supportContent.js";
+import type { GuidanceKey } from "./supportContent.js";
 import type {
   SupportChatContext,
   TrackingSummary,
   TrackingSummaryLastEvent,
-} from "./supportTypes";
+} from "./supportTypes.js";
 import {
   SUPPORT_TRACKING_NO_MAX_LENGTH,
   type ChatMessage,
   type GetRatesArgs,
   type GetTrackingSummaryArgs,
-} from "./supportTypes";
+} from "./supportTypes.js";
 
 // ─── Fallback strings (never expose internal errors) ───────────────────────────
 

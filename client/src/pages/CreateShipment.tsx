@@ -27,6 +27,7 @@ import { AddressPicker, type SavedAddress } from '@/components/AddressPicker';
 import { KycUpload, type KycUploadResult } from '@/components/KycUpload';
 import { KycOnFileCard } from '@/components/KycOnFileCard';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
+import { useSignupConfig } from '@/hooks/useSignupConfig';
 import { ShipmentContentSearch } from '@/components/ShipmentContentSearch';
 import {
   DimensionPresetSheet,
@@ -534,9 +535,42 @@ export default function CreateShipment() {
   const isCompanyAccount = user?.account_type === 'company';
   const kycRequired = !isCompanyAccount;
 
+  // Whether this deployment still compels a document before booking.
+  //
+  // With KYC_OPTIONAL on, a personal account can exist without one, and
+  // blocking here would strand exactly the customers the flag was added for:
+  // no kyc_documents row is ever written for a skipped signup, so the block
+  // would be permanent rather than a prompt. The requirement has not gone
+  // away, it has moved — an order cannot be docketed while the account behind
+  // it is unverified (server/orderLifecycle.ts). So this screen asks, and the
+  // standing banner keeps asking, but neither refuses.
+  const { data: signupConfig } = useSignupConfig();
+  const kycOptional = signupConfig?.kyc_optional === true;
+  const kycBlocksBooking = kycRequired && !kycOptional;
+
   // Personal customers with a document already on file are not re-prompted;
   // they can opt into replacing it.
   const [showKycUpdate, setShowKycUpdate] = useState(false);
+
+  // An explicit "not now" on the identity document.
+  //
+  // Nothing here blocks the booking either way, so this is not a gate. It
+  // exists so the choice is made once, deliberately, instead of the customer
+  // scrolling past an upload field and never being told what that costs. The
+  // acknowledgement is what earns the right to state the consequence plainly
+  // on the review screen.
+  const [kycDeferred, setKycDeferred] = useState(false);
+  const [showKycDeferConfirm, setShowKycDeferConfirm] = useState(false);
+  /** The prompt was raised by Continue, not by the link under the card. Decides
+   *  what each answer does: confirming carries on to step 2, declining opens
+   *  the card the customer just walked past. */
+  const [deferFromContinue, setDeferFromContinue] = useState(false);
+  /** Disclosure state of the KYC card, held here so "Add them now" can open it. */
+  const [kycSectionOpen, setKycSectionOpen] = useState(false);
+  const kycSectionRef = useRef<HTMLDivElement>(null);
+
+  /** No verified document is going with this booking. */
+  const bookingWithoutKyc = kycRequired && !kycOnFile && !kycResult;
 
   // ── Product Type ───────────────────────────────────────────────────────
   // Partitioned by account type, because the two halves are different customs
@@ -1107,11 +1141,20 @@ export default function CreateShipment() {
       if (!senderCity.trim()) e.senderCity = true;
       if (!senderState.trim()) e.senderState = true;
       if (!senderZip.trim()) e.senderZip = true;
-      if (kycRequired && !kycOnFile && !kycResult) e.kycMissing = true;
+      if (kycBlocksBooking && !kycOnFile && !kycResult) e.kycMissing = true;
       if (pickupRequest === '1' && !pickupDate) e.pickupDate = true;
       if (Object.keys(e).length) {
         setFieldErrors(e);
         scrollToFirstError();
+        return;
+      }
+      // Nothing on this step refuses a booking without the document, so
+      // Continue is where the choice is actually made. Ask once, plainly,
+      // instead of letting the customer discover the cost at the hub.
+      // `kycDeferred` means the question has already been answered.
+      if (kycOptional && kycRequired && !kycOnFile && !kycResult && !kycDeferred) {
+        setDeferFromContinue(true);
+        setShowKycDeferConfirm(true);
         return;
       }
     }
@@ -1425,6 +1468,7 @@ export default function CreateShipment() {
           <h1 className="ml-2 font-semibold text-sm">Create Shipment</h1>
         </div>
       </header>
+
 
       {/* Desktop title bar — Booking eyebrow + H1 + segmented stepper */}
       <div className="hidden md:block bg-background border-b border-[#E2E8F0]/60">
@@ -1810,14 +1854,62 @@ export default function CreateShipment() {
                   </button>
                   {showKycUpdate && <KycUpload onValidChange={setKycResult} />}
                 </div>
+              ) : kycDeferred ? (
+                /* The choice, once made, stated back plainly and reversible in
+                   one tap. Quiet on purpose: this is step one of four, and the
+                   consequence gets its say on the review screen, where the
+                   customer is actually committing. */
+                <div className="rounded-xl border border-[#E2E8F0] bg-[#F3F4F6] px-3.5 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-xs leading-relaxed text-[#64748B]">
+                      <span className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">
+                        Booking without KYC details.
+                      </span>{' '}
+                      You can add them later from your profile.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setKycDeferred(false)}
+                      className="shrink-0 text-xs font-semibold text-[#2F4468] underline underline-offset-4"
+                      data-testid="button-kyc-add-now"
+                    >
+                      Add now
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <KycUpload
-                  onValidChange={setKycResult}
-                  fieldErrors={{
-                    document_no: !!fieldErrors.kycMissing,
-                    file: !!fieldErrors.kycMissing,
-                  }}
-                />
+                <div className="space-y-3" ref={kycSectionRef}>
+                  {/* Collapsed for an account that has never given a document
+                      and is not being forced to now — the customer meets a
+                      title, the reason and a way in, not three inputs marked
+                      required. Where the document IS the gate (KYC_OPTIONAL
+                      off) the card opens on arrival, as before. */}
+                  <KycUpload
+                    onValidChange={setKycResult}
+                    collapsible={kycOptional}
+                    defaultOpen={!kycOptional}
+                    optional={kycOptional}
+                    open={kycOptional ? kycSectionOpen : undefined}
+                    onOpenChange={setKycSectionOpen}
+                    fieldErrors={{
+                      document_no: !!fieldErrors.kycMissing,
+                      file: !!fieldErrors.kycMissing,
+                    }}
+                  />
+                  {/* Subtle here by design. Nothing on this step forces the
+                      document, so the way past it should be findable without
+                      being advertised. */}
+                  {kycOptional && (
+                    <button
+                      type="button"
+                      onClick={() => setShowKycDeferConfirm(true)}
+                      className="inline-flex min-h-11 items-center text-xs font-semibold text-[#64748B] underline decoration-[#64748B]/30 underline-offset-4 transition-colors duration-150 hover:text-[#2F4468] hover:decoration-[#2F4468]"
+                      data-testid="button-book-without-kyc"
+                    >
+                      Book without KYC details
+                    </button>
+                  )}
+                </div>
               )
             )}
 
@@ -3097,6 +3189,76 @@ export default function CreateShipment() {
 
       <BottomNav />
 
+      {/* Confirming the deferral, not warning about it.
+          Short, because the decision is small and reversible, and because the
+          screen that matters for this is the review one. It says what will be
+          needed and when, then gets out of the way. */}
+      {showKycDeferConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={() => {
+            setShowKycDeferConfirm(false);
+            setDeferFromContinue(false);
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            data-testid="modal-kyc-defer"
+          >
+            <h3 className="font-semibold text-base text-[lab(34.0831_-9.57756_-27.7093)]">
+              Book without KYC details?
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed text-[#64748B]">
+              You can complete the booking now. We will still need your identity
+              document before the parcel can be dispatched, and Indian customs
+              requires it on every shipment. Add it any time from your profile.
+            </p>
+
+            <div className="mt-5 flex flex-col gap-2">
+              <Button
+                type="button"
+                onClick={() => {
+                  setKycDeferred(true);
+                  setShowKycDeferConfirm(false);
+                  clearFieldError('kycMissing');
+                  // Raised by Continue — honour the press that opened it.
+                  if (deferFromContinue) {
+                    setDeferFromContinue(false);
+                    goToStep(2);
+                  }
+                }}
+                className="w-full h-11 bg-[lab(34.0831_-9.57756_-27.7093)] hover:opacity-90 text-[#F8F9FA] text-sm font-semibold rounded-xl"
+                data-testid="button-kyc-defer-confirm"
+              >
+                Continue without them
+              </Button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowKycDeferConfirm(false);
+                  if (!deferFromContinue) return;
+                  setDeferFromContinue(false);
+                  // "Add them now" has to land on the fields, not on a card
+                  // still collapsed somewhere above the fold.
+                  setKycSectionOpen(true);
+                  requestAnimationFrame(() => {
+                    kycSectionRef.current?.scrollIntoView({
+                      behavior: 'smooth',
+                      block: 'center',
+                    });
+                  });
+                }}
+                className="w-full min-h-11 text-sm font-semibold text-[#64748B] hover:text-[lab(34.0831_-9.57756_-27.7093)] transition-colors duration-150"
+                data-testid="button-kyc-defer-cancel"
+              >
+                Add them now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showProductTypeInfo && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
@@ -3529,6 +3691,23 @@ export default function CreateShipment() {
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
                 <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-red-600">{paymentError}</p>
+              </div>
+            )}
+
+            {/* Subtle on step one, explicit here. This is the moment the
+                customer commits money and a collection slot, so the one thing
+                that will not happen on schedule is worth a plain sentence
+                rather than a footnote. */}
+            {bookingWithoutKyc && (
+              <div className="rounded-xl border border-[oklch(90%_0.042_74)] bg-[oklch(97.6%_0.017_78)] p-3.5 mb-4">
+                <p className="text-xs font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">
+                  No KYC details on this booking
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-[#64748B]">
+                  We will collect the parcel as scheduled, but it cannot be
+                  dispatched to the USA until your identity document is verified.
+                  Add it from your profile to avoid a wait at the hub.
+                </p>
               </div>
             )}
 

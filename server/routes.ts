@@ -6,6 +6,7 @@ import {
   findItdUserIdByPhone,
   findOrCreateAddress,
   generateSessionTitle,
+  getAccountShapeById,
   getItdUserProfileById,
   getItdUserTokenAndSecretsById,
   getOrCreateSupportSession,
@@ -35,6 +36,7 @@ import {
   getOrderByNumberForUser,
   getUserContactsByIds,
   insertOrderAndReturnRow,
+  refreshKycVerifiedOnOpenOrders,
   insertOrderEvent,
   listOrderEvents,
   listCancellationOrdersByUserId,
@@ -76,6 +78,9 @@ import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerWhatsappRoutes } from "./routes/whatsapp.js";
 import { registerWhatsappScheduleRoutes } from "./routes/whatsappSchedule.js";
+import { registerOpsRoutes } from "./routes/ops.js";
+import { handleGenerateDocket, handleSettle, handleWeigh } from "./opsActions.js";
+import { isIndiaHubId } from "../shared/hubs.js";
 import {
   cancellationState,
   deriveCustomerStatus,
@@ -120,11 +125,11 @@ import path from "path";
 import crypto from "crypto";
 import multer from "multer";
 import { z } from "zod";
-import { itdClient } from "./itd";
-import type { CreateShipmentPayload, RateParams } from "./itd";
-import { handleChat } from "./supportAgent";
+import { itdClient } from "./itd.js";
+import type { CreateShipmentPayload, RateParams } from "./itd.js";
+import { handleChat } from "./supportAgent.js";
 import { supportChatRateLimit } from "./supportRateLimit.js";
-import type { ChatMessage } from "./supportTypes";
+import type { ChatMessage } from "./supportTypes.js";
 import { persistShipmentAfterCreate } from "./persistShipment.js";
 import { lookupPostal } from "./postalLookup.js";
 import {
@@ -140,6 +145,7 @@ import {
 import {
   bypassedOcr,
   ocrTypeForDocSlot,
+  ACCOUNT_SLOT_FOR_KYC_TYPE,
   ocrTypeForKycDocumentType,
   runSmartOcr,
   skippedOcr,
@@ -169,10 +175,15 @@ import {
   deleteAllSignupDocuments,
   deleteSignupDocument,
   getAccountDocumentByCapabilityId,
+  deleteUserDocument,
   getSignupDocumentWithFile,
+  getUserDocumentWithFile,
+  getVerificationState,
+  listDocumentsByUserId,
   listDocumentsBySignupRef,
   upsertAccountDocument,
 } from "./accountDocsDb.js";
+import { isKycOptionalEnabled } from "./kycOptional.js";
 import {
   CONTRACT_VERSION,
   isValidSignature,
@@ -190,8 +201,10 @@ import {
   isVerifiedDocSlot,
   VERIFIED_DOC_SLOTS,
   missingDocuments,
+  requiredDocuments,
   requiredExtraFields,
   requiredIdentityChecks,
+  verificationState,
   type CompanyCategory,
   type DocSlot,
   type ExtraField,
@@ -201,7 +214,7 @@ import { validateGstin } from "../shared/gstin.js";
 import {
   SUPPORT_CHAT_MAX_MESSAGES,
   SUPPORT_CHAT_MAX_CONTENT_LENGTH,
-} from "./supportTypes";
+} from "./supportTypes.js";
 
 // Matches the refresh path's ceiling (itdTokenRefresh.ts). The legacy
 // POST /api/auth/login has no timeout and can hang on a stalled ITD.
@@ -209,7 +222,12 @@ const ITD_LINK_TIMEOUT_MS = 10_000;
 
 const kycUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  // 4MB, not 5: a serverless request body is capped at 4.5MB on Vercel and the
+  // platform rejects the request before multer ever sees it — which surfaces as
+  // a bare 413 with no JSON body and no way to say why. Staying under the cap
+  // keeps the error ours. Raise this only if the host is a long-lived server,
+  // and change client/src/components/KycUpload.tsx to match.
+  limits: { fileSize: 4 * 1024 * 1024 }, // 4MB
   fileFilter: (_req, file, cb) => {
     const allowed = new Set(["application/pdf", "image/jpeg", "image/png"]);
     if (allowed.has(file.mimetype)) {
@@ -242,6 +260,11 @@ export async function registerRoutes(
 
   // The agent digest and slot reminders, driven by an external scheduler.
   registerWhatsappScheduleRoutes(app);
+
+  // Ops console: board + detail reads, the transactions ledger, and staff
+  // users. Admin/super_admin gated inside the module; writes go through the
+  // uniform action endpoint below.
+  registerOpsRoutes(app);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -1128,6 +1151,18 @@ export async function registerRoutes(
     return check;
   }
 
+  // GET /api/signup/config — what the signup form is allowed to offer.
+  //
+  // Unauthenticated on purpose: the form that reads it runs before an account
+  // exists. It discloses one boolean about this deployment's policy, nothing
+  // about any person. The client uses it only to decide whether to render
+  // "Skip for now" — the server re-checks its own flag either way, so a client
+  // that lies about it gains nothing.
+  app.get("/api/signup/config", (_req: Request, res: Response) => {
+    res.set("Cache-Control", "no-store");
+    res.json({ kyc_optional: isKycOptionalEnabled() });
+  });
+
   // POST /api/signup/documents — stage one document of an in-flight signup
   app.post(
     "/api/signup/documents",
@@ -1329,11 +1364,58 @@ export async function registerRoutes(
   });
 
   /**
-   * Refuse the account until every compelled document is present.
+   * Copy a verified Aadhaar into `kyc_documents`.
    *
-   * Returns null when the set is incomplete, having already answered the
-   * request; `missing_documents` is echoed back so the form can mark the gaps
-   * rather than making the customer hunt for them.
+   * `kyc_documents` is what the shipment path reads to build ITD's
+   * `kyc_details`, and it is one row per user by UNIQUE constraint;
+   * `account_documents` is the onboarding file, which for a corporate account
+   * holds six. The two are not interchangeable, so a personal Aadhaar has to
+   * exist in both.
+   *
+   * Called from two places now — at signup, and again from the document centre
+   * when a customer who skipped comes back to finish. Non-fatal by design in
+   * both: the document is safe in `account_documents` either way and the
+   * customer can re-upload, so losing an account (or a 200) over the copy would
+   * be the worse trade.
+   */
+  async function mirrorAadhaarToKyc(
+    userId: string,
+    aadhaar: { document_no: string | null; original_filename: string; mime_type: string; file_size_bytes: number; file_data: string } | null,
+    tag: string
+  ): Promise<void> {
+    // NOT NULL on kyc_documents.document_no — a slot without a typed number
+    // cannot be mirrored, and the Aadhaar slot always asks for one.
+    if (!aadhaar?.document_no) return;
+
+    const mirrored = await upsertKycDocument({
+      user_id: userId,
+      capability_id: crypto.randomUUID(),
+      document_type: "Aadhaar Number",
+      document_no: aadhaar.document_no,
+      original_filename: aadhaar.original_filename,
+      mime_type: aadhaar.mime_type,
+      file_size_bytes: aadhaar.file_size_bytes,
+      file_data: aadhaar.file_data,
+    });
+    if (!mirrored) {
+      console.error(`[${tag}] KYC mirror failed for user`, userId);
+    }
+  }
+
+  /**
+   * Refuse the account until every compelled document is present and verified.
+   *
+   * Returns null when the set falls short, having already answered the request;
+   * `missing_documents` / `unverified_documents` are echoed back so the form can
+   * mark the gaps rather than making the customer hunt for them.
+   *
+   * The verdict itself comes from `verificationState` in shared/accountSpec.ts,
+   * which the banner, the docket guard and the ops queue also read. This
+   * function owns only the HTTP shape of the refusal.
+   *
+   * Whatever is staged is returned even when the gate is waived, because the
+   * caller mirrors the Aadhaar out of it — a customer who uploaded one document
+   * and skipped the other should keep the one they gave us.
    */
   /**
    * Whether a document's number is still the number of record.
@@ -1366,11 +1448,21 @@ export async function registerRoutes(
   ): Promise<Map<DocSlot, { document_no: string | null; capability_id: string }> | null> {
     const signupRef = req.session.signupRef;
     const staged = signupRef ? await listDocumentsBySignupRef(signupRef) : [];
-    const missing = missingDocuments(
-      accountType,
-      category,
-      staged.map((row) => row.doc_slot)
+    const stagedBySlot = new Map(
+      staged.map((row) => [
+        row.doc_slot,
+        { document_no: row.document_no, capability_id: row.capability_id },
+      ])
     );
+
+    // KYC_OPTIONAL waives the gate for personal accounts only — a corporate
+    // account still produces its four to six documents before it opens. See
+    // server/kycOptional.ts for the whole of the policy; the enforcement it
+    // trades away reappears on `generate_docket` in server/orderLifecycle.ts.
+    if (accountType === "personal" && isKycOptionalEnabled()) return stagedBySlot;
+
+    const { missing, unverified } = verificationState(accountType, category, staged);
+
     if (missing.length > 0) {
       res.status(400).json({
         message: `Please upload: ${missing.map((s) => DOC_SLOT_SPECS[s].label).join(", ")}`,
@@ -1384,26 +1476,15 @@ export async function registerRoutes(
     // no legible number — is refused here rather than opening an account on a
     // document nobody has checked.
     //
-    // Keyed on isVerifiedDocSlot, NOT on ocrTypeForDocSlot: the latter is the
-    // Cashfree document type, and it is null for the GST certificate because
-    // Smart OCR has no type for one. Testing that instead would silently
-    // exempt the certificate from this gate — present but unverified would be
-    // good enough, which is exactly what this check exists to prevent.
-    //
     // This makes verification load-bearing: while the readers are unreachable,
-    // no account can open. That is the deliberate trade. Slots nothing checks
-    // (bills, the IEC and authorization letters) are unaffected, and
-    // `bypassed` rows pass because a bypass flag said not to ask — those files
-    // are stored unchecked on purpose.
-    const unverified = staged
-      .filter(
-        (row) =>
-          isVerifiedDocSlot(row.doc_slot) &&
-          row.ocr_status !== "match" &&
-          row.ocr_status !== "bypassed"
-      )
-      .map((row) => row.doc_slot);
-
+    // no account can open. That is the deliberate trade, and the one thing
+    // KYC_OPTIONAL suspends — for personal accounts, above.
+    //
+    // Which slots that covers, and why `bypassed` passes, is decided once in
+    // verificationState (shared/accountSpec.ts) so this gate, the customer's
+    // banner and the docket guard cannot answer differently. Note the GST
+    // certificate IS covered: Cashfree has no OCR type for one, but
+    // server/gstCertificate.ts reads it and writes a real verdict.
     if (unverified.length > 0) {
       res.status(422).json({
         message:
@@ -1448,12 +1529,7 @@ export async function registerRoutes(
       return null;
     }
 
-    return new Map(
-      staged.map((row) => [
-        row.doc_slot,
-        { document_no: row.document_no, capability_id: row.capability_id },
-      ])
-    );
+    return stagedBySlot;
   }
 
   /**
@@ -1549,6 +1625,259 @@ export async function registerRoutes(
     }
   });
 
+  // ── The document centre: finishing verification after the account exists ──
+  //
+  // Twins of the three /api/signup/documents endpoints, keyed on user_id
+  // instead of the session's signupRef. They exist because a customer who
+  // skipped under KYC_OPTIONAL has to be able to come back and finish, and
+  // /api/kyc/upload cannot do it: that endpoint writes one row to
+  // kyc_documents, and a document set is two slots for a personal account and
+  // up to six for a corporate one.
+  //
+  // The upload rules are identical to signup's — same OCR policy, same
+  // refusals. Only the owner column and the authorisation differ (a session
+  // here, a recently verified phone there).
+
+  /** The account's shape, defaulted the same way the client defaults it. */
+  async function accountShapeFor(userId: string): Promise<{
+    accountType: "personal" | "company";
+    category: CompanyCategory | null;
+    gstin: string | null;
+  }> {
+    const row = await getAccountShapeById(userId);
+    // Undefined account_type — legacy ITD password logins — reads as personal,
+    // matching client/src/lib/store.ts and CreateShipment.tsx. Personal is the
+    // stricter of the two here as well: it is the only shape that compels an
+    // OCR-checked slot the customer may not have.
+    const accountType = row?.account_type === "company" ? "company" : "personal";
+    const raw = row?.company_category;
+    const category =
+      accountType === "company" && raw && (COMPANY_CATEGORIES as readonly string[]).includes(raw)
+        ? (raw as CompanyCategory)
+        : null;
+    return { accountType, category, gstin: row?.gstin ?? null };
+  }
+
+  // GET /api/account/verification — what this account still owes.
+  //
+  // The banner reads this on every customer route, so it answers for verified
+  // accounts too rather than 404ing: "nothing outstanding" is a real answer.
+  app.get(
+    "/api/account/verification",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        res.status(401).json({ message: "Not authenticated" });
+        return;
+      }
+      try {
+        const { accountType, category } = await accountShapeFor(req.session.dbUserId);
+
+        // Only customers owe documents. Staff rows carry account_type
+        // 'personal' because the column is NOT NULL and every row must be one
+        // or the other (see open-items.md §4.4) — reading that literally would
+        // tell every agent and admin to go verify an Aadhaar they were never
+        // asked for. `role` is the discriminator that matters.
+        const role = req.session.user?.role;
+        if (role && role !== "customer") {
+          res.set("Cache-Control", "no-store");
+          res.json({
+            verified: true,
+            missing: [],
+            unverified: [],
+            account_type: accountType,
+            company_category: category,
+            required: [],
+          });
+          return;
+        }
+
+        const state = await getVerificationState(req.session.dbUserId, accountType, category);
+        res.set("Cache-Control", "no-store");
+        res.json({
+          ...state,
+          account_type: accountType,
+          company_category: category,
+          required: requiredDocuments(accountType, category),
+        });
+      } catch (err) {
+        console.error("[GET /api/account/verification] failed:", err);
+        res.status(500).json({ message: "Could not read verification status." });
+      }
+    }
+  );
+
+  // GET /api/account/documents — this account's own documents, metadata only
+  app.get(
+    "/api/account/documents",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        res.status(401).json({ message: "Not authenticated" });
+        return;
+      }
+      const rows = await listDocumentsByUserId(req.session.dbUserId);
+      res.set("Cache-Control", "no-store");
+      res.json({
+        documents: rows.map((row) => ({
+          doc_slot: row.doc_slot,
+          capability_id: row.capability_id,
+          document_no: row.document_no,
+          original_filename: row.original_filename,
+          mime_type: row.mime_type,
+          file_size_bytes: row.file_size_bytes,
+          updated_at: row.updated_at,
+          ocr_status: row.ocr_status,
+        })),
+      });
+    }
+  );
+
+  // POST /api/account/documents — upload one slot against the signed-in account
+  app.post(
+    "/api/account/documents",
+    requireUser,
+    ensureDbUser,
+    kycUpload.single("file"),
+    async (req: Request, res: Response) => {
+      const userId = req.session.dbUserId;
+      if (!userId) {
+        res.status(401).json({ message: "Not authenticated" });
+        return;
+      }
+      if (!req.file) {
+        res.status(400).json({ message: "No file uploaded." });
+        return;
+      }
+
+      const slot = typeof req.body?.doc_slot === "string" ? req.body.doc_slot.trim() : "";
+      if (!isDocSlot(slot)) {
+        res.status(400).json({ message: "Unknown document type" });
+        return;
+      }
+
+      // Only the slots this account actually owes. Without this an ecommerce
+      // customer could stash an electricity bill their category never asked
+      // for, and the ops queue would show a document nobody can action.
+      const { accountType, category, gstin } = await accountShapeFor(userId);
+      if (!requiredDocuments(accountType, category).includes(slot)) {
+        res.status(400).json({ message: "That document is not required for this account." });
+        return;
+      }
+
+      const docNo = normalizeDocumentNo(slot, req.body?.document_no);
+      if (!docNo.ok) {
+        res.status(400).json({ message: docNo.message });
+        return;
+      }
+
+      // Two readers, one verdict shape, exactly as at signup: Cashfree Smart
+      // OCR has no GST certificate type, so that slot is read locally instead
+      // (server/gstCertificate.ts). Sending it through verifyDocumentOrRefuse
+      // would come back `skipped` — and since verificationState counts the
+      // certificate, a corporate account finishing its documents here could
+      // never reach verified, leaving its orders held at `generate_docket`
+      // with nothing on screen to fix.
+      //
+      // Checked against the GSTIN the account was opened on, not one supplied
+      // with the request: that number was proved against the GST portal at
+      // signup, and letting the upload name its own would undo that.
+      let ocr: OcrResult | null;
+      if (slot === "gst_certificate") {
+        if (!gstin) {
+          res.status(409).json({
+            message:
+              "This account has no GST number on file, so its certificate cannot be checked. Please contact support.",
+          });
+          return;
+        }
+        ocr = await checkGstCertificateOrRefuse(res, req.file, gstin);
+      } else {
+        ocr = await verifyDocumentOrRefuse(res, {
+          cashfreeType: ocrTypeForDocSlot(slot),
+          typedNumber: docNo.value,
+          file: req.file,
+          tag: `account-${slot}`,
+        });
+      }
+      if (!ocr) return;
+
+      try {
+        const saved = await upsertAccountDocument({
+          user_id: userId,
+          doc_slot: slot,
+          document_no: docNo.value,
+          original_filename: req.file.originalname,
+          mime_type: req.file.mimetype,
+          file_size_bytes: req.file.size,
+          file_data: req.file.buffer.toString("base64"),
+          ocr: toOcrColumns(ocr),
+        });
+        if (!saved) {
+          res.status(500).json({ message: "Failed to save document." });
+          return;
+        }
+
+        // The Aadhaar is the one document customs reads, so a personal account
+        // finishing it here has to reach kyc_documents exactly as it would have
+        // at signup — otherwise the order still cannot be docketed.
+        if (slot === "aadhaar_card" && ocr.status === "match") {
+          const withFile = await getUserDocumentWithFile(userId, "aadhaar_card");
+          await mirrorAadhaarToKyc(userId, withFile, "account/documents");
+        }
+
+        const state = await getVerificationState(userId, accountType, category);
+
+        // Release (or re-apply) the hold on anything this customer already
+        // booked. Best-effort: their document is saved either way, and a lost
+        // race here costs a stale flag that the next upload corrects — not the
+        // upload itself.
+        void refreshKycVerifiedOnOpenOrders(userId, state.verified);
+
+        res.json({
+          doc_slot: saved.doc_slot,
+          capability_id: saved.capability_id,
+          original_filename: saved.original_filename,
+          mime_type: saved.mime_type,
+          file_size_bytes: saved.file_size_bytes,
+          updated_at: saved.updated_at,
+          ocr: { status: ocr.status, message: ocr.message },
+          // Returned with the upload so the banner can clear on the same round
+          // trip rather than after a refetch the customer has to wait for.
+          verification: state,
+        });
+      } catch (err) {
+        console.error("[POST /api/account/documents] failed:", err);
+        res.status(500).json({ message: "Failed to save document." });
+      }
+    }
+  );
+
+  // DELETE /api/account/documents/:slot — replace-by-removing, same as signup
+  app.delete(
+    "/api/account/documents/:slot",
+    requireUser,
+    ensureDbUser,
+    async (req: Request, res: Response) => {
+      if (!req.session.dbUserId) {
+        res.status(401).json({ message: "Not authenticated" });
+        return;
+      }
+      if (!isDocSlot(req.params.slot)) {
+        res.status(400).json({ message: "Unknown document type" });
+        return;
+      }
+      const ok = await deleteUserDocument(req.session.dbUserId, req.params.slot);
+      if (!ok) {
+        res.status(500).json({ message: "Failed to remove document." });
+        return;
+      }
+      res.json({ removed: req.params.slot });
+    }
+  );
+
   const signupPersonalSchema = z
     .object({
       full_name: z.string().trim().min(1, "Full name is required"),
@@ -1619,28 +1948,14 @@ export async function registerRoutes(
     // path reads to build ITD's `kyc_details` (buildItdKycPayload), and it
     // stays the one KYC document of record; account_documents is the
     // onboarding file, not a second source of truth for customs.
+    //
+    // Absent when the customer skipped the document step under KYC_OPTIONAL.
+    // The mirror then runs later, from the document centre, on the same helper.
     const aadhaar = req.session.signupRef
       ? await getSignupDocumentWithFile(req.session.signupRef, "aadhaar_card")
       : null;
     await claimDocumentsForUser(req, row.id);
-    if (aadhaar?.document_no) {
-      const mirrored = await upsertKycDocument({
-        user_id: row.id,
-        capability_id: crypto.randomUUID(),
-        document_type: "Aadhaar Number",
-        document_no: aadhaar.document_no,
-        original_filename: aadhaar.original_filename,
-        mime_type: aadhaar.mime_type,
-        file_size_bytes: aadhaar.file_size_bytes,
-        file_data: aadhaar.file_data,
-      });
-      if (!mirrored) {
-        // Non-fatal: the document is safe in account_documents either way, and
-        // the customer can re-upload from Profile. Losing the account over it
-        // would be the worse trade.
-        console.error("[signup/personal] KYC mirror failed for user", row.id);
-      }
-    }
+    await mirrorAadhaarToKyc(row.id, aadhaar, "signup/personal");
 
     const user = {
       id: itdCustomerId,
@@ -1664,7 +1979,7 @@ export async function registerRoutes(
 
   const signupCompanySchema = z.object({
     phone: phoneSchema,
-    company_name: z.string().trim().min(1, "Company name is required"),
+    company_name: z.string().trim().min(1, "Company name is required").max(120),
     gstin: z.string().trim().length(15, "GST number must be 15 characters"),
     // Which of the four the account is. Optional so that a client built before
     // the categories existed still opens a plain corporate account rather than
@@ -1678,6 +1993,13 @@ export async function registerRoutes(
     iec_branch_code: z.string().trim().optional(),
     bank_account_no: z.string().trim().optional(),
     bank_ad_code: z.string().trim().optional(),
+    // ITD registration needs the registered address and the servicing hub;
+    // add_customer rejects a company without them.
+    address: z.string().trim().min(1, "Address is required").max(200),
+    pincode: z.string().trim().regex(/^\d{6}$/, "Enter a 6-digit pincode"),
+    city: z.string().trim().min(1, "City is required").max(80),
+    state: z.string().trim().min(1, "State is required").max(80),
+    hub_id: z.coerce.number().int().refine(isIndiaHubId, "Select a valid hub"),
   }).merge(contractAcceptanceSchema);
 
   /**
@@ -1722,6 +2044,11 @@ export async function registerRoutes(
       company_category,
       contact_person,
       email,
+      address,
+      pincode,
+      city,
+      state,
+      hub_id,
       contract_signed_name,
     } = parsed.data;
     const gstin = rawGstin.toUpperCase();
@@ -1818,13 +2145,22 @@ export async function registerRoutes(
     let addCustomerResponse: unknown = null;
     let addCustomerError: string | null = null;
     try {
-      const addCustomerResult = await itdClient.addCustomer({
-        name: company_name,
-        contact_no: phone,
-        gst_number: gstin,
-        email,
-        contact_person,
-      });
+      const addCustomerResult = await withTimeout(
+        itdClient.addCustomer({
+          name: company_name,
+          contact_no: phone,
+          gst_number: gstin,
+          email,
+          address,
+          pincode,
+          city,
+          state,
+          contact_person,
+          hub_id,
+        }),
+        ITD_LINK_TIMEOUT_MS,
+        "ITD addCustomer"
+      );
       itdRegistered = !!addCustomerResult.success;
       addCustomerResponse = addCustomerResult;
     } catch (err) {
@@ -1849,6 +2185,13 @@ export async function registerRoutes(
       ...(categorySpec.groupCode ? { group_code: categorySpec.groupCode } : {}),
       itd_registration_attempted_at: new Date().toISOString(),
       itd_add_customer_response: addCustomerResponse,
+      email,
+      address,
+      pincode,
+      city,
+      state,
+      contact_person,
+      hub_id,
       ...(addCustomerError ? { itd_add_customer_error: addCustomerError } : {}),
     });
 
@@ -3081,6 +3424,24 @@ export async function registerRoutes(
     const isPickup = body.pickup_request === 1;
     const status = isPickup ? "pickup_requested" : "awaiting_dropoff";
 
+    // Stamp the account's verification state onto the order.
+    //
+    // Booking is deliberately not blocked by it — an unverified customer can
+    // book, and be collected from, and pay. The flag is read much later, by the
+    // `generate_docket` guard, at the last moment anything is still reversible.
+    // Denormalised because that guard is pure and synchronous (no DB reads),
+    // and refreshed by refreshKycVerifiedOnOpenOrders when a document lands.
+    //
+    // A failure to read it stamps `true`: the alternative is holding an order
+    // because Supabase blipped during booking, which is a worse answer than the
+    // one the pre-KYC_OPTIONAL system gave.
+    const bookingShape = await accountShapeFor(req.session.dbUserId);
+    const bookingKyc = await getVerificationState(
+      req.session.dbUserId,
+      bookingShape.accountType,
+      bookingShape.category
+    );
+
     const order = await insertOrderAndReturnRow({
       user_id: req.session.dbUserId,
       status,
@@ -3094,6 +3455,7 @@ export async function registerRoutes(
       packaging_required: body.packaging_required ?? false,
       payment_method: body.payment_method,
       is_cod: body.payment_method === "cod",
+      metadata: { kyc_verified: bookingKyc.verified },
     });
 
     if (!order) {
@@ -3485,68 +3847,132 @@ export async function registerRoutes(
         }
 
         case "collect_payment": {
-          // Ops collection at the hub is M3's; this branch is the doorstep.
-          if (order.payment_method !== "pay_at_pickup") {
-            res.status(400).json({
-              message: "This order is not marked pay-at-pickup.",
-              code: "PAYMENT_METHOD_MISMATCH",
+          if (role === "agent") {
+            // Ops collection at the hub is M3's; this branch is the doorstep.
+            if (order.payment_method !== "pay_at_pickup") {
+              res.status(400).json({
+                message: "This order is not marked pay-at-pickup.",
+                code: "PAYMENT_METHOD_MISMATCH",
+              });
+              return;
+            }
+
+            const paymentBody = z
+              .object({
+                amount: z.number().positive("amount must be greater than zero"),
+                // How the money actually moved. Required: an agent handing over
+                // a parcel must have said whether they hold cash or watched a
+                // UPI transfer land, because only one of those ends up in their
+                // pouch at the end of the shift.
+                collection_mode: z.enum(["upi", "cash"], {
+                  errorMap: () => ({ message: "Choose UPI or cash" }),
+                }),
+                // UPI reference from the customer's app, if they read it out.
+                reference: z.string().trim().max(120).optional().nullable(),
+              })
+              .safeParse(parsed.data.payload ?? {});
+            if (!paymentBody.success) {
+              res.status(400).json({
+                message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
+                code: "INVALID_PAYLOAD",
+              });
+              return;
+            }
+
+            const result = await recordCollectedPayment({
+              order_id: order.id,
+              user_id: order.user_id,
+              amount: paymentBody.data.amount,
+              method: "pay_at_pickup",
+              status: "collected",
+              collection_mode: paymentBody.data.collection_mode,
+              collected_by: callerId,
+              reference: paymentBody.data.reference ?? null,
             });
-            return;
+            if (!result) {
+              res.status(502).json({
+                message: "Could not record the payment. Do not hand over the parcel.",
+                code: "PAYMENT_WRITE_FAILED",
+              });
+              return;
+            }
+
+            // Deliberately no status change — the parcel is still out_for_pickup.
+            updated = result.order ?? order;
+            eventNote = `Collected ₹${paymentBody.data.amount} at pickup (${paymentBody.data.collection_mode})`;
+            extra = {
+              payment_id: result.paymentId,
+              txn_id: result.txnId,
+              amount: paymentBody.data.amount,
+              collection_mode: paymentBody.data.collection_mode,
+            };
+            // Surfaced at the top level so the sheet can show the receipt without
+            // digging through the event metadata.
+            collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
+            break;
           }
 
-          const paymentBody = z
-            .object({
-              amount: z.number().positive("amount must be greater than zero"),
-              // How the money actually moved. Required: an agent handing over
-              // a parcel must have said whether they hold cash or watched a
-              // UPI transfer land, because only one of those ends up in their
-              // pouch at the end of the shift.
-              collection_mode: z.enum(["upi", "cash"], {
-                errorMap: () => ({ message: "Choose UPI or cash" }),
-              }),
-              // UPI reference from the customer's app, if they read it out.
-              reference: z.string().trim().max(120).optional().nullable(),
-            })
-            .safeParse(parsed.data.payload ?? {});
-          if (!paymentBody.success) {
-            res.status(400).json({
-              message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
-              code: "INVALID_PAYLOAD",
+          if (role === "admin" || role === "super_admin") {
+            if (order.payment_method !== "pay_at_dropoff") {
+              res.status(400).json({
+                message: "This order is not marked pay-at-drop-off.",
+                code: "PAYMENT_METHOD_MISMATCH",
+              });
+              return;
+            }
+
+            const paymentBody = z
+              .object({
+                amount: z.number().positive("amount must be greater than zero"),
+                collection_mode: z.enum(["upi", "cash"], {
+                  errorMap: () => ({ message: "Choose UPI or cash" }),
+                }),
+                reference: z.string().trim().max(120).optional().nullable(),
+              })
+              .safeParse(parsed.data.payload ?? {});
+            if (!paymentBody.success) {
+              res.status(400).json({
+                message: paymentBody.error.issues[0]?.message ?? "Invalid payment payload",
+                code: "INVALID_PAYLOAD",
+              });
+              return;
+            }
+
+            const result = await recordCollectedPayment({
+              order_id: order.id,
+              user_id: order.user_id,
+              amount: paymentBody.data.amount,
+              method: "pay_at_dropoff",
+              status: "collected",
+              collection_mode: paymentBody.data.collection_mode,
+              collected_by: callerId,
+              reference: paymentBody.data.reference ?? null,
             });
-            return;
+            if (!result) {
+              res.status(502).json({
+                message: "Could not record the payment. Do not settle yet.",
+                code: "PAYMENT_WRITE_FAILED",
+              });
+              return;
+            }
+
+            updated = result.order ?? order;
+            eventNote = `Collected ₹${paymentBody.data.amount} at drop-off (${paymentBody.data.collection_mode})`;
+            extra = {
+              payment_id: result.paymentId,
+              txn_id: result.txnId,
+              amount: paymentBody.data.amount,
+              collection_mode: paymentBody.data.collection_mode,
+            };
+            collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
+            break;
           }
 
-          const result = await recordCollectedPayment({
-            order_id: order.id,
-            user_id: order.user_id,
-            amount: paymentBody.data.amount,
-            method: "pay_at_pickup",
-            status: "collected",
-            collection_mode: paymentBody.data.collection_mode,
-            collected_by: callerId,
-            reference: paymentBody.data.reference ?? null,
+          res.status(403).json({
+            message: "You do not have permission to collect payment on this order.",
+            code: "FORBIDDEN",
           });
-          if (!result) {
-            res.status(502).json({
-              message: "Could not record the payment. Do not hand over the parcel.",
-              code: "PAYMENT_WRITE_FAILED",
-            });
-            return;
-          }
-
-          // Deliberately no status change — the parcel is still out_for_pickup.
-          updated = result.order ?? order;
-          eventNote = `Collected ₹${paymentBody.data.amount} at pickup (${paymentBody.data.collection_mode})`;
-          extra = {
-            payment_id: result.paymentId,
-            txn_id: result.txnId,
-            amount: paymentBody.data.amount,
-            collection_mode: paymentBody.data.collection_mode,
-          };
-          // Surfaced at the top level so the sheet can show the receipt without
-          // digging through the event metadata.
-          collectionReceipt = { txnId: result.txnId, amount: paymentBody.data.amount };
-          break;
+          return;
         }
 
         case "request_cancellation": {
@@ -3694,9 +4120,71 @@ export async function registerRoutes(
         }
 
         default: {
-          // Ops actions — weigh, settle, generate_docket, mark_received_dropoff.
-          // Authorised and legal, but the handlers are Arbaaz's (M3/M5). The
-          // 501 stays until those land.
+          // Ops actions — weigh, settle, generate_docket. mark_received_dropoff
+          // is OTP-gated above; do not delegate a payload-less handler here.
+          const mapOpsResult = (
+            r: Awaited<ReturnType<typeof handleWeigh>>
+          ): boolean => {
+            if ("error" in r) {
+              res.status(r.error.status).json({
+                message: r.error.message,
+                code: r.error.code,
+                ...(r.error.extra ?? {}),
+                availableActions: availableActions(order, role, { userId: callerId }),
+              });
+              return false;
+            }
+            updated = r.order;
+            eventNote = r.eventNote;
+            extra = r.eventMeta;
+            return true;
+          };
+
+          if (action === "weigh") {
+            if (!transition.to) {
+              res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
+              return;
+            }
+            const ok = mapOpsResult(
+              await handleWeigh({
+                order,
+                callerId,
+                expectedFrom: transition.from,
+                to: transition.to,
+                payload: parsed.data.payload,
+              })
+            );
+            if (!ok) return;
+            break;
+          }
+
+          if (action === "settle") {
+            if (!transition.to) {
+              res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
+              return;
+            }
+            const ok = mapOpsResult(
+              await handleSettle({
+                order,
+                callerId,
+                expectedFrom: transition.from,
+                to: transition.to,
+              })
+            );
+            if (!ok) return;
+            break;
+          }
+
+          if (action === "generate_docket") {
+            if (!transition.to) {
+              res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
+              return;
+            }
+            const ok = mapOpsResult(await handleGenerateDocket({ order, callerId }));
+            if (!ok) return;
+            break;
+          }
+
           res.status(501).json({
             message: `"${action}" is legal for this order but not implemented yet.`,
             code: "NOT_IMPLEMENTED",
@@ -3708,6 +4196,14 @@ export async function registerRoutes(
           });
           return;
         }
+      }
+
+      if (!updated) {
+        res.status(500).json({
+          message: "Action completed without an order row.",
+          code: "NO_ORDER",
+        });
+        return;
       }
 
       // The write landed. Log it before responding — awaited, not fire-and-
@@ -4267,6 +4763,43 @@ export async function registerRoutes(
         if (!saved) {
           res.status(500).json({ message: "Failed to save KYC document." });
           return;
+        }
+
+        // Mirror back into account_documents when this document is also one of
+        // the slots the account owes.
+        //
+        // This endpoint predates the document matrix and writes only
+        // kyc_documents. Left alone it would produce a half-verified account:
+        // customs has what it needs, but `verificationState` — which reads
+        // account_documents — still says outstanding, so the banner stays up
+        // and the docket stays held. Two surfaces still post here (the inline
+        // upload at booking, and the profile card), and a customer who
+        // completes their Aadhaar through either should be finished.
+        //
+        // Only a `match` is mirrored. An unreadable scan is worth keeping on
+        // the KYC row for ops, but writing it into the slot would present it as
+        // progress the customer has not actually made.
+        const mirrorSlot = ACCOUNT_SLOT_FOR_KYC_TYPE[documentType];
+        if (mirrorSlot && ocr.status === "match") {
+          const { accountType, category } = await accountShapeFor(req.session.dbUserId);
+          if (requiredDocuments(accountType, category).includes(mirrorSlot)) {
+            await upsertAccountDocument({
+              user_id: req.session.dbUserId,
+              doc_slot: mirrorSlot,
+              document_no: normalizedDocumentNo,
+              original_filename: req.file.originalname,
+              mime_type: req.file.mimetype,
+              file_size_bytes: req.file.size,
+              file_data: fileDataBase64,
+              ocr: toOcrColumns(ocr),
+            });
+            const state = await getVerificationState(
+              req.session.dbUserId,
+              accountType,
+              category
+            );
+            void refreshKycVerifiedOnOpenOrders(req.session.dbUserId, state.verified);
+          }
         }
 
         res.json({

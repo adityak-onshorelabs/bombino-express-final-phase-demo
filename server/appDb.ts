@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { CreateShipmentResponse } from "./itd.js";
 import { supabase } from "./supabaseClient.js";
 import type { ChatMessage } from "./supportTypes.js";
@@ -209,6 +210,200 @@ export async function upsertItdUserAndReturnId(
     return null;
   }
   return data;
+}
+
+export type CreatedStaffUser = {
+  id: string;
+  phone: string;
+  full_name: string;
+  role: string;
+};
+
+export type StaffUserRow = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  role: string;
+  is_active: boolean;
+};
+
+export type InsertStaffUserInput = {
+  full_name: string;
+  phone: string;
+  role: "agent" | "admin";
+  hub_id: number;
+};
+
+/**
+ * Mint a staff row the same way the seed scripts do: synthetic local-* ITD
+ * ids, is_active true, account_type left to the DB default (`personal`).
+ * Returns `"taken"` on itd_users_phone_key (23505) so a raced insert is 409.
+ */
+export async function insertStaffUser(
+  input: InsertStaffUserInput
+): Promise<CreatedStaffUser | "taken" | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const syntheticId = `local-${randomUUID()}`;
+  const now = new Date().toISOString();
+
+  const { data, error } = await client
+    .from("itd_users")
+    .insert({
+      itd_customer_id: syntheticId,
+      itd_customer_code: syntheticId,
+      full_name: input.full_name,
+      email: "",
+      username: input.phone,
+      phone: input.phone,
+      role: input.role,
+      is_active: true,
+      metadata: {
+        created_by: "ops_console",
+        created_at: now,
+        hub_id: input.hub_id,
+      },
+    })
+    .select("id, phone, full_name, role")
+    .single();
+
+  if (error) {
+    if (error.code === "23505") return "taken";
+    logSupabaseError("insertStaffUser", error);
+    return null;
+  }
+  if (!data?.id || typeof data.full_name !== "string" || typeof data.role !== "string") {
+    return null;
+  }
+  return {
+    id: data.id,
+    phone: typeof data.phone === "string" ? data.phone : input.phone,
+    full_name: data.full_name,
+    role: data.role,
+  };
+}
+
+export async function listStaffUsers(): Promise<StaffUserRow[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("id, full_name, phone, role, is_active")
+    .in("role", ["agent", "admin", "super_admin"])
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  if (error) {
+    logSupabaseError("listStaffUsers", error);
+    return null;
+  }
+
+  return (data ?? []).map((row) => ({
+    id: String(row.id),
+    full_name: String(row.full_name ?? ""),
+    phone: typeof row.phone === "string" ? row.phone : null,
+    role: String(row.role ?? ""),
+    is_active: row.is_active !== false,
+  }));
+}
+
+export type CustomerAccountRow = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  account_type: string;
+  company_name: string | null;
+  company_category: string | null;
+  created_at: string | null;
+};
+
+/**
+ * Customer accounts, newest first, for the ops verification queue.
+ *
+ * Ops has no customer list otherwise — every other screen is order-shaped —
+ * so this is the first query in the codebase that asks "which people" rather
+ * than "which orders".
+ *
+ * Deliberately starts from the users rather than from `account_documents`: an
+ * account that uploaded *nothing* is exactly the one the queue most needs to
+ * show, and it has no document row to be found by. The partial index on
+ * non-`match` verdicts still serves the join in
+ * `listDocumentVerdictsForUserIds`.
+ *
+ * Capped like `listStaffUsers`. If the customer book outgrows one page this
+ * wants a `verified` column to filter on in SQL rather than a bigger limit.
+ */
+export async function listCustomerAccounts(
+  limit = 200
+): Promise<CustomerAccountRow[] | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select(
+      "id, full_name, phone, email, account_type, company_name, company_category, created_at"
+    )
+    .eq("role", "customer")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    logSupabaseError("listCustomerAccounts", error);
+    return null;
+  }
+
+  return (data ?? []).map((row) => ({
+    id: String(row.id),
+    full_name: String(row.full_name ?? ""),
+    phone: typeof row.phone === "string" ? row.phone : null,
+    email: typeof row.email === "string" ? row.email : null,
+    // Legacy ITD logins carry no account_type; personal is how every other
+    // reader defaults them, and it is the stricter of the two.
+    account_type: row.account_type === "company" ? "company" : "personal",
+    company_name: typeof row.company_name === "string" ? row.company_name : null,
+    company_category:
+      typeof row.company_category === "string" ? row.company_category : null,
+    created_at: typeof row.created_at === "string" ? row.created_at : null,
+  }));
+}
+
+/**
+ * One staff row that is an active pickup agent. Used to validate an ops
+ * assignment target — `orders.agent_id` FK only proves the id exists, not
+ * the role or that the account is still live.
+ *
+ * Returns null when the id is missing, not an agent, or not `is_active`.
+ */
+export async function findActiveAgentById(id: string): Promise<StaffUserRow | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    .select("id, full_name, phone, role, is_active")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("findActiveAgentById", error);
+    return null;
+  }
+  if (!data?.id) return null;
+
+  const role = String(data.role ?? "");
+  if (role !== "agent" || data.is_active !== true) return null;
+
+  return {
+    id: String(data.id),
+    full_name: String(data.full_name ?? ""),
+    phone: typeof data.phone === "string" ? data.phone : null,
+    role,
+    is_active: true,
+  };
 }
 
 /**
@@ -476,6 +671,45 @@ const ITD_USER_PUBLIC_COLUMNS = [
   "updated_at",
   "last_login_at",
 ].join(", ");
+
+/**
+ * The two fields that decide which documents an account owes.
+ *
+ * Separate from getItdUserProfileById because `company_category` is not in
+ * ITD_USER_PUBLIC_COLUMNS and widening that projection would change what every
+ * profile response carries. Everything that asks "is this account verified"
+ * needs this pair and nothing else.
+ */
+export async function getAccountShapeById(id: string): Promise<{
+  account_type: string | null;
+  company_category: string | null;
+  gstin: string | null;
+} | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("itd_users")
+    // gstin rides along because the GST certificate is read against the number
+    // the account was opened on — see the gst_certificate branch in
+    // POST /api/account/documents. It is not a secret: the customer typed it,
+    // and it is already in ITD_USER_PUBLIC_COLUMNS.
+    .select("account_type, company_category, gstin")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    logSupabaseError("getAccountShapeById", error);
+    return null;
+  }
+  return (
+    (data as {
+      account_type: string | null;
+      company_category: string | null;
+      gstin: string | null;
+    } | null) ?? null
+  );
+}
 
 export async function getItdUserProfileById(id: string): Promise<any | null> {
   const client = getSupabaseClient();

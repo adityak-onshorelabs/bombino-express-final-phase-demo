@@ -24,6 +24,7 @@ import type {
 } from "../shared/orderContract.js";
 import {
   hasOpenCancellationRequest,
+  isKycHeld,
   isPaymentSatisfied,
   roleSatisfies,
 } from "../shared/orderContract.js";
@@ -248,7 +249,15 @@ export const TRANSITIONS: readonly Transition[] = [
     label: "Generate docket",
     // Irreversible in ITD. The double-fire guard is a DB-level precondition
     // (`awb_no IS NULL` in the UPDATE), not this check — M5 owns it.
-    guard: (order) => order.awb_no === null,
+    //
+    // The KYC half is the price of KYC_OPTIONAL. A customer who skipped their
+    // documents can book, be collected from, be weighed and settle — none of
+    // that is irreversible. This is, and a real docket carries the customer's
+    // identity number to Indian customs as `shipper_gstin_no`, derived from the
+    // very document they have not produced. So the hold sits here, at the last
+    // moment anything can still be undone, rather than at booking where it
+    // would cost the sale.
+    guard: (order) => order.awb_no === null && !isKycHeld(order),
   },
 
   // ── Cancellation ───────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { User, Mail, Phone, Building2, Loader2, ShieldCheck, UserRound } from 'lucide-react';
+import { User, Mail, Phone, Building2, Loader2, ShieldCheck, UserRound, MapPin, ArrowRight } from 'lucide-react';
 import { useLocation, Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +18,10 @@ import { AuthShell } from '@/components/auth/AuthShell';
 import { useAppStore, type AuthUser } from '@/lib/store';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
+import { usePincodeLookup } from '@/hooks/usePincodeLookup';
+import { useSignupConfig } from '@/hooks/useSignupConfig';
 import { validateGstin } from '@shared/gstin';
+import { INDIA_HUBS } from '@shared/hubs';
 import { SIGNATURE_ERROR, isValidSignature } from '@shared/contract';
 import {
   COMPANY_CATEGORIES,
@@ -75,6 +78,14 @@ export default function Signup() {
   const [companyName, setCompanyName] = useState('');
   const [gstin, setGstin] = useState('');
   const [contactPerson, setContactPerson] = useState('');
+  // Registered address + servicing hub: ITD's add_customer rejects a company
+  // without them, so they are collected here rather than at first booking.
+  const [address, setAddress] = useState('');
+  const [pincode, setPincode] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [hubId, setHubId] = useState('');
+  const { hint: pincodeHint, lookup: lookupPincode } = usePincodeLookup();
   const [extras, setExtras] = useState<Record<ExtraField, string>>({
     lut_no: '',
     iec_branch_code: '',
@@ -96,6 +107,12 @@ export default function Signup() {
   const [contractError, setContractError] = useState('');
 
   // Shared
+  // Whether this deployment lets a personal signup defer its documents. The
+  // server re-checks its own flag, so this only decides whether to offer it.
+  const { data: signupConfig } = useSignupConfig();
+  const canSkipDocuments = accountType === 'personal' && signupConfig?.kyc_optional === true;
+  const [skippedDocuments, setSkippedDocuments] = useState(false);
+
   const searchParams = new URLSearchParams(window.location.search);
   // /login verifies the number before sending anyone here, so the OTP round
   // trip is already spent. Re-sending a second code to the same phone would
@@ -234,6 +251,14 @@ export default function Signup() {
       if (!contactPerson.trim()) nextErrors.contactPerson = 'Contact person is required';
       const gstinCheck = validateGstin(gstin);
       if (!gstinCheck.valid) nextErrors.gstin = gstinCheck.message ?? 'Invalid GST number';
+      if (!address.trim()) nextErrors.address = 'Address is required';
+      else if (address.trim().length > 200) nextErrors.address = 'Address must be 200 characters or less';
+      if (!/^\d{6}$/.test(pincode.trim())) nextErrors.pincode = 'Enter a 6-digit pincode';
+      if (!city.trim()) nextErrors.city = 'City is required';
+      else if (city.trim().length > 80) nextErrors.city = 'City must be 80 characters or less';
+      if (!state.trim()) nextErrors.state = 'State is required';
+      else if (state.trim().length > 80) nextErrors.state = 'State must be 80 characters or less';
+      if (!hubId) nextErrors.hubId = 'Select a hub';
       for (const field of activeExtras) {
         const spec = EXTRA_FIELD_SPECS[field];
         if (!spec.pattern.test(extras[field].trim())) nextErrors[field] = spec.error;
@@ -305,8 +330,8 @@ export default function Signup() {
     setLocation(`/login?${search.toString()}`);
   };
 
-  const handleSubmitDocuments = (): void => {
-    if (missingDocs.length > 0) {
+  const handleSubmitDocuments = (skip = false): void => {
+    if (!skip && missingDocs.length > 0) {
       setFlaggedDocs(missingDocs);
       setErrors({
         form: `Still needed: ${missingDocs.map((s) => DOC_SLOT_SPECS[s].label).join(', ')}`,
@@ -315,6 +340,7 @@ export default function Signup() {
     }
     setFlaggedDocs([]);
     setErrors({});
+    setSkippedDocuments(skip && missingDocs.length > 0);
     if (!contractSignedName.trim()) {
       setContractSignedName(accountType === 'personal' ? fullName.trim() : contactPerson.trim());
     }
@@ -350,6 +376,11 @@ export default function Signup() {
               company_category: category,
               contact_person: contactPerson.trim(),
               email: email.trim(),
+              address: address.trim(),
+              pincode: pincode.trim(),
+              city: city.trim(),
+              state: state.trim(),
+              hub_id: Number(hubId),
               ...Object.fromEntries(activeExtras.map((f) => [f, extras[f].trim()])),
               contract_accepted: true,
               contract_signed_name: contractSignedName.trim(),
@@ -400,7 +431,7 @@ export default function Signup() {
       : step === 'otp'
         ? () => void handleVerifyOtp()
         : step === 'documents'
-          ? handleSubmitDocuments
+          ? () => handleSubmitDocuments()
           : () => void handleCreateAccount();
 
   const primaryLabel =
@@ -455,7 +486,46 @@ export default function Signup() {
       totalSteps={TOTAL_STEPS}
       testId="screen-signup"
       beforeCard={
-        step === 'details' ? (
+        /* Above the form card, in the slot the account-type toggle uses.
+           Outside the card on purpose: someone without their documents to
+           hand should meet this before working down the upload list, and
+           inside the card it read as one more field rather than a way out of
+           the step.
+
+           Quiet, not loud. Uploading is the primary action on this step and it
+           already owns the amber button at the bottom of the form. A second
+           amber button leaves two things competing to be the obvious one, so
+           the secondary route is styled as one.
+
+           Deferring, not waiving. The account opens, the customer is reminded
+           on every screen afterwards, and their orders cannot be docketed
+           until the documents are verified. The copy says "later", never
+           "optional", and names the cost rather than letting them find it at
+           the hub. */
+        step === 'documents' && canSkipDocuments && missingDocs.length > 0 ? (
+          <div
+            className="mb-5 rounded-xl border border-[#E2E8F0] bg-[#F3F4F6] px-4 py-3.5"
+            data-testid="skip-documents-card"
+          >
+            <p className="text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">
+              Don&rsquo;t have them to hand?
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-[#64748B]">
+              Open your account now and add them later. You can book straight away.
+              We can only dispatch once they&rsquo;re verified.
+            </p>
+            <button
+              type="button"
+              onClick={() => handleSubmitDocuments(true)}
+              disabled={isLoading}
+              className="mt-2 inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-[#2F4468] underline decoration-[#2F4468]/30 underline-offset-4 transition-colors duration-150 hover:decoration-[#2F4468] disabled:opacity-60"
+              data-testid="button-skip-documents"
+            >
+              Skip this step
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </div>
+        ) : step === 'details' ? (
           <div className="flex bg-muted rounded-xl p-1 mb-5" role="tablist" aria-label="Account type">
             {ACCOUNT_TYPES.map((type) => (
               <button
@@ -639,6 +709,105 @@ export default function Signup() {
                   inputClass={fieldClass}
                 />
 
+                <div>
+                  <Label className={fieldLabelClass}>Address</Label>
+                  <div className="relative mt-2">
+                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                    <Input
+                      value={address}
+                      onChange={(e) => { setAddress(e.target.value); setErrors((prev) => ({ ...prev, address: '' })); }}
+                      placeholder="Street address"
+                      maxLength={200}
+                      className={fieldClass}
+                      autoComplete="street-address"
+                      data-testid="input-company-address"
+                    />
+                  </div>
+                  {errors.address && <p role="alert" className="text-sm text-red-500 mt-1.5">{errors.address}</p>}
+                </div>
+
+                <div>
+                  <Label className={fieldLabelClass}>Pincode</Label>
+                  <Input
+                    value={pincode}
+                    onChange={(e) => {
+                      setPincode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                      setErrors((prev) => ({ ...prev, pincode: '' }));
+                    }}
+                    onBlur={() => {
+                      void lookupPincode(pincode, 'IN', ({ city: nextCity, state: nextState }) => {
+                        setCity(nextCity);
+                        setState(nextState);
+                        setErrors((prev) => ({ ...prev, city: '', state: '' }));
+                      });
+                    }}
+                    placeholder="6-digit pincode"
+                    inputMode="numeric"
+                    maxLength={6}
+                    className="mt-2 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
+                    autoComplete="postal-code"
+                    data-testid="input-company-pincode"
+                  />
+                  {pincodeHint && (
+                    <p className="text-xs text-muted-foreground mt-1">{pincodeHint}</p>
+                  )}
+                  {errors.pincode && <p role="alert" className="text-sm text-red-500 mt-1.5">{errors.pincode}</p>}
+                </div>
+
+                <div>
+                  <Label className={fieldLabelClass}>City</Label>
+                  <Input
+                    value={city}
+                    onChange={(e) => { setCity(e.target.value); setErrors((prev) => ({ ...prev, city: '' })); }}
+                    placeholder="City"
+                    maxLength={80}
+                    className="mt-2 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
+                    autoComplete="address-level2"
+                    data-testid="input-company-city"
+                  />
+                  {errors.city && <p role="alert" className="text-sm text-red-500 mt-1.5">{errors.city}</p>}
+                </div>
+
+                <div>
+                  <Label className={fieldLabelClass}>State</Label>
+                  <Input
+                    value={state}
+                    onChange={(e) => { setState(e.target.value); setErrors((prev) => ({ ...prev, state: '' })); }}
+                    placeholder="State"
+                    maxLength={80}
+                    className="mt-2 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
+                    autoComplete="address-level1"
+                    data-testid="input-company-state"
+                  />
+                  {errors.state && <p role="alert" className="text-sm text-red-500 mt-1.5">{errors.state}</p>}
+                </div>
+
+                <div>
+                  <Label className={fieldLabelClass}>Hub</Label>
+                  <Select
+                    value={hubId || undefined}
+                    onValueChange={(value) => {
+                      setHubId(value);
+                      setErrors((prev) => ({ ...prev, hubId: '' }));
+                    }}
+                  >
+                    <SelectTrigger
+                      className="mt-2 h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-xl"
+                      data-testid="select-company-hub"
+                    >
+                      <SelectValue placeholder="Select a hub" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INDIA_HUBS.map((hub) => (
+                        <SelectItem key={hub.id} value={String(hub.id)}>
+                          {hub.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.hubId && <p role="alert" className="text-sm text-red-500 mt-1.5">{errors.hubId}</p>}
+                </div>
+
                 {activeExtras.map((field) => {
                   const spec = EXTRA_FIELD_SPECS[field];
                   return (
@@ -724,6 +893,14 @@ export default function Signup() {
                       <PreviewRow label="Company name" value={companyName} />
                       <PreviewRow label="GST number" value={gstin} mono />
                       <PreviewRow label="Contact person" value={contactPerson} />
+                      <PreviewRow label="Address" value={address} />
+                      <PreviewRow label="Pincode" value={pincode} />
+                      <PreviewRow label="City" value={city} />
+                      <PreviewRow label="State" value={state} />
+                      <PreviewRow
+                        label="Hub"
+                        value={INDIA_HUBS.find((h) => String(h.id) === hubId)?.name ?? hubId}
+                      />
                     </>
                   )}
                   <PreviewRow label="Email" value={email} />
@@ -737,9 +914,13 @@ export default function Signup() {
                   ))}
                   <PreviewRow
                     label="Documents"
-                    value={`${
-                      accountType === 'company' ? categorySpec.documents.length : 2
-                    } uploaded`}
+                    value={
+                      skippedDocuments
+                        ? 'To be added later'
+                        : `${
+                            accountType === 'company' ? categorySpec.documents.length : 2
+                          } uploaded`
+                    }
                     last
                   />
                 </div>
@@ -776,6 +957,7 @@ export default function Signup() {
             >
               {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : primaryLabel}
             </Button>
+
     </AuthShell>
   );
 }

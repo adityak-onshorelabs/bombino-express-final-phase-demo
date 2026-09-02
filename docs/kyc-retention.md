@@ -90,6 +90,25 @@ What is in place meanwhile:
 Without an access log, a DPDP breach notification cannot honestly say what was
 accessed. That is what it is for.
 
+## Accounts with no KYC document
+
+Since `KYC_OPTIONAL` (`server/kycOptional.ts`), a **personal** account can exist
+with no `kyc_documents` row at all — the customer skipped the step at signup and
+has not come back yet.
+
+- `getKycByUserId` returns null for them, so nothing here changes shape; the
+  readers already handle the absent case.
+- Their orders are held at `generate_docket` (`isKycHeld`, see
+  `docs/final-phase/markdowns/open-items.md` §4.6), so an undocketed order never
+  reaches ITD without a document behind it.
+- The document set of record is still `account_documents`; `kyc_documents` is
+  what customs reads. A personal Aadhaar reaching `match` through **either**
+  upload path — signup, the profile document centre, or `/api/kyc/upload` — is
+  mirrored into both, so "verified" cannot mean two different things.
+- Nothing about encryption changes: a row that does not exist holds no
+  plaintext, and the row written whenever they do come back is encrypted on the
+  same path as every other.
+
 ## Retention
 
 **Abandoned signups.** Documents and identity rows staged against a

@@ -23,7 +23,7 @@ import { validateAadhaar } from '@shared/aadhaar';
 import { cn } from '@/lib/utils';
 
 const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB — must match kycUpload in server/routes.ts
 
 type SlotStatus = 'idle' | 'pending' | 'uploading' | 'success' | 'unverified' | 'error';
 
@@ -100,20 +100,42 @@ function isSlotVerified(slot: string, ocrStatus: string | null | undefined): boo
 interface AccountDocumentsProps {
   accountType: AccountKind;
   category: CompanyCategory | null;
-  /** The verified number — the server's authorisation for a pre-account upload. */
-  phone: string;
+  /**
+   * The verified number — the server's authorisation for a pre-account upload.
+   * Omitted on the `account` endpoint, where the session is the authorisation.
+   */
+  phone?: string;
   /**
    * The name this account is for: the individual's, or the company's. Only the
-   * GST check reads it — the portal answers with the registered business and
-   * the two have to agree.
+   * GST portal lookup reads it — it answers with the registered business and
+   * the two have to agree — so it is only needed on the `signup` endpoint.
    */
-  accountName: string;
+  accountName?: string;
   /**
    * The GST number typed at the details step. Not re-typed here — it is a
    * first-class field on the form, and asking twice would invite the two to
    * disagree. Empty on a personal account, which has no GST slot.
    */
   gstin?: string;
+  /**
+   * Which pair of endpoints to talk to.
+   *
+   *   signup   /api/signup/documents  — staged against the session's signupRef,
+   *                                     authorised by a recently verified phone
+   *   account  /api/account/documents — owned by the signed-in user
+   *
+   * The two are deliberately the same component. A customer who skipped their
+   * documents at signup meets the identical form when they come back to finish,
+   * and the slot list, the number validation and the OCR feedback cannot drift
+   * apart between the two places they appear.
+   *
+   * The difference is where the typed number is proved. On `signup` it is
+   * recorded first, through /api/signup/identity/*, and the upload is judged
+   * against the stored value. On `account` there is no staging step and no OTP
+   * to authorise one — the session is the authorisation — so the number rides
+   * with the upload as `document_no` and is judged there.
+   */
+  endpoint?: 'signup' | 'account';
   /** Fires with the slots still outstanding, so the parent can gate its button. */
   onMissingChange: (missing: DocSlot[]) => void;
   /** Slots the parent wants marked, after a blocked submit. */
@@ -121,14 +143,18 @@ interface AccountDocumentsProps {
   /**
    * The OTP that authorised this signup has expired.
    *
-   * Every endpoint on this screen is authorised by a recent verification of
-   * the phone, not by a session — there is no account yet — and that expires
-   * after ten minutes. Filling in a document screen takes longer than that
-   * often enough that it is ordinary, not an edge case, and once it happens
-   * every button here fails identically. The parent sends the customer back
-   * to request a new code rather than leaving them to guess.
+   * On the `signup` endpoint every request here is authorised by a recent
+   * verification of the phone, not by a session — there is no account yet —
+   * and that expires after ten minutes. Filling in a document screen takes
+   * longer than that often enough that it is ordinary, not an edge case, and
+   * once it happens every button here fails identically. The parent sends the
+   * customer back to request a new code rather than leaving them to guess.
+   *
+   * Unused on the `account` endpoint, which has a session and cannot hit this.
    */
-  onPhoneUnverified: () => void;
+  onPhoneUnverified?: () => void;
+  /** Fires after any successful upload, with whatever the endpoint returned. */
+  onUploaded?: (body: unknown) => void;
 }
 
 /**
@@ -155,13 +181,16 @@ export function AccountDocuments({
   accountType,
   category,
   phone,
-  accountName,
+  accountName = '',
   gstin = '',
+  endpoint = 'signup',
   onMissingChange,
   highlight,
   onPhoneUnverified,
+  onUploaded,
 }: AccountDocumentsProps): React.JSX.Element {
   const slots = requiredDocuments(accountType, category);
+  const basePath = endpoint === 'account' ? '/api/account/documents' : '/api/signup/documents';
   const [state, setState] = useState<Record<string, SlotState>>({});
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   /** A file chosen before its number was valid; uploaded as soon as it is. */
@@ -186,7 +215,7 @@ export function AccountDocuments({
   const isPhoneUnverified = useCallback(
     (body: { code?: string } | null): boolean => {
       if (body?.code !== 'phone_unverified') return false;
-      onPhoneUnverified();
+      onPhoneUnverified?.();
       return true;
     },
     [onPhoneUnverified],
@@ -211,39 +240,50 @@ export function AccountDocuments({
     // A change of phone is a different signup; drop what the last one staged.
     setState({});
     void (async () => {
-      try {
-        const reset = await fetch('/api/signup/identity/reset', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ phone }),
-          credentials: 'include',
-        });
-        // An HTML 200 is not a successful reset. The dev server answers an
-        // unmatched /api path with index.html and a 200, so a route that is
-        // not there — a server running older code, most likely — otherwise
-        // reads as "cleared" and the stale numbers below quietly survive.
-        const body = (await reset.json().catch(() => null)) as
-          | { cleared?: boolean; code?: string }
-          | null;
-        // The commonest reason to be refused here, and the only recoverable
-        // one: ten minutes have passed since the OTP.
-        if (isPhoneUnverified(body)) return;
-        if (!reset.ok || body === null) {
-          console.error(
-            '[signup/documents] identity reset did not run. If this is local, restart the server —',
-            'the route is missing from the process handling requests.',
-          );
+      // Signup only. On the account endpoint there is nothing staged to
+      // discard, the documents on screen are the customer's own, and
+      // /api/signup/identity/* would refuse a request with no verified phone
+      // behind it.
+      if (endpoint === 'signup') {
+        try {
+          const reset = await fetch('/api/signup/identity/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone }),
+            credentials: 'include',
+          });
+          // An HTML 200 is not a successful reset. The dev server answers an
+          // unmatched /api path with index.html and a 200, so a route that is
+          // not there — a server running older code, most likely — otherwise
+          // reads as "cleared" and the stale numbers below quietly survive.
+          const body = (await reset.json().catch(() => null)) as
+            | { cleared?: boolean; code?: string }
+            | null;
+          // The commonest reason to be refused here, and the only recoverable
+          // one: ten minutes have passed since the OTP.
+          if (isPhoneUnverified(body)) return;
+          if (!reset.ok || body === null) {
+            console.error(
+              '[signup/documents] identity reset did not run. If this is local, restart the server —',
+              'the route is missing from the process handling requests.',
+            );
+          }
+        } catch {
+          // Offline, or the session is gone. Nothing is shown either way, and
+          // every number is about to be retyped — each write replaces whatever
+          // survived on the server.
         }
-      } catch {
-        // Offline, or the session is gone. Nothing is shown either way, and
-        // every number is about to be retyped — each write replaces whatever
-        // survived on the server.
       }
+
       if (cancelled) return;
 
       try {
+        // The signup endpoint is authorised by the verified phone, so it goes
+        // in the query; the account endpoint reads the session.
         const res = await fetch(
-          `/api/signup/documents?phone=${encodeURIComponent(phone)}`,
+          endpoint === 'signup' && phone
+            ? `${basePath}?phone=${encodeURIComponent(phone)}`
+            : basePath,
           { credentials: 'include' },
         );
         if (!res.ok) return;
@@ -267,7 +307,12 @@ export function AccountDocuments({
             // failed reset must not resurrect a number-bearing slot whose
             // identity row is now gone, which would show as done and then be
             // refused at account creation.
-            if (isVerifiedDocSlot(doc.doc_slot)) continue;
+            // Signup only, and only because the reset above deleted the
+            // identity rows these slots were checked against. On the account
+            // endpoint nothing was reset and these are the customer's own
+            // verified documents — hiding them would show an empty form to
+            // someone who has already finished, and report them as missing.
+            if (endpoint === 'signup' && isVerifiedDocSlot(doc.doc_slot)) continue;
             const verified = isSlotVerified(doc.doc_slot, doc.ocr_status);
             next[doc.doc_slot] = {
               ...(next[doc.doc_slot] ?? EMPTY_SLOT),
@@ -291,7 +336,7 @@ export function AccountDocuments({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phone]);
+  }, [phone, basePath, endpoint]);
 
   // Report upward on every change. The parent gates "create account" on this,
   // and the server refuses the same set independently.
@@ -342,11 +387,12 @@ export function AccountDocuments({
     const formData = new FormData();
     formData.append('file', file);
     formData.append('doc_slot', slot);
-    formData.append('phone', phone);
+    // Only the signup endpoint takes it; the account one reads the session.
+    if (phone) formData.append('phone', phone);
     if (documentNo) formData.append('document_no', documentNo);
 
     try {
-      const res = await fetch('/api/signup/documents', {
+      const res = await fetch(basePath, {
         method: 'POST',
         body: formData,
         credentials: 'include',
@@ -376,6 +422,10 @@ export function AccountDocuments({
         ocrNote: verified ? '' : (body.ocr?.message ?? 'This document could not be verified.'),
       });
       pendingFiles.current[slot] = null;
+      // The account endpoint returns the recomputed verification state with the
+      // upload, so the warning banner can clear on this round trip rather than
+      // after a refetch the customer waits for.
+      onUploaded?.(body);
     } catch (err) {
       patchSlot(slot, {
         status: 'error',
@@ -401,6 +451,12 @@ export function AccountDocuments({
    * two record what they are given.
    */
   async function recordNumber(slot: DocSlot, value: string): Promise<string | null> {
+    // The account endpoint has no separate recording step: /api/signup/identity/*
+    // is authorised by a recently verified phone, which a signed-in customer
+    // coming back to finish does not have. Their number travels with the upload
+    // as `document_no` and POST /api/account/documents judges the file against
+    // it there. Same check, one request instead of two.
+    if (endpoint !== 'signup') return value;
     const path = IDENTITY_PATH[slot];
     if (!path) return value;
 
@@ -510,7 +566,7 @@ export function AccountDocuments({
    * so this is a button rather than a field. Billed, hence deliberate.
    */
   async function handleVerifyGstin(): Promise<void> {
-    if (!accountName.trim()) {
+    if (endpoint === 'signup' && !accountName.trim()) {
       patchSlot('gst_certificate', {
         status: 'error',
         error: 'Go back and enter the company name.',
@@ -531,7 +587,7 @@ export function AccountDocuments({
     pendingFiles.current[slot] = null;
     patchSlot(slot, { ...EMPTY_SLOT });
     try {
-      await fetch(`/api/signup/documents/${slot}`, {
+      await fetch(`${basePath}/${slot}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -547,7 +603,7 @@ export function AccountDocuments({
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
-      patchSlot(slot, { status: 'error', error: 'File must be under 5MB.' });
+      patchSlot(slot, { status: 'error', error: 'File must be under 4MB.' });
       return;
     }
 
@@ -565,7 +621,7 @@ export function AccountDocuments({
     pendingFiles.current[slot] = null;
     patchSlot(slot, { status: 'idle', fileName: '', error: '' });
     try {
-      await fetch(`/api/signup/documents/${slot}`, {
+      await fetch(`${basePath}/${slot}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -578,7 +634,7 @@ export function AccountDocuments({
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        {slots.length} document{slots.length === 1 ? '' : 's'} required. PDF, JPEG, or PNG · max 5MB
+        {slots.length} document{slots.length === 1 ? '' : 's'} required. PDF, JPEG, or PNG · max 4MB
         each.
       </p>
 

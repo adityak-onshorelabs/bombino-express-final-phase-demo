@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from '@/components/AppLayout';
 import { SurfaceGuard } from '@/components/SurfaceGuard';
 import { AgentRoutes } from './routes.agent';
+import { OpsRoutes } from './routes.ops';
 import { surfaceForPath } from '@/lib/surface';
 
 import Splash from "@/pages/Splash";
@@ -61,8 +62,9 @@ function CustomerRouter() {
  * desktop sidebar, no top bar and no support FAB, so it renders outside
  * `AppLayout` entirely rather than trying to opt out of its parts.
  *
- * `SurfaceGuard` sits above both and bounces anyone onto their own surface.
- * It is cosmetic — the real enforcement is `requireRole` on the server.
+ * `SurfaceGuard` sits above agent and ops (and the customer app) and bounces
+ * anyone onto their own surface. It is cosmetic — the real enforcement is
+ * `requireRole` on the server.
  */
 /**
  * Toasts, everywhere except the agent app.
@@ -92,6 +94,15 @@ function Surfaces() {
     return <AgentRoutes />;
   }
 
+  if (surfaceForPath(location) === 'ops') {
+    return <OpsRoutes />;
+  }
+
+  // The verification banner is NOT mounted here. It has to sit below the nav
+  // rather than above it, which means living inside the sticky chrome itself:
+  // TopBar's `below` slot on mobile (via Header), and under DesktopTopBar in
+  // AppLayout. Mounted at this level it rendered above the whole shell and
+  // pushed the sidebar down the page.
   return (
     <AppLayout>
       <CustomerRouter />

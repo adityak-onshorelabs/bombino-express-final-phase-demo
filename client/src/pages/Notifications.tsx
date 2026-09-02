@@ -2,6 +2,7 @@
 import { ArrowLeft, Bell, AlertTriangle, Info, LogIn } from 'lucide-react';
 import { format, parseISO, isValid } from 'date-fns';
 import { useAppStore } from '@/lib/store';
+import { VerificationBanner } from '@/components/VerificationBanner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -63,6 +64,13 @@ export default function Notifications() {
           <h1 className="ml-2 font-semibold text-sm">Notifications</h1>
         </div>
       </header>
+
+      {/* Under the nav, scrolling with the page. Desktop gets its copy from
+          AppLayout, so this one is scoped to the same breakpoint as the
+          header above it. */}
+      <div className="md:hidden">
+        <VerificationBanner />
+      </div>
 
       <main className="max-w-4xl mx-auto w-full px-4 md:px-8 py-6">
         {!isLoggedIn ? (

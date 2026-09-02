@@ -5,7 +5,12 @@ import {
   encryptField,
   encryptNullable,
 } from "./fieldCrypto.js";
-import type { DocSlot } from "../shared/accountSpec.js";
+import {
+  verificationState,
+  type AccountKind,
+  type CompanyCategory,
+  type DocSlot,
+} from "../shared/accountSpec.js";
 import type { OcrResult } from "./cashfreeOcr.js";
 
 /**
@@ -268,6 +273,71 @@ export async function getSignupDocumentWithFile(
   return data ? decodeRow(data as AccountDocumentRow) : null;
 }
 
+/**
+ * The same, for a slot an account already owns.
+ *
+ * The post-signup twin of getSignupDocumentWithFile: once documents can be
+ * completed after the account exists, the Aadhaar mirror has to be able to read
+ * from the user_id side too.
+ */
+/**
+ * Slot + verdict for many accounts at once, for the ops verification queue.
+ *
+ * One round trip rather than one per customer. Metadata only, and only the two
+ * columns a verdict needs — the queue lists hundreds of rows and none of them
+ * wants a base64 payload.
+ */
+export async function listDocumentVerdictsForUserIds(
+  userIds: readonly string[]
+): Promise<Map<string, { doc_slot: string; ocr_status: string | null }[]>> {
+  const byUser = new Map<string, { doc_slot: string; ocr_status: string | null }[]>();
+  const client = getClient();
+  if (!client || userIds.length === 0) return byUser;
+
+  const { data, error } = await client
+    .from("account_documents")
+    .select("user_id, doc_slot, ocr_status")
+    .in("user_id", [...userIds]);
+
+  if (error) {
+    logError("listDocumentVerdictsForUserIds", error);
+    return byUser;
+  }
+
+  for (const row of (data ?? []) as {
+    user_id: string | null;
+    doc_slot: string;
+    ocr_status: string | null;
+  }[]) {
+    if (!row.user_id) continue;
+    const list = byUser.get(row.user_id);
+    if (list) list.push({ doc_slot: row.doc_slot, ocr_status: row.ocr_status });
+    else byUser.set(row.user_id, [{ doc_slot: row.doc_slot, ocr_status: row.ocr_status }]);
+  }
+  return byUser;
+}
+
+export async function getUserDocumentWithFile(
+  userId: string,
+  docSlot: DocSlot
+): Promise<AccountDocumentRow | null> {
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("account_documents")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("doc_slot", docSlot)
+    .maybeSingle();
+
+  if (error) {
+    logError("getUserDocumentWithFile", error);
+    return null;
+  }
+  return data as AccountDocumentRow | null;
+}
+
 export async function deleteSignupDocument(
   signupRef: string,
   docSlot: DocSlot
@@ -283,6 +353,23 @@ export async function deleteSignupDocument(
 
   if (error) {
     logError("deleteSignupDocument", error);
+    return false;
+  }
+  return true;
+}
+
+export async function deleteUserDocument(userId: string, docSlot: DocSlot): Promise<boolean> {
+  const client = getClient();
+  if (!client) return false;
+
+  const { error } = await client
+    .from("account_documents")
+    .delete()
+    .eq("user_id", userId)
+    .eq("doc_slot", docSlot);
+
+  if (error) {
+    logError("deleteUserDocument", error);
     return false;
   }
   return true;
@@ -336,4 +423,24 @@ export async function deleteAllSignupDocuments(signupRef: string): Promise<numbe
     return 0;
   }
   return data?.length ?? 0;
+}
+
+/**
+ * Is this account verified, reading the documents it actually owns?
+ *
+ * The post-signup counterpart to the check assertDocumentsStaged runs against
+ * staged rows. Both defer to `verificationState` in shared/accountSpec.ts, so
+ * the answer cannot differ depending on which side of account creation asks.
+ *
+ * A Supabase failure surfaces as "not verified" rather than as an exception:
+ * every caller is either a warning banner or a guard on an irreversible action,
+ * and both should fail closed.
+ */
+export async function getVerificationState(
+  userId: string,
+  accountType: AccountKind,
+  category: CompanyCategory | null
+): Promise<{ verified: boolean; missing: DocSlot[]; unverified: DocSlot[] }> {
+  const documents = await listDocumentsByUserId(userId);
+  return verificationState(accountType, category, documents);
 }

@@ -38,7 +38,11 @@
  */
 
 import crypto from "crypto";
-import { OCR_SLOT_DOCUMENT_TYPES, isOcrCheckedSlot } from "../shared/accountSpec.js";
+import {
+  OCR_SLOT_DOCUMENT_TYPES,
+  isOcrCheckedSlot,
+  type OcrCheckedSlot,
+} from "../shared/accountSpec.js";
 
 const SANDBOX_BASE = "https://sandbox.cashfree.com";
 const PRODUCTION_BASE = "https://api.cashfree.com";
@@ -550,6 +554,20 @@ export function ocrTypeForKycDocumentType(documentType: string): CashfreeDocumen
   };
   return map[documentType] ?? null;
 }
+
+/**
+ * The account_documents slot a KYC-upload document type corresponds to.
+ *
+ * The two paths name the same documents differently — `/api/kyc/upload` says
+ * "Aadhaar Number", the signup matrix says `aadhaar_card` — and only where both
+ * vocabularies overlap can an upload through the older path also count towards
+ * the newer one. Passport, driving licence and GSTIN have no slot: they are
+ * valid KYC for customs but are not part of any account's compelled set.
+ */
+export const ACCOUNT_SLOT_FOR_KYC_TYPE: Record<string, OcrCheckedSlot | undefined> = {
+  "Aadhaar Number": "aadhaar_card",
+  "PAN Number": "pan_card",
+};
 
 /** The result stored against a document OCR was never asked about. */
 export function skippedOcr(reason: string): OcrResult {
