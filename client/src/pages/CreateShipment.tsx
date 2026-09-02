@@ -27,6 +27,8 @@ import { AddressPicker, type SavedAddress } from '@/components/AddressPicker';
 import { KycUpload, type KycUploadResult } from '@/components/KycUpload';
 import { KycOnFileCard } from '@/components/KycOnFileCard';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
+import { GuestVerification } from '@/components/GuestVerification';
+import type { DocSlot } from '@shared/accountSpec';
 import { ShipmentContentSearch } from '@/components/ShipmentContentSearch';
 import {
   DimensionPresetSheet,
@@ -424,6 +426,21 @@ export default function CreateShipment() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   const pendingOrderRef = useRef<Omit<OrderCreatePayload, 'payment_method'> | null>(null);
+
+  /**
+   * Booking without signing in.
+   *
+   * Chosen from the gate below rather than assumed: someone who has an account
+   * is nearly always better off signing in — their address and documents are
+   * already there — so guest is offered, not defaulted to.
+   *
+   * It removes the account, NOT the KYC. The server refuses a guest order
+   * until the phone is verified and the full document set has been read, and
+   * GuestVerification is the screen for exactly those checks.
+   */
+  const [guestMode, setGuestMode] = useState(false);
+  const [guestVerifiedPhone, setGuestVerifiedPhone] = useState<string | null>(null);
+  const [guestMissingDocs, setGuestMissingDocs] = useState<DocSlot[]>([]);
 
   const [senderName, setSenderName] = useState(isLoggedIn ? user?.fullName ?? '' : '');
   const [senderEmail, setSenderEmail] = useState(isLoggedIn ? user?.email ?? '' : '');
@@ -919,7 +936,14 @@ export default function CreateShipment() {
     setShowServiceModal(true);
   };
 
-  if (!isLoggedIn) {
+  // Signed out, and not yet committed to booking as a guest.
+  //
+  // This used to be a wall: "Please login to continue". It is a choice now,
+  // because an account is not what a shipment needs — a verified number and an
+  // identity document are, and a guest produces both. Signing in is still the
+  // better path for anyone who has an account, so it keeps the amber button;
+  // guest is the quieter one beside it, not hidden behind it.
+  if (!isLoggedIn && !guestMode) {
     return (
       <div className="min-h-[100dvh] bg-background pb-nav" data-testid="screen-create-login-required">
         <header className="sticky top-0 z-50 bg-white border-b border-[#E2E8F0] safe-top md:hidden">
@@ -938,17 +962,38 @@ export default function CreateShipment() {
           <div className="w-16 h-16 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-4">
             <Send className="w-8 h-8 text-[lab(34.0831_-9.57756_-27.7093)]" />
           </div>
-          <h2 className="text-lg font-semibold text-[lab(34.0831_-9.57756_-27.7093)] mb-2">Please login to continue</h2>
+          <h2 className="text-lg font-semibold text-[lab(34.0831_-9.57756_-27.7093)] mb-2">
+            Send a parcel to the USA
+          </h2>
           <p className="text-sm text-muted-foreground mb-6">
-            Sign in to create and manage your shipments
+            Sign in to use your saved addresses and documents, or book as a guest.
           </p>
-          <Button
-            onClick={() => setLocation('/login?redirect=/create')}
-            className="bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-12 px-8 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
-            data-testid="button-login-to-create"
-          >
-            Login
-          </Button>
+
+          <div className="w-full space-y-3">
+            <Button
+              onClick={() => setLocation('/login?redirect=/create')}
+              className="w-full bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-12 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+              data-testid="button-login-to-create"
+            >
+              Sign in
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setGuestMode(true)}
+              className="w-full h-12 rounded-xl border-[#E2E8F0] text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)] hover:bg-muted"
+              data-testid="button-continue-as-guest"
+            >
+              Continue as guest
+            </Button>
+          </div>
+
+          {/* Said here rather than discovered at the document step. Guest is a
+              shorter path, not a lighter one, and finding that out three
+              screens in is how a booking gets abandoned. */}
+          <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+            Either way we&rsquo;ll need your phone number and an identity document —
+            Indian customs requires one on every shipment.
+          </p>
         </main>
 
         <BottomNav />
@@ -1079,12 +1124,19 @@ export default function CreateShipment() {
 
           <div className="space-y-2">
             <Button
-              onClick={() => setLocation('/orders')}
+              onClick={() => setLocation(guestMode ? '/signup?redirect=/orders' : '/orders')}
               className="w-full h-12 bg-primary hover:bg-primary/90 text-sm rounded-xl shadow-md flex items-center justify-center gap-2"
               data-testid="button-view-orders"
             >
               <FileText className="w-4 h-4" />
-              Go to My Orders
+              {/* A guest has no orders list to send them to, and tracking is
+                  keyed on the AWB, which this order will not have until ops
+                  dockets it — so "track it" would dead-end today.
+                  An account is the thing that actually works: signing up on the
+                  number they just verified attaches this order to it, along
+                  with the documents they uploaded. Offered after the booking,
+                  never as a condition of it. */}
+              {guestMode ? 'Save this order to an account' : 'Go to My Orders'}
             </Button>
             <Button
               variant="outline"
@@ -1113,7 +1165,16 @@ export default function CreateShipment() {
       if (!senderCity.trim()) e.senderCity = true;
       if (!senderState.trim()) e.senderState = true;
       if (!senderZip.trim()) e.senderZip = true;
-      if (kycBlocksBooking && !kycOnFile && !kycResult) e.kycMissing = true;
+      // A guest proves identity through GuestVerification instead: the phone,
+      // then the same document set. Both halves must be done — the server
+      // refuses the booking otherwise, so letting Continue through here would
+      // only fail three steps later, after the parcel details are typed.
+      if (guestMode) {
+        if (!guestVerifiedPhone) e.guestPhone = true;
+        if (guestMissingDocs.length > 0) e.guestDocs = true;
+      } else if (kycBlocksBooking && !kycOnFile && !kycResult) {
+        e.kycMissing = true;
+      }
       if (pickupRequest === '1' && !pickupDate) e.pickupDate = true;
       if (Object.keys(e).length) {
         setFieldErrors(e);
@@ -1602,9 +1663,24 @@ export default function CreateShipment() {
                       clearFieldError('senderPhone');
                     }}
                     placeholder="+91"
-                    className={fieldBorderClass('senderPhone')}
+                    // A guest's booking is authorised by an OTP on this exact
+                    // number, and their documents are staged against it. Left
+                    // editable, a change here would send the server a number it
+                    // never verified — a 401 at the end of a filled-in form,
+                    // with nothing on screen explaining why. Changed from the
+                    // verification card instead, which re-does the OTP.
+                    readOnly={guestMode && !!guestVerifiedPhone}
+                    className={cn(
+                      fieldBorderClass('senderPhone'),
+                      guestMode && guestVerifiedPhone && 'bg-[#F3F4F6] text-muted-foreground'
+                    )}
                     data-testid="input-sender-phone"
                   />
+                  {guestMode && guestVerifiedPhone ? (
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Verified. Use &ldquo;Change&rdquo; above to use another number.
+                    </p>
+                  ) : null}
                   {fieldErrors.senderPhone && (
                     <p className="text-xs text-red-600 mt-1">Must be exactly 10 digits</p>
                   )}
@@ -1792,10 +1868,45 @@ export default function CreateShipment() {
               )}
             </div>
 
+            {/* A guest proves who they are here: the phone first, then the same
+                documents an account produces at signup. Rendered instead of
+                the KYC card below, not beside it — the numbers and the files
+                are asked for together, on one card per document. */}
+            {guestMode && (
+              <GuestVerification
+                initialPhone={senderPhone}
+                onVerifiedPhoneChange={(verified) => {
+                  setGuestVerifiedPhone(verified);
+                  clearFieldError('guestPhone');
+                  // The number that authorised the booking is the number that
+                  // goes on it. Keeping them the same by construction is what
+                  // stops the server refusing a payload whose sender phone it
+                  // never verified.
+                  if (verified) {
+                    setSenderPhone(verified);
+                    clearFieldError('senderPhone');
+                  }
+                }}
+                onMissingDocsChange={(missing) => {
+                  setGuestMissingDocs(missing);
+                  if (missing.length === 0) clearFieldError('guestDocs');
+                }}
+                highlight={fieldErrors.guestDocs ? guestMissingDocs : undefined}
+              />
+            )}
+
+            {(fieldErrors.guestPhone || fieldErrors.guestDocs) && (
+              <p className="text-xs text-red-600" role="alert" data-testid="text-guest-kyc-error">
+                {fieldErrors.guestPhone
+                  ? 'Verify your phone number to carry on.'
+                  : 'Add your identity documents to carry on.'}
+              </p>
+            )}
+
             {/* Company accounts: nothing here. Identity was settled by GST at
                 signup — see A2. Personal accounts still need a document on
                 file, but are only asked once. */}
-            {kycRequired && (
+            {!guestMode && kycRequired && (
               kycOnFile ? (
                 <div className="space-y-2">
                   <KycOnFileCard kyc={kycOnFile} />
