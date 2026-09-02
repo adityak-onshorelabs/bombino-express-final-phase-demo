@@ -141,9 +141,7 @@ export function GuestVerification({
             Verify it&rsquo;s you
           </p>
           <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-            We&rsquo;ll send a 6-digit code. Indian customs needs an identity
-            document for every shipment, so we ask for the same details whether
-            or not you open an account.
+            We&rsquo;ll text you a 6-digit code.
           </p>
         </div>
       </div>

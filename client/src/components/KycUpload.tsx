@@ -29,6 +29,14 @@ interface KycUploadProps {
     document_no?: boolean;
     file?: boolean;
   };
+  /**
+   * The verified number of a guest booking, sent with the upload.
+   *
+   * /api/kyc/upload takes either a signed-in account or a guest holding a
+   * recently verified phone; this is how the second kind names itself. Every
+   * account-side caller omits it and is authorised by its session instead.
+   */
+  guestPhone?: string;
 }
 
 type DocConfig = {
@@ -110,6 +118,7 @@ function StatusPill({ status }: { status: UploadStatus }) {
 export function KycUpload({
   onValidChange = () => undefined,
   fieldErrors,
+  guestPhone,
 }: KycUploadProps): React.JSX.Element {
   const [selectedDocType, setSelectedDocType] = useState(KYC_DOCUMENT_TYPE);
   const [docNoRaw, setDocNoRaw] = useState('');
@@ -169,6 +178,9 @@ export function KycUpload({
     formData.append('file', file);
     formData.append('document_type', selectedDocType);
     formData.append('document_no', documentNo);
+    // Only a guest sends this; the server re-checks it against a live
+    // verification rather than taking it on trust.
+    if (guestPhone) formData.append('phone', guestPhone);
 
     try {
       const res = await fetch('/api/kyc/upload', {
@@ -178,7 +190,13 @@ export function KycUpload({
       });
 
       if (res.status === 401) {
-        throw new Error('Please log in to upload your identity document.');
+        // The endpoint takes a signed-in account or a guest holding a recently
+        // verified phone. A 401 here is either "not signed in" or "that
+        // verification has run out", and the second is the common one — the
+        // window is ten minutes.
+        throw new Error(
+          'Please sign in, or verify your phone number again, to upload your identity document.',
+        );
       }
 
       if (!res.ok) {

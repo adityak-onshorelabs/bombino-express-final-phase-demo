@@ -1390,6 +1390,41 @@ export async function registerRoutes(
     return null;
   }
 
+  /**
+   * Who a KYC document belongs to: the signed-in account, or a guest.
+   *
+   * The account wins whenever there is one. Otherwise this browser must be
+   * mid-guest-booking: a signupRef bound to a phone, which `signupRefForPhone`
+   * only ever mints after an OTP on that number, and discards the moment the
+   * number changes. The ref is re-checked against a live verification here so
+   * that a session left open overnight cannot still upload against a number
+   * proved yesterday — the ten-minute window is the point of it.
+   *
+   * Returns null when neither holds, which the caller answers as 401.
+   */
+  async function resolveKycOwner(
+    req: Request
+  ): Promise<{ userId: string; guestRef: null } | { userId: null; guestRef: string } | null> {
+    if (req.session.dbUserId) return { userId: req.session.dbUserId, guestRef: null };
+
+    // A guest names the number they proved, and it is checked here rather than
+    // trusted — the same shape /api/signup/documents uses. Falls back to the
+    // session's own phone so a repeat upload need not resend it.
+    const claimed =
+      typeof req.body?.phone === "string" ? req.body.phone.trim() : req.session.signupPhone;
+    if (!claimed) return null;
+
+    const verified = await hasRecentVerification(claimed, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
+    if (!verified) return null;
+
+    // Mints on first upload and returns the same ref afterwards, discarding
+    // anything staged under a different number. This is the only thing that
+    // creates a guest's ref: they never touch the signup endpoints, so without
+    // it there would be nothing to own the document or, later, the order.
+    const ref = await signupRefForPhone(req, claimed);
+    return { userId: null, guestRef: ref };
+  }
+
   async function mirrorAadhaarToKyc(
     owner: { userId: string; guestRef?: null } | { userId: null; guestRef: string },
     aadhaar: { document_no: string | null; original_filename: string; mime_type: string; file_size_bytes: number; file_data: string } | null,
@@ -3502,40 +3537,27 @@ export async function registerRoutes(
       }
     }
 
-    // A guest books on the same terms an account opens on: every identity
-    // number recorded, every required document present and read. These are the
-    // same two gates POST /api/auth/signup/personal runs, in the same order,
-    // against the same staged rows — booking as a guest removes the account,
+    const guestRef = bookingAsGuest ? req.session.signupRef ?? null : null;
+
+    // A guest owes exactly what a personal account owes on this screen: one
+    // identity document, through the same /api/kyc/upload the KycUpload card
+    // posts to. Not the signup matrix — that is what opening an ACCOUNT costs,
+    // and a guest is not opening one. Booking as a guest removes the account,
     // not the KYC.
     //
-    // Both write their own refusal, so there is nothing to add here.
+    // Presence is the whole test, for the same reason it is on the account
+    // side: an upload whose OCR contradicted the typed number, read the wrong
+    // kind of document, or tripped a tamper check never reached storage —
+    // /api/kyc/upload refuses those outright. A row here has already passed.
     if (bookingAsGuest) {
-      if (
-        !(await assertIdentityVerified(
-          req,
-          res,
-          "personal",
-          null,
-          body.origin_address.full_name,
-          "booking"
-        ))
-      ) {
+      const guestKyc = guestRef ? await getKycByGuestRef(guestRef) : null;
+      if (!guestKyc) {
+        res.status(422).json({
+          message: "Please add your identity document before booking.",
+          code: "KYC_REQUIRED",
+        });
         return;
       }
-      const staged = await assertDocumentsStaged(req, res, "personal", null, guestPhone!);
-      if (!staged) return;
-    }
-
-    // Only meaningful once the gates above have passed, which they cannot do
-    // without staged rows — and staged rows are what mint the ref. A guest who
-    // reaches here always has one.
-    const guestRef = bookingAsGuest ? req.session.signupRef ?? null : null;
-    if (bookingAsGuest && !guestRef) {
-      res.status(422).json({
-        message: "Please add your identity documents before booking.",
-        code: PHONE_UNVERIFIED,
-      });
-      return;
     }
 
     const originAddr = await findOrCreateAddress({
@@ -3610,12 +3632,10 @@ export async function registerRoutes(
     }
 
     if (bookingAsGuest && guestRef) {
-      // Mirror the Aadhaar into kyc_documents, exactly as account creation
-      // does. That table is what buildItdKycPayload reads when ops generates
-      // the docket, and without this a guest order would reach that moment
-      // with a complete document set and nothing customs can be told.
-      const aadhaar = await getSignupDocumentWithFile(guestRef, "aadhaar_card");
-      await mirrorAadhaarToKyc({ userId: null, guestRef }, aadhaar, "orders/guest");
+      // No mirror to do: a guest's document was written straight into
+      // kyc_documents by /api/kyc/upload, which is the table buildItdKycPayload
+      // reads when ops dockets the order. Account signup mirrors because its
+      // documents land in account_documents first; a guest has no such matrix.
 
       // Promote the staging ref to the session's guest identity.
       //
@@ -4840,12 +4860,19 @@ export async function registerRoutes(
   // POST /api/kyc/upload — upload KYC document; upserts one row per user
   app.post(
     "/api/kyc/upload",
-    requireUser,
+    // No requireUser: a guest booking uses this same endpoint, authorised by a
+    // recently verified phone rather than by a session, exactly as the signup
+    // document endpoints are. ensureDbUser still resolves the account when
+    // there IS one; it is a no-op for a guest.
     ensureDbUser,
     kycUpload.single("file"),
     async (req: Request, res: Response) => {
-      if (!req.session.dbUserId) {
-        res.status(401).json({ message: "Not authenticated" });
+      // Who owns the document this writes. An account if there is one;
+      // otherwise the guest ref this browser staged under, which can only
+      // exist if an OTP on that number was verified.
+      const kycOwner = await resolveKycOwner(req);
+      if (!kycOwner) {
+        res.status(401).json({ message: "Not authenticated", code: PHONE_UNVERIFIED });
         return;
       }
 
@@ -4912,12 +4939,15 @@ export async function registerRoutes(
       if (!ocr) return;
 
       try {
-        const existing = await getKycByUserId(req.session.dbUserId);
+        const existing = kycOwner.userId
+          ? await getKycByUserId(kycOwner.userId)
+          : await getKycByGuestRef(kycOwner.guestRef!);
         const capabilityId = existing?.capability_id ?? crypto.randomUUID();
         const fileDataBase64 = req.file.buffer.toString("base64");
 
         const saved = await upsertKycDocument({
-          user_id: req.session.dbUserId,
+          user_id: kycOwner.userId,
+          guest_ref: kycOwner.guestRef,
           capability_id: capabilityId,
           document_type: documentType,
           document_no: normalizedDocumentNo,
@@ -4947,12 +4977,15 @@ export async function registerRoutes(
         // Only a `match` is mirrored. An unreadable scan is worth keeping on
         // the KYC row for ops, but writing it into the slot would present it as
         // progress the customer has not actually made.
-        const mirrorSlot = ACCOUNT_SLOT_FOR_KYC_TYPE[documentType];
-        if (mirrorSlot && ocr.status === "match") {
-          const { accountType, category } = await accountShapeFor(req.session.dbUserId);
+        // Guests have no account_documents matrix to keep in step — nothing
+        // reads verificationState for them, and the booking gate reads the
+        // kyc_documents row this just wrote. So the mirror is account-only.
+        const mirrorSlot = kycOwner.userId ? ACCOUNT_SLOT_FOR_KYC_TYPE[documentType] : undefined;
+        if (mirrorSlot && ocr.status === "match" && kycOwner.userId) {
+          const { accountType, category } = await accountShapeFor(kycOwner.userId);
           if (requiredDocuments(accountType, category).includes(mirrorSlot)) {
             await upsertAccountDocument({
-              user_id: req.session.dbUserId,
+              user_id: kycOwner.userId,
               doc_slot: mirrorSlot,
               document_no: normalizedDocumentNo,
               original_filename: req.file.originalname,
@@ -4961,12 +4994,8 @@ export async function registerRoutes(
               file_data: fileDataBase64,
               ocr: toOcrColumns(ocr),
             });
-            const state = await getVerificationState(
-              req.session.dbUserId,
-              accountType,
-              category
-            );
-            void refreshKycVerifiedOnOpenOrders(req.session.dbUserId, state.verified);
+            const state = await getVerificationState(kycOwner.userId, accountType, category);
+            void refreshKycVerifiedOnOpenOrders(kycOwner.userId, state.verified);
           }
         }
 

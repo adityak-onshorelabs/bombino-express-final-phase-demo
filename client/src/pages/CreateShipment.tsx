@@ -28,8 +28,6 @@ import { KycUpload, type KycUploadResult } from '@/components/KycUpload';
 import { KycOnFileCard } from '@/components/KycOnFileCard';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
 import { GuestVerification } from '@/components/GuestVerification';
-import { AccountDocuments } from '@/components/AccountDocuments';
-import type { DocSlot } from '@shared/accountSpec';
 import { ShipmentContentSearch } from '@/components/ShipmentContentSearch';
 import {
   DimensionPresetSheet,
@@ -441,7 +439,6 @@ export default function CreateShipment() {
    */
   const [guestMode, setGuestMode] = useState(false);
   const [guestVerifiedPhone, setGuestVerifiedPhone] = useState<string | null>(null);
-  const [guestMissingDocs, setGuestMissingDocs] = useState<DocSlot[]>([]);
 
   const [senderName, setSenderName] = useState(isLoggedIn ? user?.fullName ?? '' : '');
   const [senderEmail, setSenderEmail] = useState(isLoggedIn ? user?.email ?? '' : '');
@@ -1172,7 +1169,9 @@ export default function CreateShipment() {
       // only fail three steps later, after the parcel details are typed.
       if (guestMode) {
         if (!guestVerifiedPhone) e.guestPhone = true;
-        if (guestMissingDocs.length > 0) e.guestDocs = true;
+        // One document, same as the account path below — the server refuses a
+        // guest booking without a kyc_documents row behind it.
+        if (!kycResult) e.guestDocs = true;
       } else if (kycBlocksBooking && !kycOnFile && !kycResult) {
         e.kycMissing = true;
       }
@@ -1616,7 +1615,10 @@ export default function CreateShipment() {
                     clearFieldError('senderPhone');
                   }
                 }}
-                onReset={() => setGuestMissingDocs([])}
+                // The document was uploaded against the old number. Dropping
+                // the local result re-arms the gate, so a changed number cannot
+                // carry a tick earned by a different one.
+                onReset={() => setKycResult(null)}
               />
             )}
 
@@ -1897,55 +1899,42 @@ export default function CreateShipment() {
               )}
             </div>
 
-            {/* The documents, in the same slot on the step where an account
-                holder meets their KYC card — after the address, so the long
-                form comes once the short answers are settled.
-
-                AccountDocuments in its `signup` mode, unchanged: it already
-                stages against a verified phone rather than a session, already
-                asks for each number beside the document that must carry it,
-                and already refuses a file that disagrees. A guest is an
-                in-flight signup that never reaches the account, so it is the
-                same form for the same reason — and a fix to either lands in
-                both. */}
+            {/* A guest's identity document, in the same card an account holder
+                meets on this screen and posting to the same /api/kyc/upload —
+                one document, not the signup matrix. Opening an ACCOUNT costs
+                the full matrix; booking does not, and a guest is not opening
+                one. The endpoint authorises them by the phone verified above
+                instead of by a session. */}
             {guestMode && (
               guestVerifiedPhone ? (
                 <div className="space-y-2">
-                  <AccountDocuments
-                    accountType="personal"
-                    category={null}
-                    phone={guestVerifiedPhone}
-                    endpoint="signup"
-                    onMissingChange={(missing) => {
-                      setGuestMissingDocs(missing);
-                      if (missing.length === 0) clearFieldError('guestDocs');
+                  <KycUpload
+                    guestPhone={guestVerifiedPhone}
+                    onValidChange={(result) => {
+                      setKycResult(result);
+                      if (result) clearFieldError('guestDocs');
                     }}
-                    highlight={fieldErrors.guestDocs ? guestMissingDocs : undefined}
-                    // The staging endpoints are authorised by the OTP, which
-                    // lasts ten minutes. A document form takes longer than that
-                    // often enough to be ordinary, so send them back to the
-                    // code rather than letting every button fail the same way.
-                    onPhoneUnverified={() => {
-                      setGuestVerifiedPhone(null);
-                      setGuestMissingDocs([]);
+                    fieldErrors={{
+                      document_no: !!fieldErrors.guestDocs,
+                      file: !!fieldErrors.guestDocs,
                     }}
                   />
                   {fieldErrors.guestDocs && (
                     <p className="text-xs text-red-600" role="alert" data-testid="text-guest-docs-error">
-                      Add your identity documents to carry on.
+                      Add your identity document to carry on.
                     </p>
                   )}
                 </div>
               ) : (
                 /* Stated rather than hidden. An empty gap here reads as a form
-                   that is still loading; this says what unlocks it. */
+                   still loading; this says what unlocks it. */
                 <div className="rounded-xl border border-dashed border-[#E2E8F0] bg-[#F3F4F6] px-4 py-3">
                   <p className="text-xs leading-relaxed text-muted-foreground">
                     <span className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">
-                      Identity documents
+                      KYC Details
                     </span>{' '}
                     — verify your number at the top of this step and we&rsquo;ll ask
-                    for them here.
+                    for your document here.
                   </p>
                 </div>
               )
