@@ -68,6 +68,30 @@ export async function getKycByUserId(userId: string): Promise<KycDocumentMeta | 
   return data ? decodeKycMeta(data as KycDocumentMeta) : null;
 }
 
+/**
+ * The KYC document behind a guest booking.
+ *
+ * Same row shape as getKycByUserId, owned by the staging ref instead of an
+ * account. Read when ops dockets a guest order: customs is told the same thing
+ * either way, because a guest produced the same documents.
+ */
+export async function getKycByGuestRef(guestRef: string): Promise<KycDocumentMeta | null> {
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("kyc_documents")
+    .select(META_COLUMNS)
+    .eq("guest_ref", guestRef)
+    .maybeSingle();
+
+  if (error) {
+    logError("getKycByGuestRef", error);
+    return null;
+  }
+  return data ? decodeKycMeta(data as KycDocumentMeta) : null;
+}
+
 /** Full row including file_data — for serving the owner their own document. */
 export async function getKycFileByUserId(userId: string): Promise<KycDocumentRow | null> {
   const client = getClient();
@@ -104,7 +128,13 @@ export async function getKycByCapabilityId(capabilityId: string): Promise<KycDoc
 }
 
 export type UpsertKycInput = {
-  user_id: string;
+  /**
+   * The account this document belongs to, or null on a guest booking, where
+   * `guest_ref` names the owner instead. Exactly one of the two is set — the
+   * table's CHECK refuses a row owned by neither.
+   */
+  user_id: string | null;
+  guest_ref?: string | null;
   capability_id: string;
   document_type: string;
   document_no: string;
@@ -121,10 +151,20 @@ export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocum
   if (!client) return null;
 
   const now = new Date().toISOString();
+  // One document per owner, whichever kind of owner it is. Matching on the
+  // wrong column would find nothing and insert a second row, which the partial
+  // unique index would then refuse.
+  const ownerColumn = input.user_id ? "user_id" : "guest_ref";
+  const ownerValue = input.user_id ?? input.guest_ref ?? null;
+  if (!ownerValue) {
+    logError("upsertKycDocument", { message: "called with neither user_id nor guest_ref" });
+    return null;
+  }
+
   const { data: existing } = await client
     .from("kyc_documents")
     .select("id, capability_id, created_at")
-    .eq("user_id", input.user_id)
+    .eq(ownerColumn, ownerValue)
     .maybeSingle();
 
   if (existing) {
@@ -144,7 +184,7 @@ export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocum
         updated_at: now,
         ...(input.ocr ?? {}),
       })
-      .eq("user_id", input.user_id)
+      .eq(ownerColumn, ownerValue)
       .select(META_COLUMNS)
       .single();
 
@@ -158,7 +198,8 @@ export async function upsertKycDocument(input: UpsertKycInput): Promise<KycDocum
   const { data, error } = await client
     .from("kyc_documents")
     .insert({
-      user_id: input.user_id,
+      user_id: input.user_id ?? null,
+      guest_ref: input.guest_ref ?? null,
       capability_id: input.capability_id,
       document_type: input.document_type,
       document_no: encryptField(input.document_no),

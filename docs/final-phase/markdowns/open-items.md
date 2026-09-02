@@ -115,9 +115,15 @@ Currently harmless: the endpoint has no client caller, and ops' `generate_docket
 is a mock AWB that makes no ITD call at all. It stops being harmless the moment
 **M5** reroutes the real `createShipment()` through it.
 
-**Fix, when M5 lands:** take the order's `user_id` and load that customer's KYC.
-Deliberately not fixed here — there is no way to test this path, and a blind
-edit to the customs payload is worse than a documented bug.
+**Fix, when M5 lands:** resolve the KYC from the *order*, not the session —
+`kycForOrder()` in `server/routes.ts` does exactly this and exists for that
+moment. It is deliberately not wired in here: there is no way to test this path,
+and a blind edit to the customs payload is worse than a documented bug.
+
+Note for guest bookings: an order's KYC is no longer reachable by `user_id`
+alone. A guest order has none — its document is owned by `guest_ref`
+(`getKycByGuestRef`). `kycForOrder()` handles both; a fix that reaches for
+`order.user_id` directly would 422 every guest docket.
 
 ### 4.1 OTP verification is a no-op — **live auth bypass**
 

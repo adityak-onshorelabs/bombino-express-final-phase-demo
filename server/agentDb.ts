@@ -269,7 +269,9 @@ export type CollectionMode = "upi" | "cash";
 
 export type PaymentInsert = {
   order_id: string;
-  user_id: string;
+  /** Null on a guest booking; `guest_ref` names the payer instead. */
+  user_id: string | null;
+  guest_ref?: string | null;
   amount: number;
   method: "pay_at_pickup" | "pay_at_dropoff";
   status: "collected";
@@ -314,6 +316,7 @@ export async function recordCollectedPayment(
     .insert({
       order_id: input.order_id,
       user_id: input.user_id,
+      guest_ref: input.guest_ref ?? null,
       amount: input.amount,
       method: input.method,
       status: input.status,

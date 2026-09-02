@@ -18,7 +18,7 @@ const BOARD_COLUMNS =
   "id, order_no, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no";
 
 const DETAIL_COLUMNS =
-  "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
+  "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
 
 function getSupabaseClient() {
   return supabase;
@@ -57,6 +57,10 @@ export type OpsBoardOrder = {
   final_amount: number | null;
   consignee_name: string | null;
   consignee_city: string | null;
+  /** Booked without an account. Its KYC is complete either way — guest
+   *  booking compels the same documents — so this is context, not a warning. */
+  is_guest: boolean;
+  guest_name: string | null;
   agent_id: string | null;
   agent_name: string | null;
   awb_no: string | null;
@@ -65,7 +69,12 @@ export type OpsBoardOrder = {
 export type OpsOrderDetail = {
   id: string;
   order_no: string;
-  user_id: string;
+  /** Null on a guest booking — read the guest_* fields for who placed it. */
+  user_id: string | null;
+  guest_ref: string | null;
+  guest_name: string | null;
+  guest_email: string | null;
+  guest_phone: string | null;
   status: string;
   pickup_request: number;
   pickup_date: string | null;
@@ -119,6 +128,8 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
     final_amount: toNum(row.final_amount),
     consignee_name: consigneeField(row.consignee, ["name", "full_name"]),
     consignee_city: consigneeField(row.consignee, ["city", "consignee_city"]),
+    is_guest: row.user_id == null,
+    guest_name: (row.guest_name as string | null) ?? null,
     agent_id: (row.agent_id as string | null) ?? null,
     agent_name: null,
     awb_no: (row.awb_no as string | null) ?? null,
@@ -129,7 +140,13 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
   return {
     id: String(row.id),
     order_no: String(row.order_no),
-    user_id: String(row.user_id),
+    // Not String(): a guest order has no user, and String(null) is the text
+    // "null", which reads as a real id everywhere downstream.
+    user_id: (row.user_id as string | null) ?? null,
+    guest_ref: (row.guest_ref as string | null) ?? null,
+    guest_name: (row.guest_name as string | null) ?? null,
+    guest_email: (row.guest_email as string | null) ?? null,
+    guest_phone: (row.guest_phone as string | null) ?? null,
     status: String(row.status),
     pickup_request: row.pickup_request === 2 ? 2 : 1,
     pickup_date: (row.pickup_date as string | null) ?? null,

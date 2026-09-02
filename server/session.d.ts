@@ -41,5 +41,22 @@ declare module "express-session" {
      * proved. See signupRefForPhone in routes.ts.
      */
     signupPhone?: string;
+    /**
+     * The guest this browser is booking as.
+     *
+     * Set when a guest booking is written, and it is the *same uuid* that was
+     * `signupRef` while their documents were being staged — a guest booking is
+     * the signup staging flow stopped one step short of an account. Promoting
+     * it to its own field at the moment the order is written is what makes it
+     * outlive the signup handshake: signupRef is re-minted whenever the phone
+     * changes, and a guest still has to be able to pay for the order they just
+     * placed.
+     *
+     * Proves ownership of a guest order for payment. Not an identity: it can
+     * only ever have been minted by verifying an OTP on guestPhone.
+     */
+    guestRef?: string;
+    /** The verified number that guestRef was minted against. */
+    guestPhone?: string;
   }
 }

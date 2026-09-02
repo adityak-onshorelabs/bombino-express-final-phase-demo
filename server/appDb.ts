@@ -6,8 +6,17 @@ import type { CompanyCategory } from "../shared/accountSpec.js";
 
 type Json = Record<string, unknown> | unknown[] | null;
 
+/**
+ * An address belongs to an account or to a guest booking, never to neither.
+ *
+ * `guest_ref` is the staging ref the guest's documents were produced under —
+ * the same uuid the signup flow calls signup_ref. Ops and the agent app read a
+ * pickup address through orders.origin_address_id and do not care which of the
+ * two owns it. See migrations/add_guest_orders.sql.
+ */
 type AddressInsert = {
-  user_id: string;
+  user_id?: string | null;
+  guest_ref?: string | null;
   type: "sender" | "recipient";
   full_name: string;
   company: string | null;
@@ -1210,12 +1219,25 @@ export async function findOrCreateAddress(
   const client = getSupabaseClient();
   if (!client) return null;
 
+  // Dedupe within one owner. A guest's addresses are keyed by their ref, so
+  // two different guests on the same phone — the same person booking twice
+  // without an account — do not silently share a row.
   let query = client
     .from("addresses")
     .select("id, address_line_1, city")
-    .eq("user_id", input.user_id)
     .eq("type", input.type)
     .eq("phone", input.phone);
+
+  if (input.guest_ref) {
+    query = query.eq("guest_ref", input.guest_ref);
+  } else if (input.user_id) {
+    query = query.eq("user_id", input.user_id);
+  } else {
+    // Neither owner: the CHECK would refuse the insert anyway, and matching on
+    // phone alone would hand back a stranger's address.
+    console.warn("[findOrCreateAddress] called with no owner");
+    return null;
+  }
 
   if (input.pincode == null) {
     query = query.is("pincode", null);

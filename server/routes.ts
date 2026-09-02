@@ -35,6 +35,7 @@ import {
   getOrderById,
   getOrderByNumberForUser,
   getUserContactsByIds,
+  claimGuestOrdersForUser,
   insertOrderAndReturnRow,
   refreshKycVerifiedOnOpenOrders,
   insertOrderEvent,
@@ -134,6 +135,7 @@ import { persistShipmentAfterCreate } from "./persistShipment.js";
 import { lookupPostal } from "./postalLookup.js";
 import {
   getKycByCapabilityId,
+  getKycByGuestRef,
   getKycByUserId,
   getKycFileByUserId,
   upsertKycDocument,
@@ -1364,8 +1366,28 @@ export async function registerRoutes(
    * in `account_documents` either way and the customer can re-upload, so losing
    * an account (or a 200) over the copy would be the worse trade.
    */
+  /**
+   * The KYC document behind an order, whoever booked it.
+   *
+   * An account order's document is owned by its user; a guest order's by the
+   * ref it was staged under. Both produce the same row, because a guest is
+   * compelled to produce the same documents — the difference is only where the
+   * row hangs.
+   *
+   * This is what the docket path should use. It does not yet: that path reads
+   * the *caller's* KYC, which is a documented bug predating guest booking (see
+   * docs/final-phase/markdowns/open-items.md §4.0). When M5 wires the real
+   * createShipment() through ops, this is the function to call — reaching for
+   * `order.user_id` directly would refuse every guest docket.
+   */
+  async function kycForOrder(order: Pick<Order, "user_id" | "guest_ref">) {
+    if (order.user_id) return getKycByUserId(order.user_id);
+    if (order.guest_ref) return getKycByGuestRef(order.guest_ref);
+    return null;
+  }
+
   async function mirrorAadhaarToKyc(
-    userId: string,
+    owner: { userId: string; guestRef?: null } | { userId: null; guestRef: string },
     aadhaar: { document_no: string | null; original_filename: string; mime_type: string; file_size_bytes: number; file_data: string } | null,
     tag: string
   ): Promise<void> {
@@ -1374,7 +1396,8 @@ export async function registerRoutes(
     if (!aadhaar?.document_no) return;
 
     const mirrored = await upsertKycDocument({
-      user_id: userId,
+      user_id: owner.userId,
+      guest_ref: owner.guestRef ?? null,
       capability_id: crypto.randomUUID(),
       document_type: "Aadhaar Number",
       document_no: aadhaar.document_no,
@@ -1384,7 +1407,10 @@ export async function registerRoutes(
       file_data: aadhaar.file_data,
     });
     if (!mirrored) {
-      console.error(`[${tag}] KYC mirror failed for user`, userId);
+      console.error(
+        `[${tag}] KYC mirror failed for`,
+        owner.userId ? `user ${owner.userId}` : `guest ${owner.guestRef}`
+      );
     }
   }
 
@@ -1562,6 +1588,31 @@ export async function registerRoutes(
     }
     delete req.session.signupRef;
     delete req.session.signupPhone;
+  }
+
+  /**
+   * Hand this account everything it booked as a guest on the same number.
+   *
+   * Runs after the account exists and after its own staged rows are claimed.
+   * Best-effort by design: an unclaimed order is still a real order, tracked
+   * by its number and visible to ops, and failing a signup over it would be
+   * the worse trade. The next signup on that number would claim it anyway.
+   *
+   * The guest session is cleared either way — the browser is signed in now,
+   * and leaving a guest ref behind would let a later payment be authorised by
+   * the weaker of the two identities.
+   */
+  async function claimGuestBookingsForUser(req: Request, phone: string, userId: string): Promise<void> {
+    try {
+      const claimed = await claimGuestOrdersForUser(phone, userId);
+      if (claimed.orders > 0) {
+        console.log(`[signup] claimed ${claimed.orders} guest order(s) for ${userId}`);
+      }
+    } catch (err) {
+      console.error("[signup] claiming guest orders failed:", err);
+    }
+    delete req.session.guestRef;
+    delete req.session.guestPhone;
   }
 
   // GET /api/account/documents/:id/file — capability URL, same contract as the
@@ -1805,7 +1856,7 @@ export async function registerRoutes(
         // at signup — otherwise the order still cannot be docketed.
         if (slot === "aadhaar_card" && ocr.status === "match") {
           const withFile = await getUserDocumentWithFile(userId, "aadhaar_card");
-          await mirrorAadhaarToKyc(userId, withFile, "account/documents");
+          await mirrorAadhaarToKyc({ userId }, withFile, "account/documents");
         }
 
         const state = await getVerificationState(userId, accountType, category);
@@ -1936,7 +1987,8 @@ export async function registerRoutes(
       ? await getSignupDocumentWithFile(req.session.signupRef, "aadhaar_card")
       : null;
     await claimDocumentsForUser(req, row.id);
-    await mirrorAadhaarToKyc(row.id, aadhaar, "signup/personal");
+    await mirrorAadhaarToKyc({ userId: row.id }, aadhaar, "signup/personal");
+    await claimGuestBookingsForUser(req, phone, row.id);
 
     const user = {
       id: itdCustomerId,
@@ -2121,6 +2173,9 @@ export async function registerRoutes(
     }
 
     await claimDocumentsForUser(req, row.id);
+    // A guest books as an individual, but the number is the number: if this
+    // company account was opened on it, the orders behind it are theirs.
+    await claimGuestBookingsForUser(req, phone, row.id);
 
     let itdRegistered = false;
     let addCustomerResponse: unknown = null;
@@ -3332,9 +3387,32 @@ export async function registerRoutes(
     );
 
   // POST /api/orders — requires login (session)
+  /**
+   * Book a shipment — as an account, or as a guest.
+   *
+   * One route rather than two on purpose. Everything below the ownership
+   * question is identical for both: pincode serviceability, the pickup cutoff,
+   * the address write, the KYC stamp, the agent shout, the confirmation
+   * message. A parallel /api/guest/orders would have to repeat all of it and
+   * would drift the first time one of them changed.
+   *
+   * The guest path is NOT a way around KYC. A guest reaches this endpoint only
+   * after verifying their phone and producing the same complete, OCR-checked
+   * document set signup demands — the checks below are the very same
+   * assertIdentityVerified and assertDocumentsStaged the signup route runs.
+   * The only thing they skip is the account.
+   */
   app.post("/api/orders", ensureDbUser, async (req: Request, res: Response) => {
-    if (!req.session.dbUserId) {
-      res.status(401).json({ message: "Login required to book a shipment" });
+    // Who is booking. An account wins if both are somehow present: a signed-in
+    // customer with a stale guest ref in their session is an account booking.
+    const guestPhone = req.session.signupPhone;
+    const bookingAsGuest = !req.session.dbUserId && !!req.session.signupRef && !!guestPhone;
+
+    if (!req.session.dbUserId && !bookingAsGuest) {
+      res.status(401).json({
+        message: "Verify your phone number to book as a guest, or sign in.",
+        code: "GUEST_PHONE_UNVERIFIED",
+      });
       return;
     }
 
@@ -3382,8 +3460,26 @@ export async function registerRoutes(
       }
     }
 
+    // A guest books on the same terms an account opens on: every identity
+    // number recorded, every required document present and read. These are the
+    // same two gates POST /api/auth/signup/personal runs, in the same order,
+    // against the same staged rows — booking as a guest removes the account,
+    // not the KYC.
+    //
+    // Both write their own refusal, so there is nothing to add here.
+    if (bookingAsGuest) {
+      if (!(await assertIdentityVerified(req, res, "personal", null, body.origin_address.full_name))) {
+        return;
+      }
+      const staged = await assertDocumentsStaged(req, res, "personal", null, guestPhone!);
+      if (!staged) return;
+    }
+
+    const guestRef = bookingAsGuest ? req.session.signupRef ?? null : null;
+
     const originAddr = await findOrCreateAddress({
-      user_id: req.session.dbUserId,
+      user_id: req.session.dbUserId ?? null,
+      guest_ref: guestRef,
       type: "sender",
       full_name: body.origin_address.full_name,
       company: body.origin_address.company || null,
@@ -3416,15 +3512,23 @@ export async function registerRoutes(
     // A failure to read it stamps `true`: the alternative is holding an order
     // because Supabase blipped during booking, and signup already refused to
     // open this account without its documents.
-    const bookingShape = await accountShapeFor(req.session.dbUserId);
-    const bookingKyc = await getVerificationState(
-      req.session.dbUserId,
-      bookingShape.accountType,
-      bookingShape.category
-    );
+    // A guest's documents were just checked above, so the stamp is true by
+    // construction — there is no account row to read a state off, and asking
+    // getVerificationState for one would return "everything missing" and hold
+    // an order whose KYC is complete.
+    const bookingKyc = bookingAsGuest
+      ? { verified: true }
+      : await (async () => {
+          const shape = await accountShapeFor(req.session.dbUserId!);
+          return getVerificationState(req.session.dbUserId!, shape.accountType, shape.category);
+        })();
 
     const order = await insertOrderAndReturnRow({
-      user_id: req.session.dbUserId,
+      user_id: req.session.dbUserId ?? null,
+      guest_ref: guestRef,
+      guest_name: bookingAsGuest ? body.origin_address.full_name : null,
+      guest_email: bookingAsGuest ? body.origin_address.email || null : null,
+      guest_phone: bookingAsGuest ? guestPhone! : null,
       status,
       pickup_request: body.pickup_request,
       pickup_date: isPickup ? body.pickup_date ?? null : null,
@@ -3444,11 +3548,31 @@ export async function registerRoutes(
       return;
     }
 
+    if (bookingAsGuest && guestRef) {
+      // Mirror the Aadhaar into kyc_documents, exactly as account creation
+      // does. That table is what buildItdKycPayload reads when ops generates
+      // the docket, and without this a guest order would reach that moment
+      // with a complete document set and nothing customs can be told.
+      const aadhaar = await getSignupDocumentWithFile(guestRef, "aadhaar_card");
+      await mirrorAadhaarToKyc({ userId: null, guestRef }, aadhaar, "orders/guest");
+
+      // Promote the staging ref to the session's guest identity.
+      //
+      // signupRef is re-minted whenever the phone on this browser changes, and
+      // the customer still has to be able to pay for the order they have just
+      // placed. guestRef is the stable copy that ownership is checked against
+      // in server/routes/payments.ts.
+      req.session.guestRef = guestRef;
+      req.session.guestPhone = guestPhone!;
+    }
+
     void insertOrderEvent({
       order_id: order.id,
       status,
-      note: "Order created",
-      actor_user_id: req.session.dbUserId,
+      note: bookingAsGuest ? "Order created (guest)" : "Order created",
+      // No account, so no actor id. The note and the order's guest_ref are
+      // what say who did this.
+      actor_user_id: req.session.dbUserId ?? null,
     });
 
     // A drop-off has no agent and no claim, so there is no later moment to
@@ -3863,6 +3987,7 @@ export async function registerRoutes(
             const result = await recordCollectedPayment({
               order_id: order.id,
               user_id: order.user_id,
+              guest_ref: order.guest_ref ?? null,
               amount: paymentBody.data.amount,
               method: "pay_at_pickup",
               status: "collected",
@@ -3922,6 +4047,7 @@ export async function registerRoutes(
             const result = await recordCollectedPayment({
               order_id: order.id,
               user_id: order.user_id,
+              guest_ref: order.guest_ref ?? null,
               amount: paymentBody.data.amount,
               method: "pay_at_dropoff",
               status: "collected",

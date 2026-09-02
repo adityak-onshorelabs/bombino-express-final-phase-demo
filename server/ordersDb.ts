@@ -23,7 +23,17 @@ export type PickupRequest = 1 | 2;
 export type PaymentMethod = "pay_now" | "pay_at_pickup" | "pay_at_dropoff" | "cod";
 
 export type OrderInsert = {
-  user_id: string;
+  /** The account that booked. Null on a guest booking — see guest_ref. */
+  user_id?: string | null;
+  /**
+   * The guest who booked, identified by the ref their documents were staged
+   * under (the signup flow's signup_ref, reused). Set together with the guest
+   * contact fields; null for an account booking.
+   */
+  guest_ref?: string | null;
+  guest_name?: string | null;
+  guest_email?: string | null;
+  guest_phone?: string | null;
   status: string;
   pickup_request: PickupRequest;
   pickup_date: string | null;
@@ -45,7 +55,11 @@ export type OrderInsert = {
 export type OrderRow = {
   id: string;
   order_no: string;
-  user_id: string;
+  user_id: string | null;
+  guest_ref?: string | null;
+  guest_name?: string | null;
+  guest_email?: string | null;
+  guest_phone?: string | null;
   status: string;
   pickup_request: number;
   pickup_date: string | null;
@@ -74,7 +88,7 @@ export async function insertOrderAndReturnRow(input: OrderInsert): Promise<Order
     .from("orders")
     .insert(input)
     .select(
-      "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, created_at, updated_at"
+      "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, created_at, updated_at"
     )
     .single();
 
@@ -111,7 +125,7 @@ export async function insertOrderEvent(input: {
 }
 
 const ORDER_COLUMNS =
-  "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, metadata, created_at, updated_at";
+  "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, metadata, created_at, updated_at";
 
 /**
  * Narrow a DB row to the shared `Order` contract.
@@ -562,4 +576,65 @@ export async function refreshKycVerifiedOnOpenOrders(
     updated += 1;
   }
   return updated;
+}
+
+/**
+ * Attach a guest's past bookings to the account that number has just opened.
+ *
+ * Matched on the verified phone, which is the only thing the two sides share:
+ * the guest proved it by OTP to book, and the account proved it by OTP to
+ * exist. Anything a guest wrote alongside the order — the pickup address, the
+ * payments, the KYC document — is moved with it, so the new account owns a
+ * whole order rather than a shell pointing at rows it cannot read.
+ *
+ * `guest_ref` is deliberately NOT cleared. It is the record of how the order
+ * arrived, and clearing it would make a claimed order indistinguishable from
+ * one booked by the account itself.
+ *
+ * Best-effort and idempotent: the filter is `user_id IS NULL`, so a partial
+ * run leaves the rest claimable and a second run is a no-op. A failure must
+ * never fail the signup that triggered it — the customer has an account
+ * either way, and an unclaimed order is still tracked by its number.
+ */
+export async function claimGuestOrdersForUser(
+  phone: string,
+  userId: string
+): Promise<{ orders: number; refs: string[] }> {
+  const client = getSupabaseClient();
+  if (!client) return { orders: 0, refs: [] };
+
+  const { data, error } = await client
+    .from("orders")
+    .update({ user_id: userId })
+    .eq("guest_phone", phone)
+    .is("user_id", null)
+    .select("id, guest_ref");
+
+  if (error) {
+    logSupabaseError("claimGuestOrdersForUser", error);
+    return { orders: 0, refs: [] };
+  }
+
+  const rows = (data ?? []) as Array<{ id: string; guest_ref: string | null }>;
+  const refs = Array.from(
+    new Set(rows.map((r) => r.guest_ref).filter((r): r is string => !!r))
+  );
+  if (refs.length === 0) return { orders: rows.length, refs: [] };
+
+  // The rows that hang off those orders. Each is independent — one failing
+  // does not undo the claim, and the next signup attempt would pick it up.
+  for (const [table, label] of [
+    ["addresses", "addresses"],
+    ["payments", "payments"],
+    ["kyc_documents", "kyc_documents"],
+  ] as const) {
+    const { error: err } = await client
+      .from(table)
+      .update({ user_id: userId })
+      .in("guest_ref", refs)
+      .is("user_id", null);
+    if (err) logSupabaseError(`claimGuestOrdersForUser:${label}`, err);
+  }
+
+  return { orders: rows.length, refs };
 }

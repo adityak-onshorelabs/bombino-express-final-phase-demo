@@ -101,6 +101,23 @@ async function customerPhone(userId: string): Promise<string | null> {
   return recipient?.phone ?? null;
 }
 
+/**
+ * The number to reach whoever booked this order.
+ *
+ * A guest booking has no account to look a number up on — it carries the
+ * verified number that authorised it. An account booking still goes through
+ * getWhatsappRecipient, which is where the opt-out lives.
+ *
+ * A guest cannot have opted out, because opting out is an account setting and
+ * they have no account. They gave this number minutes ago to authorise the
+ * booking, and the messages that follow are transactional: where the parcel is,
+ * and what is owed. Nothing marketing goes down this path.
+ */
+async function orderCustomerPhone(order: Order): Promise<string | null> {
+  if (order.user_id) return customerPhone(order.user_id);
+  return order.guest_phone ?? null;
+}
+
 async function agentName(agentId: string | null): Promise<string | null> {
   if (!agentId) return null;
   const contacts = await getUserContactsByIds([agentId]);
@@ -144,6 +161,11 @@ async function notifyCustomerInApp(order: Order, actorUserId: string | null): Pr
   if (isInternalOnlyStatus(order.status)) return;
   // Nobody needs telling about something they just did themselves.
   if (order.user_id === actorUserId) return;
+  // A guest has no account, so there is no notifications list to write to and
+  // no screen to read one. WhatsApp is their whole channel — see
+  // notifyCustomerWhatsapp, which runs for them exactly as it does for an
+  // account.
+  if (!order.user_id) return;
 
   await insertOrderStatusNotification({
     user_id: order.user_id,
@@ -154,14 +176,14 @@ async function notifyCustomerInApp(order: Order, actorUserId: string | null): Pr
 }
 
 async function notifyCustomerWhatsapp(order: Order, actorUserId: string | null): Promise<void> {
-  if (order.user_id === actorUserId) return;
+  if (order.user_id !== null && order.user_id === actorUserId) return;
 
   const message = await buildCustomerMessage(order);
   if (!message) return;
 
   await deliver({
     message,
-    to: await customerPhone(order.user_id),
+    to: await orderCustomerPhone(order),
     userId: order.user_id,
     orderId: order.id,
     scope: order.id,
@@ -250,7 +272,7 @@ export async function notifyOrderBooked(input: {
 }): Promise<void> {
   await deliver({
     message: orderBookedMessage(input),
-    to: await customerPhone(input.order.user_id),
+    to: await orderCustomerPhone(input.order),
     userId: input.order.user_id,
     orderId: input.order.id,
     scope: input.order.id,
@@ -311,22 +333,26 @@ export async function notifyCancellationDeclined(input: {
   const { order, note } = input;
 
   await Promise.all([
-    insertOrderStatusNotification({
-      user_id: order.user_id,
-      title: "Cancellation declined",
-      body: note
-        ? `${order.order_no} — ${note}`
-        : `${order.order_no} — your cancellation request was declined. Your shipment is still going ahead.`,
-      data: {
-        order_id: order.id,
-        order_no: order.order_no,
-        status: order.status,
-        cancellation: "rejected",
-      },
-    }),
+    // Skipped for a guest, who has no account to hold a notifications list.
+    // The WhatsApp half below still runs, and is their whole channel.
+    order.user_id
+      ? insertOrderStatusNotification({
+          user_id: order.user_id,
+          title: "Cancellation declined",
+          body: note
+            ? `${order.order_no} — ${note}`
+            : `${order.order_no} — your cancellation request was declined. Your shipment is still going ahead.`,
+          data: {
+            order_id: order.id,
+            order_no: order.order_no,
+            status: order.status,
+            cancellation: "rejected",
+          },
+        })
+      : Promise.resolve(),
     deliver({
       message: cancellationDeclinedMessage(input),
-      to: await customerPhone(order.user_id),
+      to: await orderCustomerPhone(order),
       userId: order.user_id,
       orderId: order.id,
       scope: order.id,
@@ -363,7 +389,7 @@ export async function notifyPaymentReceived(input: {
 }): Promise<void> {
   await deliver({
     message: paymentReceivedMessage(input),
-    to: await customerPhone(input.order.user_id),
+    to: await orderCustomerPhone(input.order),
     userId: input.order.user_id,
     orderId: input.order.id,
     scope: input.order.id,
@@ -378,7 +404,7 @@ export async function notifyPaymentFailed(input: {
 }): Promise<void> {
   await deliver({
     message: paymentFailedMessage(input),
-    to: await customerPhone(input.order.user_id),
+    to: await orderCustomerPhone(input.order),
     userId: input.order.user_id,
     orderId: input.order.id,
     scope: input.order.id,
@@ -426,7 +452,7 @@ export async function notifyHandoverCodeReissued(input: {
       agentName: await agentName(input.order.agent_id),
       handoverCode: input.code,
     }),
-    to: await customerPhone(input.order.user_id),
+    to: await orderCustomerPhone(input.order),
     userId: input.order.user_id,
     orderId: input.order.id,
     scope: input.order.id,

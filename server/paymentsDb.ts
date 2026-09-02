@@ -88,7 +88,9 @@ export async function getPaymentByReference(
 
 export type GatewayPaymentInput = {
   order_id: string;
-  user_id: string;
+  /** Null on a guest booking; `guest_ref` names the payer instead. */
+  user_id: string | null;
+  guest_ref?: string | null;
   /** Rupees, as everywhere on our side of the wire. */
   amount: number;
   currency: string;
@@ -136,6 +138,7 @@ export async function recordGatewayPayment(
     .insert({
       order_id: input.order_id,
       user_id: input.user_id,
+      guest_ref: input.guest_ref ?? null,
       amount: input.amount,
       currency: input.currency,
       method: "pay_now",

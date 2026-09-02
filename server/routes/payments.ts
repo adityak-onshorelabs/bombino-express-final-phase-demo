@@ -73,9 +73,34 @@ function amountDue(order: Order): number | null {
  * back. Shared by `/order` and `/verify` so the two cannot drift — a check
  * that only guards order creation is not a check at all.
  */
+/**
+ * Who is asking to pay: an account, or a guest holding a verified phone.
+ *
+ * A guest booking has no session user — that is the whole point of it — so
+ * ownership is proved by the same ref their documents and their order were
+ * written under. It lives in the session and is minted by the OTP step, so a
+ * caller cannot name someone else's ref without first verifying that number.
+ */
+export type PaymentCaller = { userId: string; guestRef: null } | { userId: null; guestRef: string };
+
+export function paymentCallerFrom(req: {
+  session: { dbUserId?: string; guestRef?: string };
+}): PaymentCaller | null {
+  if (req.session.dbUserId) return { userId: req.session.dbUserId, guestRef: null };
+  if (req.session.guestRef) return { userId: null, guestRef: req.session.guestRef };
+  return null;
+}
+
+/** Does this order belong to the caller? */
+function ownsOrder(order: Order, caller: PaymentCaller): boolean {
+  return caller.userId !== null
+    ? order.user_id === caller.userId
+    : order.guest_ref === caller.guestRef;
+}
+
 async function loadPayableOrder(
   orderId: string,
-  callerId: string
+  caller: PaymentCaller
 ): Promise<
   | { ok: true; order: Order }
   | { ok: false; status: number; message: string; code: string }
@@ -84,7 +109,7 @@ async function loadPayableOrder(
 
   // Not-yours and not-found are the same answer on purpose: order ids are
   // guessable enough that distinguishing them would confirm existence.
-  if (!order || order.user_id !== callerId) {
+  if (!order || !ownsOrder(order, caller)) {
     return { ok: false, status: 404, message: "Order not found", code: "ORDER_NOT_FOUND" };
   }
 
@@ -142,8 +167,8 @@ export function registerPaymentRoutes(app: Express): void {
         return;
       }
 
-      const callerId = req.session.dbUserId;
-      if (!callerId) {
+      const caller = paymentCallerFrom(req);
+      if (!caller) {
         res.status(401).json({ message: "Login required" });
         return;
       }
@@ -159,7 +184,7 @@ export function registerPaymentRoutes(app: Express): void {
         return;
       }
 
-      const loaded = await loadPayableOrder(parsed.data.order_id, callerId);
+      const loaded = await loadPayableOrder(parsed.data.order_id, caller);
       if (!loaded.ok) {
         res.status(loaded.status).json({ message: loaded.message, code: loaded.code });
         return;
@@ -194,6 +219,7 @@ export function registerPaymentRoutes(app: Express): void {
       const recorded = await recordGatewayPayment({
         order_id: order.id,
         user_id: order.user_id,
+        guest_ref: order.guest_ref ?? null,
         amount: due,
         currency: "INR",
         reference,
@@ -242,8 +268,8 @@ export function registerPaymentRoutes(app: Express): void {
     requireUser,
     ensureDbUser,
     async (req: Request, res: Response) => {
-      const callerId = req.session.dbUserId;
-      if (!callerId) {
+      const caller = paymentCallerFrom(req);
+      if (!caller) {
         res.status(401).json({ message: "Login required" });
         return;
       }
@@ -268,7 +294,7 @@ export function registerPaymentRoutes(app: Express): void {
         return;
       }
 
-      const loaded = await loadPayableOrder(parsed.data.order_id, callerId);
+      const loaded = await loadPayableOrder(parsed.data.order_id, caller);
       if (!loaded.ok) {
         res.status(loaded.status).json({ message: loaded.message, code: loaded.code });
         return;
@@ -301,7 +327,11 @@ export function registerPaymentRoutes(app: Express): void {
         notes: {
           order_id: order.id,
           order_no: order.order_no,
-          user_id: order.user_id,
+          // One of these is always set. The webhook keys off order_id; these
+          // are for reading a payment in Razorpay's dashboard and knowing who
+          // it belongs to.
+          user_id: order.user_id ?? "",
+          guest_ref: order.guest_ref ?? "",
         },
       });
 
@@ -317,8 +347,17 @@ export function registerPaymentRoutes(app: Express): void {
 
       // Prefill saves the customer retyping what we already hold. Best-effort:
       // a missing contact is a worse checkout, not a failed one.
-      const contacts = await getUserContactsByIds([order.user_id]);
-      const contact = contacts.get(order.user_id);
+      //
+      // A guest has no account row to read, but the booking itself carries the
+      // name and the verified number they gave minutes ago, which is exactly
+      // what the prefill wants.
+      const contact = order.user_id
+        ? (await getUserContactsByIds([order.user_id])).get(order.user_id)
+        : {
+            full_name: order.guest_name ?? null,
+            phone: order.guest_phone ?? null,
+            email: order.guest_email ?? null,
+          };
 
       res.json({
         key_id: config.keyId,
@@ -344,8 +383,8 @@ export function registerPaymentRoutes(app: Express): void {
     requireUser,
     ensureDbUser,
     async (req: Request, res: Response) => {
-      const callerId = req.session.dbUserId;
-      if (!callerId) {
+      const caller = paymentCallerFrom(req);
+      if (!caller) {
         res.status(401).json({ message: "Login required" });
         return;
       }
@@ -372,7 +411,7 @@ export function registerPaymentRoutes(app: Express): void {
       }
       const body = parsed.data;
 
-      const loaded = await loadPayableOrder(body.order_id, callerId);
+      const loaded = await loadPayableOrder(body.order_id, caller);
       if (!loaded.ok) {
         res.status(loaded.status).json({ message: loaded.message, code: loaded.code });
         return;
@@ -472,6 +511,7 @@ export function registerPaymentRoutes(app: Express): void {
       const recorded = await recordGatewayPayment({
         order_id: order.id,
         user_id: order.user_id,
+        guest_ref: order.guest_ref ?? null,
         // Razorpay's number, not the browser's.
         amount: toRupees(payment.amount),
         currency: payment.currency,
@@ -740,6 +780,7 @@ export function registerPaymentRoutes(app: Express): void {
     const recorded = await recordGatewayPayment({
       order_id: order.id,
       user_id: order.user_id,
+      guest_ref: order.guest_ref ?? null,
       amount,
       currency: typeof entity.currency === "string" ? entity.currency : "INR",
       reference: entity.id,

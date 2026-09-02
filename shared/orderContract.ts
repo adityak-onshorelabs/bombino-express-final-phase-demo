@@ -91,7 +91,22 @@ export type PaymentStatus = 'pending' | 'paid' | 'partially_paid' | 'refund_due'
 export interface Order {
   id: string;
   order_no: string;
-  user_id: string;
+  /**
+   * The account that booked. **Null on a guest booking** — an order placed
+   * against a verified phone number by someone who never opened an account.
+   * Read `guest_phone` / `guest_name` for those, or call `orderContact` below,
+   * which answers for both kinds without the caller having to know which it is.
+   */
+  user_id: string | null;
+  /**
+   * The staging ref a guest's identity documents were produced under — the
+   * same uuid the signup flow calls signup_ref. Null for an account booking.
+   * Kept after a claim, as the record of how the order arrived.
+   */
+  guest_ref?: string | null;
+  guest_name?: string | null;
+  guest_email?: string | null;
+  guest_phone?: string | null;
   status: OrderStatus;
 
   // [A3] booking
@@ -381,4 +396,38 @@ export function isInternalOnlyStatus(status: OrderStatus): boolean {
 export function isPaymentSatisfied(order: Order): boolean {
   if (order.is_cod || order.payment_method === 'cod') return true;
   return order.payment_status === 'paid';
+}
+
+/**
+ * Who to contact about this order, whoever booked it.
+ *
+ * A guest order has no account behind it, so everything that used to reach for
+ * `user_id` — a WhatsApp message, an in-app notification, an ownership check —
+ * needs to ask this instead. `userId` is null for a guest, and callers that can
+ * only act on an account (writing a row to `notifications`, say) should treat
+ * that as "nothing to do" rather than as an error.
+ *
+ * `phone` is present either way: for an account order it is not carried on the
+ * order and has to be looked up, so this returns null and the caller falls back
+ * to its own lookup; for a guest it is the verified number that authorised the
+ * booking.
+ */
+export function orderContact(order: Pick<Order, 'user_id' | 'guest_phone' | 'guest_name'>): {
+  userId: string | null;
+  guestPhone: string | null;
+  name: string | null;
+  isGuest: boolean;
+} {
+  const isGuest = order.user_id === null || order.user_id === undefined;
+  return {
+    userId: order.user_id ?? null,
+    guestPhone: isGuest ? order.guest_phone ?? null : null,
+    name: order.guest_name ?? null,
+    isGuest,
+  };
+}
+
+/** A guest booking: no account behind it, only a verified number. */
+export function isGuestOrder(order: Pick<Order, 'user_id'>): boolean {
+  return order.user_id === null || order.user_id === undefined;
 }
