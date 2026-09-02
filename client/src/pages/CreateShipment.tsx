@@ -1596,7 +1596,48 @@ export default function CreateShipment() {
         <div className="lg:col-span-7 min-w-0">
         {currentStep === 1 && (
           <div className="space-y-4 animate-fade-in">
-            <CorridorRouteInfo originOnly />
+            {/* First on the step, before the parcel is described.
+
+                Two reasons, both about not wasting the customer's time. The
+                number is verified here and then carried into the sender field
+                below, so it is typed once rather than twice. And identity is
+                the one thing that can turn out to be a dead end — a document
+                they do not have to hand — so it is asked before four steps of
+                addresses and measurements, not after.
+
+                It renders instead of the account KYC card further down, not
+                beside it: the numbers and the files are asked for together,
+                one card per document. */}
+            {guestMode && (
+              <GuestVerification
+                onVerifiedPhoneChange={(verified) => {
+                  setGuestVerifiedPhone(verified);
+                  clearFieldError('guestPhone');
+                  // The number that authorised the booking is the number that
+                  // goes on it. Keeping them the same by construction is what
+                  // stops the server refusing a payload whose sender phone it
+                  // never verified.
+                  if (verified) {
+                    setSenderPhone(verified);
+                    clearFieldError('senderPhone');
+                  }
+                }}
+                onMissingDocsChange={(missing) => {
+                  setGuestMissingDocs(missing);
+                  if (missing.length === 0) clearFieldError('guestDocs');
+                }}
+                highlight={fieldErrors.guestDocs ? guestMissingDocs : undefined}
+              />
+            )}
+
+            {(fieldErrors.guestPhone || fieldErrors.guestDocs) && (
+              <p className="text-xs text-red-600" role="alert" data-testid="text-guest-kyc-error">
+                {fieldErrors.guestPhone
+                  ? 'Verify your phone number to carry on.'
+                  : 'Add your identity documents to carry on.'}
+              </p>
+            )}
+
             <AddressPicker
               type="sender"
               isLoggedIn={isLoggedIn}
@@ -1867,41 +1908,6 @@ export default function CreateShipment() {
                 </div>
               )}
             </div>
-
-            {/* A guest proves who they are here: the phone first, then the same
-                documents an account produces at signup. Rendered instead of
-                the KYC card below, not beside it — the numbers and the files
-                are asked for together, on one card per document. */}
-            {guestMode && (
-              <GuestVerification
-                initialPhone={senderPhone}
-                onVerifiedPhoneChange={(verified) => {
-                  setGuestVerifiedPhone(verified);
-                  clearFieldError('guestPhone');
-                  // The number that authorised the booking is the number that
-                  // goes on it. Keeping them the same by construction is what
-                  // stops the server refusing a payload whose sender phone it
-                  // never verified.
-                  if (verified) {
-                    setSenderPhone(verified);
-                    clearFieldError('senderPhone');
-                  }
-                }}
-                onMissingDocsChange={(missing) => {
-                  setGuestMissingDocs(missing);
-                  if (missing.length === 0) clearFieldError('guestDocs');
-                }}
-                highlight={fieldErrors.guestDocs ? guestMissingDocs : undefined}
-              />
-            )}
-
-            {(fieldErrors.guestPhone || fieldErrors.guestDocs) && (
-              <p className="text-xs text-red-600" role="alert" data-testid="text-guest-kyc-error">
-                {fieldErrors.guestPhone
-                  ? 'Verify your phone number to carry on.'
-                  : 'Add your identity documents to carry on.'}
-              </p>
-            )}
 
             {/* Company accounts: nothing here. Identity was settled by GST at
                 signup — see A2. Personal accounts still need a document on

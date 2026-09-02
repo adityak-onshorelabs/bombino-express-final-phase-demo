@@ -12,8 +12,6 @@ import type { DocSlot } from '@shared/accountSpec';
 const RESEND_COOLDOWN_SECONDS = 30;
 
 interface GuestVerificationProps {
-  /** The number typed on the sender step, so it does not have to be typed twice. */
-  initialPhone?: string;
   /**
    * The verified number, or null while it is not. The parent sends this as the
    * sender phone, so the number that authorised the booking and the number on
@@ -36,6 +34,11 @@ interface GuestVerificationProps {
  * creation, against the same staged rows. This component is the screen for
  * those gates, not a softer version of them.
  *
+ * Placed first on the Sender step. Identity is the one part of a booking that
+ * can turn out to be a dead end — a document the customer does not have to
+ * hand — and finding that out after four steps of addresses and measurements
+ * is how a booking gets abandoned.
+ *
  * The document half is `AccountDocuments` in its `signup` mode, unchanged.
  * That component already stages against a verified phone rather than a
  * session, already asks for each number beside the document that must carry
@@ -44,12 +47,14 @@ interface GuestVerificationProps {
  * reason — and a fix to either one lands in both.
  */
 export function GuestVerification({
-  initialPhone = '',
   onVerifiedPhoneChange,
   onMissingDocsChange,
   highlight,
 }: GuestVerificationProps): React.JSX.Element {
-  const [phone, setPhone] = useState(initialPhone);
+  // Nothing to prefill from: this card is the first thing on the step, which
+  // is the point — the number proved here is the one written into the sender
+  // field below, rather than a second number typed there and reconciled after.
+  const [phone, setPhone] = useState('');
   const [step, setStep] = useState<'phone' | 'otp' | 'documents'>('phone');
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');

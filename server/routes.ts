@@ -3430,9 +3430,32 @@ export async function registerRoutes(
     const guestPhone = bookingAsGuest ? body.origin_address.phone.trim() : null;
 
     if (bookingAsGuest) {
+      // Two ways to prove the number, and the second one matters as much as
+      // the first.
+      //
+      // A fresh OTP is the direct proof, but it lasts ten minutes and a guest
+      // verifies at the START of the booking — the number is asked for before
+      // the parcel is described, so it can be carried onto the form and so
+      // nobody fills in four steps only to be sent back. Filling those four
+      // steps in under ten minutes is not something to demand of somebody
+      // measuring a box, and failing at Confirm Booking is the worst possible
+      // moment to say so.
+      //
+      // So a session holding staged rows for this exact number is accepted
+      // too. That is not a weaker proof: those rows CANNOT exist without a
+      // valid OTP on that number — every /api/signup/identity and
+      // /api/signup/documents endpoint checks hasRecentVerification before it
+      // writes, and signupRefForPhone discards everything the moment the phone
+      // changes. The staged set is the OTP's own receipt, and
+      // assertDocumentsStaged below still demands it be complete.
+      const stagedForThisPhone =
+        !!guestPhone && req.session.signupPhone === guestPhone && !!req.session.signupRef;
+
       const verified =
         !!guestPhone &&
-        (await hasRecentVerification(guestPhone, "auth", OTP_VERIFICATION_WINDOW_MINUTES));
+        (stagedForThisPhone ||
+          (await hasRecentVerification(guestPhone, "auth", OTP_VERIFICATION_WINDOW_MINUTES)));
+
       if (!verified) {
         res.status(401).json({
           message: "Verify your phone number to book as a guest, or sign in.",
