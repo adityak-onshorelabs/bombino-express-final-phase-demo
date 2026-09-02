@@ -1,6 +1,7 @@
 /**
- * Read-only: report whether the onboarding + OCR migrations are actually in
- * the database, and whether what is there matches what the code expects.
+ * Read-only: report whether the onboarding, OCR and ops-intake migrations are
+ * actually in the database, and whether what is there matches what the code
+ * expects.
  *
  *   npx tsx --env-file=.env scripts/check-migrations.ts
  *
@@ -61,6 +62,19 @@ const OCR_COLUMNS = [
   "ocr_quality_checks",
   "ocr_fraud_checks",
   "ocr_checked_at",
+];
+
+/** add_ops_document_intake.sql — when an account deferred, and when it finished. */
+const ITD_USER_KYC_TIMESTAMPS = ["kyc_deferred_at", "kyc_verified_at"];
+
+/** add_ops_document_intake.sql — who put a document there, and who cleared it. */
+const OPS_INTAKE_COLUMNS = [
+  "uploaded_channel",
+  "uploaded_by",
+  "manual_review",
+  "reviewed_by",
+  "reviewed_at",
+  "review_note",
 ];
 
 const ACCOUNT_DOC_COLUMNS = [
@@ -191,9 +205,50 @@ try {
     }
   }
 
+  console.log("\n── add_ops_document_intake.sql ─────────────────────────\n");
+
+  if (itdUsers.size > 0) {
+    for (const col of ITD_USER_KYC_TIMESTAMPS) {
+      report(`itd_users.${col}`, itdUsers.has(col), itdUsers.get(col) ?? "");
+    }
+  }
+
+  if (hasAccountDocs) {
+    const opsCols = await columnsOf("account_documents");
+    for (const col of OPS_INTAKE_COLUMNS) {
+      report(`account_documents.${col}`, opsCols.has(col), opsCols.get(col) ?? "");
+    }
+
+    const opsIdx = await indexesOf("account_documents");
+    for (const name of [
+      "account_documents_awaiting_review_idx",
+      "account_documents_uploaded_channel_idx",
+    ]) {
+      report(`index ${name}`, opsIdx.has(name));
+    }
+
+    // uploaded_channel decides how a row reads back, so a CHECK that does not
+    // admit all three values turns an ops or hub intake into a 500 the first
+    // time staff use it.
+    const { rows: channel } = await client.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+       WHERE conrelid = 'public.account_documents'::regclass AND contype = 'c'
+         AND pg_get_constraintdef(oid) ILIKE '%uploaded_channel%'`
+    );
+    console.log("");
+    if (channel.length === 0) {
+      report("uploaded_channel CHECK constraint", false);
+    } else {
+      for (const c of channel) {
+        const ok = ["customer", "ops", "hub"].every((v) => c.def.includes(`'${v}'`));
+        report("uploaded_channel CHECK admits customer, ops and hub", ok, c.def);
+      }
+    }
+  }
+
   console.log(
     problems === 0
-      ? "\nAll three migrations are applied and match the code.\n"
+      ? "\nAll four migrations are applied and match the code.\n"
       : `\n${problems} item(s) missing — the migrations have not been fully applied.\n`
   );
   process.exitCode = problems === 0 ? 0 : 1;
