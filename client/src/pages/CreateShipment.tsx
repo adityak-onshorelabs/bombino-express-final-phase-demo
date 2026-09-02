@@ -963,7 +963,7 @@ export default function CreateShipment() {
             <Send className="w-8 h-8 text-[lab(34.0831_-9.57756_-27.7093)]" />
           </div>
           <h2 className="text-lg font-semibold text-[lab(34.0831_-9.57756_-27.7093)] mb-2">
-            Send a parcel to the USA
+            Send a parcel
           </h2>
           <p className="text-sm text-muted-foreground mb-6">
             Sign in to use your saved addresses and documents, or book as a guest.
