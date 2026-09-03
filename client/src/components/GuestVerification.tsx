@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
+import type { AuthUser } from '@/lib/store';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,8 +35,12 @@ interface GuestVerificationProps {
    * of the documents too rather than showing ticks for rows that are gone.
    */
   onReset: () => void;
-  /** Take this customer to the sign-in screen, keeping their place. */
-  onSignIn: () => void;
+  /**
+   * The number has an account and they chose to use it. The code they already
+   * typed signed them in — no second SMS — so the parent leaves guest mode and
+   * carries on as that customer.
+   */
+  onSignedIn: (user: AuthUser) => void;
 }
 
 /**
@@ -57,7 +62,7 @@ interface GuestVerificationProps {
 export function GuestVerification({
   onVerifiedPhoneChange,
   onReset,
-  onSignIn,
+  onSignedIn,
 }: GuestVerificationProps): React.JSX.Element {
   // Nothing to prefill from: this card is the first thing on the step, which
   // is the point — the number proved here is the one written into the sender
@@ -125,11 +130,49 @@ export function GuestVerification({
       if (parseApiErrorCode(err) === 'ACCOUNT_EXISTS') {
         // Deserves a dialog rather than a line of red text under the field:
         // it is not a typo to correct, it is a different route to take.
+        //
+        // `otp` is deliberately kept. The server did not spend the code on this
+        // answer, so "Sign in" below can use the one already typed instead of
+        // sending them away for another.
         setExistingAccount(true);
-        setOtp('');
         return;
       }
       setError(parseApiErrorMessage(err, 'Incorrect code'));
+      setOtp('');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * Use the account this number already has.
+   *
+   * The code is still live — /api/guest/phone/verify checks it without spending
+   * it precisely so this can work — so signing in costs nothing more than the
+   * tap. /api/auth/phone/continue is the login screen's own endpoint and mints
+   * the ITD token where the account has one.
+   */
+  const signInWithSameCode = async (): Promise<void> => {
+    setIsLoading(true);
+    setError('');
+    try {
+      const res = await apiRequest('POST', '/api/auth/phone/continue', {
+        phone: phone.trim(),
+        code: otp,
+      });
+      const data = (await res.json()) as { status: string; user?: AuthUser };
+      if (data.status === 'signed_in' && data.user) {
+        setExistingAccount(false);
+        onSignedIn(data.user);
+        return;
+      }
+      // Should not happen: this branch only runs on a number the server just
+      // told us has an account.
+      setExistingAccount(false);
+      setError('Could not sign you in. Please use the sign-in screen.');
+    } catch (err) {
+      setExistingAccount(false);
+      setError(parseApiErrorMessage(err, 'Could not sign you in'));
       setOtp('');
     } finally {
       setIsLoading(false);
@@ -337,6 +380,7 @@ export function GuestVerification({
                 // just used is spent either way.
                 setExistingAccount(false);
                 setPhone('');
+                setOtp('');
                 setStep('phone');
                 setError('');
               }}
@@ -344,8 +388,17 @@ export function GuestVerification({
             >
               Use a different number
             </AlertDialogCancel>
-            <AlertDialogAction onClick={onSignIn} data-testid="button-guest-go-sign-in">
-              Sign in
+            <AlertDialogAction
+              onClick={(e) => {
+                // Keep the dialog up until the request lands; closing first
+                // leaves the card looking idle while a sign-in is in flight.
+                e.preventDefault();
+                void signInWithSameCode();
+              }}
+              disabled={isLoading}
+              data-testid="button-guest-go-sign-in"
+            >
+              {isLoading ? 'Signing in…' : 'Sign in'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

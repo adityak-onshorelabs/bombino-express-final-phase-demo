@@ -112,7 +112,7 @@ import {
   insertOtpCode,
   hasRecentVerification,
 } from "./otpDb.js";
-import { consumeOtp } from "./otpVerify.js";
+import { consumeOtp, verifyOtp } from "./otpVerify.js";
 import { decryptPassword, encryptPassword, isEncryptionConfigured } from "./crypto.js";
 import {
   itdTokenExpiryIso,
@@ -2342,14 +2342,23 @@ export async function registerRoutes(
    * one never touches the session.
    *
    * A number that already belongs to an account is refused with 409. That is
-   * not a leak: the code was consumed first, so only the owner of the number
-   * can ever see the answer. Somebody guessing numbers learns nothing, because
-   * they cannot get past the OTP to ask.
+   * not a leak: the code is checked first, so only the owner of the number can
+   * ever see the answer. Somebody guessing numbers learns nothing, because they
+   * cannot get past the OTP to ask. This is the same ordering
+   * /api/auth/phone/continue documents — the lookup happens after proof of
+   * ownership, never before, so no screen becomes an oracle for which numbers
+   * are registered.
    *
    * Refusing rather than adopting is deliberate. Their orders, addresses and
    * identity document already exist under that account, and booking beside it
    * as a stranger would split one customer across two records that nothing
    * later reconciles.
+   *
+   * On that refusal the code is deliberately NOT spent. It is a valid sign-in
+   * code for the number that just proved it, so the client can hand it straight
+   * to /api/auth/phone/continue and take them where they were always going.
+   * Spending it would have cost them a second SMS to be told to use the door
+   * they are standing at.
    */
   app.post("/api/guest/phone/verify", async (req: Request, res: Response) => {
     const parsed = z
@@ -2364,7 +2373,9 @@ export async function registerRoutes(
     }
     const { phone, code } = parsed.data;
 
-    const otp = await consumeOtp(phone, "auth", code);
+    // Checked but not spent yet: whether it should be depends on the lookup
+    // below, and a wrong code is rejected here either way.
+    const otp = await verifyOtp(phone, "auth", code, { consume: false });
     if (!otp.ok) {
       res.status(otp.status).json({ message: otp.message });
       return;
@@ -2375,13 +2386,22 @@ export async function registerRoutes(
       res.status(409).json({
         message: "This number already has a Bombino account.",
         code: "ACCOUNT_EXISTS",
+        // The code is still live. The client offers to sign them in with it
+        // rather than sending them off to ask for another.
+        code_reusable: true,
       });
       return;
     }
 
-    // Consuming the code leaves hasRecentVerification(phone, "auth", …) true
+    // Spend it now. That leaves hasRecentVerification(phone, "auth", …) true
     // for the next few minutes, which is what authorises the document upload
     // and the booking that follow. No session is created.
+    const spent = await consumeOtp(phone, "auth", code);
+    if (!spent.ok) {
+      res.status(spent.status).json({ message: spent.message });
+      return;
+    }
+
     res.json({ status: "verified" as const });
   });
 

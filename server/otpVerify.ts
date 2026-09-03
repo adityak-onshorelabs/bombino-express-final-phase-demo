@@ -33,10 +33,24 @@ function devBypassEnabled(): boolean {
   );
 }
 
-export async function consumeOtp(
+/**
+ * Check a code, and optionally spend it.
+ *
+ * `consume: false` leaves the row usable, for the one case where proving
+ * ownership and acting on it are two different decisions: a guest booking
+ * whose number turns out to belong to an account. That answer can only be
+ * given to somebody who has already presented the right code, and the code
+ * they presented is a perfectly good one for signing in — spending it would
+ * cost them a second SMS to be told to use the door they are standing at.
+ *
+ * A wrong code still counts against the attempt ceiling either way; only the
+ * success is withheld.
+ */
+export async function verifyOtp(
   phone: string,
   purpose: OtpPurpose,
-  code: string
+  code: string,
+  options?: { consume?: boolean }
 ): Promise<OtpConsumeResult> {
   const row = await getLatestOtpForVerify(phone, purpose);
   if (!row) {
@@ -64,6 +78,17 @@ export async function consumeOtp(
     return { ok: false, status: 400, message: "Incorrect code" };
   }
 
-  await markConsumed(row.id);
+  if (options?.consume !== false) {
+    await markConsumed(row.id);
+  }
   return { ok: true };
+}
+
+/** The common case: check the code and spend it. */
+export async function consumeOtp(
+  phone: string,
+  purpose: OtpPurpose,
+  code: string
+): Promise<OtpConsumeResult> {
+  return verifyOtp(phone, purpose, code, { consume: true });
 }

@@ -403,7 +403,7 @@ const PRODUCT_TYPE_INFO: Record<string, { title: string; body: string }> = {
 
 export default function CreateShipment() {
   const [, setLocation] = useLocation();
-  const { isLoggedIn, user, logout } = useAppStore();
+  const { isLoggedIn, user, logout, login } = useAppStore();
   const [currentStep, setCurrentStep] = useState(1);
   const [newOrderNo, setNewOrderNo] = useState('');
   const [newOrderId, setNewOrderId] = useState('');
@@ -1619,15 +1619,24 @@ export default function CreateShipment() {
                 // the local result re-arms the gate, so a changed number cannot
                 // carry a tick earned by a different one.
                 onReset={() => setKycResult(null)}
-                // The number turned out to have an account. The card shows a
-                // dialog and refuses it; this is the way out of that dialog.
-                // Guest mode is left behind so returning here after signing in
-                // starts from the account path.
-                onSignIn={() => {
+                // The number turned out to have an account, and the code
+                // they had already typed signed them in — no second SMS. Leave
+                // guest mode so the rest of the booking is theirs: saved
+                // addresses, the document already on file, and an order landing
+                // in a list they can open later.
+                onSignedIn={(signedInUser) => {
+                  login(signedInUser);
                   setGuestMode(false);
                   setGuestVerifiedPhone(null);
                   setKycResult(null);
-                  setLocation('/login?redirect=/create');
+                  clearFieldError('guestPhone');
+                  clearFieldError('guestDocs');
+                  setSenderName(signedInUser.fullName ?? '');
+                  setSenderEmail(signedInUser.email ?? '');
+                  toast({
+                    title: 'Welcome back',
+                    description: 'That number already has an account, so we signed you in.',
+                  });
                 }}
               />
             )}
