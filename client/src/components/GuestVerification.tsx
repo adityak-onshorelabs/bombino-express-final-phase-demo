@@ -6,8 +6,13 @@ import { Label } from '@/components/ui/label';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorMessage } from '@/lib/apiError';
+import type { AuthUser } from '@/lib/store';
 
 const RESEND_COOLDOWN_SECONDS = 30;
+
+type ContinueResponse =
+  | { status: 'signed_in'; user: AuthUser }
+  | { status: 'needs_account' };
 
 interface GuestVerificationProps {
   /**
@@ -22,6 +27,15 @@ interface GuestVerificationProps {
    * of the documents too rather than showing ticks for rows that are gone.
    */
   onReset: () => void;
+  /**
+   * This number already has an account, and the code just signed them into it.
+   *
+   * Not an error and not a dead end: they proved the number, which is all
+   * signing in has ever required here. The parent leaves guest mode so the
+   * booking carries on as theirs — saved addresses, the document already on
+   * file, the order landing in a list they can open later.
+   */
+  onSignedIn: (user: AuthUser) => void;
 }
 
 /**
@@ -43,6 +57,7 @@ interface GuestVerificationProps {
 export function GuestVerification({
   onVerifiedPhoneChange,
   onReset,
+  onSignedIn,
 }: GuestVerificationProps): React.JSX.Element {
   // Nothing to prefill from: this card is the first thing on the step, which
   // is the point — the number proved here is the one written into the sender
@@ -97,10 +112,23 @@ export function GuestVerification({
     setIsLoading(true);
     setError('');
     try {
-      // The same endpoint the login screen uses. A number that turns out to
-      // have an account still answers `signed_in` there; here we only need the
-      // verification itself, which either answer leaves behind.
-      await apiRequest('POST', '/api/auth/phone/continue', { phone: phone.trim(), code });
+      // The same endpoint the login screen uses, and it does more than verify:
+      // a number that already has an account is SIGNED IN by this call. Left
+      // unread, that answer would leave the server holding a real session
+      // while this card still showed a guest booking — the document written to
+      // their account, the order booked as them, and the screen offering to
+      // "save this order to an account" they already have.
+      const res = await apiRequest('POST', '/api/auth/phone/continue', {
+        phone: phone.trim(),
+        code,
+      });
+      const data = (await res.json()) as ContinueResponse;
+
+      if (data.status === 'signed_in') {
+        onSignedIn(data.user);
+        return;
+      }
+
       setVerifiedPhone(phone.trim());
       setStep('documents');
     } catch (err) {

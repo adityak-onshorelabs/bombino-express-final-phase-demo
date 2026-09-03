@@ -403,7 +403,7 @@ const PRODUCT_TYPE_INFO: Record<string, { title: string; body: string }> = {
 
 export default function CreateShipment() {
   const [, setLocation] = useLocation();
-  const { isLoggedIn, user, logout } = useAppStore();
+  const { isLoggedIn, user, logout, login } = useAppStore();
   const [currentStep, setCurrentStep] = useState(1);
   const [newOrderNo, setNewOrderNo] = useState('');
   const [newOrderId, setNewOrderId] = useState('');
@@ -1619,6 +1619,26 @@ export default function CreateShipment() {
                 // the local result re-arms the gate, so a changed number cannot
                 // carry a tick earned by a different one.
                 onReset={() => setKycResult(null)}
+                // The number turned out to have an account, and verifying it
+                // signed them in. Leave guest mode so the rest of the booking
+                // is theirs: saved addresses, whatever KYC is already on file,
+                // and an order that lands in a list they can open later.
+                onSignedIn={(signedInUser) => {
+                  login(signedInUser);
+                  setGuestMode(false);
+                  setGuestVerifiedPhone(null);
+                  setKycResult(null);
+                  clearFieldError('guestPhone');
+                  clearFieldError('guestDocs');
+                  // Their own details, rather than whatever a stranger's
+                  // browser had half-typed into the sender card.
+                  setSenderName(signedInUser.fullName ?? '');
+                  setSenderEmail(signedInUser.email ?? '');
+                  toast({
+                    title: 'Welcome back',
+                    description: 'That number already has an account, so we signed you in.',
+                  });
+                }}
               />
             )}
 
