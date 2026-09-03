@@ -1925,39 +1925,25 @@ export default function CreateShipment() {
                 the full matrix; booking does not, and a guest is not opening
                 one. The endpoint authorises them by the phone verified above
                 instead of by a session. */}
-            {guestMode && (
-              guestVerifiedPhone ? (
-                <div className="space-y-2">
-                  <KycUpload
-                    guestPhone={guestVerifiedPhone}
-                    onValidChange={(result) => {
-                      setKycResult(result);
-                      if (result) clearFieldError('guestDocs');
-                    }}
-                    fieldErrors={{
-                      document_no: !!fieldErrors.guestDocs,
-                      file: !!fieldErrors.guestDocs,
-                    }}
-                  />
-                  {fieldErrors.guestDocs && (
-                    <p className="text-xs text-red-600" role="alert" data-testid="text-guest-docs-error">
-                      Add your identity document to carry on.
-                    </p>
-                  )}
-                </div>
-              ) : (
-                /* Stated rather than hidden. An empty gap here reads as a form
-                   still loading; this says what unlocks it. */
-                <div className="rounded-xl border border-dashed border-[#E2E8F0] bg-[#F3F4F6] px-4 py-3">
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    <span className="font-semibold text-[lab(34.0831_-9.57756_-27.7093)]">
-                      KYC Details
-                    </span>{' '}
-                    — verify your number at the top of this step and we&rsquo;ll ask
-                    for your document here.
+            {guestMode && guestVerifiedPhone && (
+              <div className="space-y-2">
+                <KycUpload
+                  guestPhone={guestVerifiedPhone}
+                  onValidChange={(result) => {
+                    setKycResult(result);
+                    if (result) clearFieldError('guestDocs');
+                  }}
+                  fieldErrors={{
+                    document_no: !!fieldErrors.guestDocs,
+                    file: !!fieldErrors.guestDocs,
+                  }}
+                />
+                {fieldErrors.guestDocs && (
+                  <p className="text-xs text-red-600" role="alert" data-testid="text-guest-docs-error">
+                    Add your identity document to carry on.
                   </p>
-                </div>
-              )
+                )}
+              </div>
             )}
 
             {/* Company accounts: nothing here. Identity was settled by GST at
