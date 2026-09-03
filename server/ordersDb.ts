@@ -623,10 +623,10 @@ export async function claimGuestOrdersForUser(
 
   // The rows that hang off those orders. Each is independent — one failing
   // does not undo the claim, and the next signup attempt would pick it up.
+  // Many rows per account, so a plain update is enough.
   for (const [table, label] of [
     ["addresses", "addresses"],
     ["payments", "payments"],
-    ["kyc_documents", "kyc_documents"],
   ] as const) {
     const { error: err } = await client
       .from(table)
@@ -636,5 +636,87 @@ export async function claimGuestOrdersForUser(
     if (err) logSupabaseError(`claimGuestOrdersForUser:${label}`, err);
   }
 
+  // kyc_documents is ONE row per account (kyc_documents_user_id_key), so it
+  // cannot be claimed the same way.
+  //
+  // The naive update collided with the row signup had just written and was
+  // logged rather than applied, leaving the guest's row behind with user_id
+  // NULL: an encrypted Aadhaar owned by nobody, which a retention sweep keyed
+  // on "user_id IS NULL" would then read as a live guest's.
+  //
+  // Both rows are the same person's document, so the question is only which
+  // one the account keeps:
+  //
+  //   account has no row   promote the newest guest row. Promoting rather than
+  //                        copying keeps its capability_id, which is the URL
+  //                        already handed out for that document.
+  //   account has a row    the guest rows are superseded by the one the
+  //                        customer just uploaded at signup. Delete them; a
+  //                        duplicate identity document kept for no reader is
+  //                        exactly what the retention work is trying to avoid.
+  await claimGuestKycDocument(client, refs, userId);
+
   return { orders: rows.length, refs };
+}
+
+/**
+ * Settle the one-row-per-account KYC document when a guest's orders are claimed.
+ *
+ * Separated from the loop above because it is not a bulk update: the target
+ * table admits a single row per user, so this decides between two rows rather
+ * than moving both.
+ *
+ * Best-effort like the rest of the claim — the account and its orders are
+ * already correct by the time this runs, and a failure here leaves a row that
+ * the next claim on the same number picks up.
+ */
+async function claimGuestKycDocument(
+  client: NonNullable<ReturnType<typeof getSupabaseClient>>,
+  refs: string[],
+  userId: string
+): Promise<void> {
+  const { data: guestRows, error: readErr } = await client
+    .from("kyc_documents")
+    .select("id, created_at")
+    .in("guest_ref", refs)
+    .is("user_id", null)
+    .order("created_at", { ascending: false });
+
+  if (readErr) {
+    logSupabaseError("claimGuestOrdersForUser:kyc_documents:read", readErr);
+    return;
+  }
+  const rows = (guestRows ?? []) as Array<{ id: string }>;
+  if (rows.length === 0) return;
+
+  const { data: existing, error: ownErr } = await client
+    .from("kyc_documents")
+    .select("id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (ownErr) {
+    logSupabaseError("claimGuestOrdersForUser:kyc_documents:owner", ownErr);
+    return;
+  }
+
+  // Newest first from the query above, so rows[0] is the one worth keeping.
+  const promote = existing ? null : rows[0];
+  const discard = rows.filter((r) => r.id !== promote?.id).map((r) => r.id);
+
+  if (promote) {
+    const { error } = await client
+      .from("kyc_documents")
+      .update({ user_id: userId })
+      .eq("id", promote.id);
+    if (error) {
+      logSupabaseError("claimGuestOrdersForUser:kyc_documents:promote", error);
+      return;
+    }
+  }
+
+  if (discard.length > 0) {
+    const { error } = await client.from("kyc_documents").delete().in("id", discard);
+    if (error) logSupabaseError("claimGuestOrdersForUser:kyc_documents:discard", error);
+  }
 }
