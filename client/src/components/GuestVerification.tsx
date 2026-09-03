@@ -196,6 +196,10 @@ export function GuestVerification({
                   }
                 }}
                 placeholder="10-digit number"
+                // Same reason the OTP field locks: the request is already out,
+                // and a number edited underneath it would not be the one the
+                // code was sent to.
+                disabled={isLoading}
                 className="h-11 rounded-xl"
                 data-testid="input-guest-phone"
               />
@@ -224,6 +228,11 @@ export function GuestVerification({
                 maxLength={6}
                 value={otp}
                 autoFocus
+                // The code submits itself on the sixth digit, so without this
+                // the field stays live and editable while the request is out —
+                // a seventh keystroke lands in a box that is already deciding,
+                // and a second submit can be fired over the first.
+                disabled={isLoading}
                 onChange={(v) => {
                   setOtp(v);
                   setError('');
@@ -245,25 +254,42 @@ export function GuestVerification({
               </InputOTP>
             </div>
           </div>
-          <div className="flex items-center justify-between">
-            <button
-              type="button"
-              onClick={handleEditPhone}
-              className="text-xs font-semibold text-[#64748B] underline underline-offset-4"
-              data-testid="button-guest-change-phone"
+          {/* Said out loud, in the place the next thing will appear. The
+              submit happens on the sixth keystroke rather than on a button
+              press, so without this the screen looks like it simply took the
+              code and stopped — and the wait covers a network round trip plus
+              an account lookup, which is long enough to be doubted. */}
+          {isLoading ? (
+            <div
+              className="flex items-center justify-center gap-2 py-1"
+              role="status"
+              aria-live="polite"
+              data-testid="status-guest-verifying"
             >
-              Change number
-            </button>
-            <button
-              type="button"
-              onClick={() => cooldown === 0 && void requestOtp()}
-              disabled={cooldown > 0 || isLoading}
-              className="text-xs font-semibold text-[#2F4468] underline underline-offset-4 disabled:text-muted-foreground disabled:no-underline"
-              data-testid="button-guest-resend-otp"
-            >
-              {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend code'}
-            </button>
-          </div>
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#2F4468]" aria-hidden />
+              <span className="text-xs font-medium text-[#64748B]">Verifying…</span>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={handleEditPhone}
+                className="text-xs font-semibold text-[#64748B] underline underline-offset-4"
+                data-testid="button-guest-change-phone"
+              >
+                Change number
+              </button>
+              <button
+                type="button"
+                onClick={() => cooldown === 0 && void requestOtp()}
+                disabled={cooldown > 0}
+                className="text-xs font-semibold text-[#2F4468] underline underline-offset-4 disabled:text-muted-foreground disabled:no-underline"
+                data-testid="button-guest-resend-otp"
+              >
+                {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend code'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
