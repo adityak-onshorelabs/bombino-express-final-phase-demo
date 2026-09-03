@@ -106,6 +106,51 @@ async function fetchIndiaFromUpstream(code: string): Promise<PostalLookupResult>
   }
 }
 
+/**
+ * Second opinion for an Indian pincode, when api.postalpincode.in has no
+ * record of one that exists.
+ *
+ * Its dataset has real gaps — 400062 (Goregaon West, Mumbai) answers "No
+ * records found" — and the customer meets that as "no match found" against a
+ * pincode printed on their own electricity bill.
+ *
+ * Not the generic Zippopotam reader above, for one reason: that one prefers
+ * `state abbreviation`, which is right for a US state and wrong here — it
+ * yields "MM" where the address, and ITD, want "Maharashtra". This takes the
+ * full state name and never the abbreviation.
+ *
+ * The city it gives is a locality rather than a district (400062 reads
+ * "Udyognagar", not "Mumbai"), which is why this runs second and not first.
+ * A locality the customer can correct beats an empty field they must fill
+ * from nothing, and the form already tells them it is editable.
+ */
+async function fetchIndiaFromZippopotam(code: string): Promise<PostalLookupResult> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(`${ZIPPOTAM_BASE_URL}/in/${code}`, {
+      signal: controller.signal,
+    });
+    if (!res.ok) return NOT_FOUND;
+
+    const data = (await res.json()) as ZippopotamResponse;
+    const place = Array.isArray(data.places) ? data.places[0] : undefined;
+    if (!place) return NOT_FOUND;
+
+    const city = place["place name"]?.trim() ?? "";
+    const state = place.state?.trim() ?? "";
+    if (!city || !state) return NOT_FOUND;
+
+    return { found: true, city, state };
+  } catch (err) {
+    console.warn("[postalLookup] IN zippopotam fallback failed:", err);
+    return NOT_FOUND;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function lookupIndia(code: string): Promise<PostalLookupResult> {
   if (!/^\d{6}$/.test(code)) {
     return NOT_FOUND;
@@ -117,7 +162,18 @@ async function lookupIndia(code: string): Promise<PostalLookupResult> {
     return cached;
   }
 
-  const result = await fetchIndiaFromUpstream(code);
+  // India Post first: it answers with the District, which is the city an
+  // address wants. Zippopotam only when that draws a blank.
+  let result = await fetchIndiaFromUpstream(code);
+  if (!result.found) {
+    result = await fetchIndiaFromZippopotam(code);
+    if (result.found) {
+      console.log(`[postalLookup] ${code} resolved by the zippopotam fallback`);
+    }
+  }
+
+  // writeCache ignores a miss, so a pincode that both sources happen to fail
+  // on today is retried rather than remembered as unknown for a month.
   await writeCache(key, result);
   return result;
 }
