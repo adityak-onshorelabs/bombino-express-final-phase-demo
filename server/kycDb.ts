@@ -110,6 +110,24 @@ export async function getKycFileByUserId(userId: string): Promise<KycDocumentRow
   return data ? decodeKycRow(data as KycDocumentRow) : null;
 }
 
+/** The same row as getKycFileByUserId, for a document a guest owns. */
+export async function getKycFileByGuestRef(guestRef: string): Promise<KycDocumentRow | null> {
+  const client = getClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from("kyc_documents")
+    .select("*")
+    .eq("guest_ref", guestRef)
+    .maybeSingle();
+
+  if (error) {
+    logError("getKycFileByGuestRef", error);
+    return null;
+  }
+  return data ? decodeKycRow(data as KycDocumentRow) : null;
+}
+
 export async function getKycByCapabilityId(capabilityId: string): Promise<KycDocumentRow | null> {
   const client = getClient();
   if (!client) return null;

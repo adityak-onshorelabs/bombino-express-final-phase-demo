@@ -137,6 +137,7 @@ import {
   getKycByCapabilityId,
   getKycByGuestRef,
   getKycByUserId,
+  getKycFileByGuestRef,
   getKycFileByUserId,
   upsertKycDocument,
 } from "./kycDb.js";
@@ -2402,7 +2403,25 @@ export async function registerRoutes(
       return;
     }
 
-    res.json({ status: "verified" as const });
+    // Bind this browser to the number it just proved, and to nothing else.
+    //
+    // Without this the session could still be carrying a signupRef minted for
+    // a DIFFERENT number — an abandoned signup, or the last person to use a
+    // shared device. Everything downstream resolves a guest by that ref when
+    // the request has no phone of its own to offer (GET /api/kyc/me has no
+    // body), so the stale one would have been read as this guest's: their KYC
+    // card would show a stranger's document, and the booking gate would find a
+    // row and wave the order through on it.
+    //
+    // signupRefForPhone is exactly the fix — it returns the existing ref when
+    // the phone matches and mints a fresh one otherwise, discarding whatever
+    // the old number had staged.
+    await signupRefForPhone(req, phone);
+
+    req.session.save((err) => {
+      if (err) console.error("[guest/phone/verify] session save error:", err);
+      res.json({ status: "verified" as const });
+    });
   });
 
   app.post("/api/auth/phone/continue", async (req: Request, res: Response) => {
@@ -4895,10 +4914,13 @@ export async function registerRoutes(
   // GET /api/kyc/me — masked summary of stored KYC for the logged-in user
   app.get(
     "/api/kyc/me",
-    requireUser,
+    // No requireUser: a guest mid-booking reads back the document they just
+    // uploaded here, the same way an account holder does. resolveKycOwner is
+    // what decides whose it is, and a guest is only ever handed their own ref.
     ensureDbUser,
     async (req: Request, res: Response) => {
-      if (!req.session.dbUserId) {
+      const owner = await resolveKycOwner(req);
+      if (!owner) {
         res.status(401).json({ message: "Not authenticated" });
         return;
       }
@@ -4906,7 +4928,9 @@ export async function registerRoutes(
       // Never cache: a fresh upload must be visible on the next read.
       res.set("Cache-Control", "no-store");
 
-      const kyc = await getKycByUserId(req.session.dbUserId);
+      const kyc = owner.userId
+        ? await getKycByUserId(owner.userId)
+        : await getKycByGuestRef(owner.guestRef!);
       if (!kyc) {
         res.status(404).json({ message: "KYC not on file" });
         return;
@@ -4919,16 +4943,18 @@ export async function registerRoutes(
   // GET /api/kyc/me/file — serve the logged-in user's own KYC document for preview
   app.get(
     "/api/kyc/me/file",
-    requireUser,
     ensureDbUser,
     async (req: Request, res: Response) => {
-      if (!req.session.dbUserId) {
+      const owner = await resolveKycOwner(req);
+      if (!owner) {
         res.status(401).json({ message: "Not authenticated" });
         return;
       }
 
       try {
-        const doc = await getKycFileByUserId(req.session.dbUserId);
+        const doc = owner.userId
+          ? await getKycFileByUserId(owner.userId)
+          : await getKycFileByGuestRef(owner.guestRef!);
         if (!doc) {
           res.status(404).json({ message: "KYC not on file" });
           return;

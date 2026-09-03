@@ -540,7 +540,13 @@ export default function CreateShipment() {
 
   const [kycResult, setKycResult] = useState<KycUploadResult | null>(null);
 
-  const { data: kycOnFile } = useKycOnFile({ enabled: isLoggedIn });
+  // Guests read this too, once their number is verified: /api/kyc/me resolves
+  // a guest ref the same way it resolves an account, so the document they just
+  // uploaded reads back — with its preview — instead of vanishing behind a
+  // "Uploaded" tick.
+  const { data: kycOnFile } = useKycOnFile({
+    enabled: isLoggedIn || (guestMode && !!guestVerifiedPhone),
+  });
 
   // Company accounts are identified by GST at signup and never hold a KYC
   // document, so gating booking on one locked them out of the flow entirely.
@@ -1169,9 +1175,11 @@ export default function CreateShipment() {
       // only fail three steps later, after the parcel details are typed.
       if (guestMode) {
         if (!guestVerifiedPhone) e.guestPhone = true;
-        // One document, same as the account path below — the server refuses a
-        // guest booking without a kyc_documents row behind it.
-        if (!kycResult) e.guestDocs = true;
+        // One document, same as the account path below. `kycOnFile` counts as
+        // well as `kycResult`: a guest who uploaded, then stepped back to fix
+        // an address, still has the row the server checks — demanding a fresh
+        // upload would be asking twice for the same file.
+        if (!kycOnFile && !kycResult) e.guestDocs = true;
       } else if (kycBlocksBooking && !kycOnFile && !kycResult) {
         e.kycMissing = true;
       }
@@ -1926,17 +1934,45 @@ export default function CreateShipment() {
                 instead of by a session. */}
             {guestMode && guestVerifiedPhone && (
               <div className="space-y-2">
-                <KycUpload
-                  guestPhone={guestVerifiedPhone}
-                  onValidChange={(result) => {
-                    setKycResult(result);
-                    if (result) clearFieldError('guestDocs');
-                  }}
-                  fieldErrors={{
-                    document_no: !!fieldErrors.guestDocs,
-                    file: !!fieldErrors.guestDocs,
-                  }}
-                />
+                {/* Once it is stored, the same card an account holder gets —
+                    with the preview, so they can see the file that will reach
+                    customs rather than take a tick on trust. Replacing it is
+                    the same toggle, for the same reason: the wrong photo is
+                    caught here or at the hub. */}
+                {kycOnFile ? (
+                  <>
+                    <KycOnFileCard kyc={kycOnFile} />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowKycUpdate((v) => {
+                          if (v) setKycResult(null);
+                          return !v;
+                        });
+                      }}
+                      className="text-[11px] font-semibold text-primary"
+                      aria-expanded={showKycUpdate}
+                      data-testid="button-guest-kyc-update-toggle"
+                    >
+                      {showKycUpdate ? 'Cancel update' : 'Replace document'}
+                    </button>
+                    {showKycUpdate && (
+                      <KycUpload guestPhone={guestVerifiedPhone} onValidChange={setKycResult} />
+                    )}
+                  </>
+                ) : (
+                  <KycUpload
+                    guestPhone={guestVerifiedPhone}
+                    onValidChange={(result) => {
+                      setKycResult(result);
+                      if (result) clearFieldError('guestDocs');
+                    }}
+                    fieldErrors={{
+                      document_no: !!fieldErrors.guestDocs,
+                      file: !!fieldErrors.guestDocs,
+                    }}
+                  />
+                )}
                 {fieldErrors.guestDocs && (
                   <p className="text-xs text-red-600" role="alert" data-testid="text-guest-docs-error">
                     Add your identity document to carry on.
