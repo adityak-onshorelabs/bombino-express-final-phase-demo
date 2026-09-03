@@ -5,14 +5,21 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
 import { apiRequest } from '@/lib/queryClient';
-import { parseApiErrorMessage } from '@/lib/apiError';
-import type { AuthUser } from '@/lib/store';
+import { parseApiErrorCode, parseApiErrorMessage } from '@/lib/apiError';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 const RESEND_COOLDOWN_SECONDS = 30;
 
-type ContinueResponse =
-  | { status: 'signed_in'; user: AuthUser }
-  | { status: 'needs_account' };
+
 
 interface GuestVerificationProps {
   /**
@@ -27,15 +34,8 @@ interface GuestVerificationProps {
    * of the documents too rather than showing ticks for rows that are gone.
    */
   onReset: () => void;
-  /**
-   * This number already has an account, and the code just signed them into it.
-   *
-   * Not an error and not a dead end: they proved the number, which is all
-   * signing in has ever required here. The parent leaves guest mode so the
-   * booking carries on as theirs — saved addresses, the document already on
-   * file, the order landing in a list they can open later.
-   */
-  onSignedIn: (user: AuthUser) => void;
+  /** Take this customer to the sign-in screen, keeping their place. */
+  onSignIn: () => void;
 }
 
 /**
@@ -57,7 +57,7 @@ interface GuestVerificationProps {
 export function GuestVerification({
   onVerifiedPhoneChange,
   onReset,
-  onSignedIn,
+  onSignIn,
 }: GuestVerificationProps): React.JSX.Element {
   // Nothing to prefill from: this card is the first thing on the step, which
   // is the point — the number proved here is the one written into the sender
@@ -69,6 +69,8 @@ export function GuestVerification({
   const [isLoading, setIsLoading] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [verifiedPhone, setVerifiedPhone] = useState<string | null>(null);
+  /** The number turned out to have an account. Shown as a dialog, not inline. */
+  const [existingAccount, setExistingAccount] = useState(false);
   const phoneRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -112,26 +114,21 @@ export function GuestVerification({
     setIsLoading(true);
     setError('');
     try {
-      // The same endpoint the login screen uses, and it does more than verify:
-      // a number that already has an account is SIGNED IN by this call. Left
-      // unread, that answer would leave the server holding a real session
-      // while this card still showed a guest booking — the document written to
-      // their account, the order booked as them, and the screen offering to
-      // "save this order to an account" they already have.
-      const res = await apiRequest('POST', '/api/auth/phone/continue', {
-        phone: phone.trim(),
-        code,
-      });
-      const data = (await res.json()) as ContinueResponse;
-
-      if (data.status === 'signed_in') {
-        onSignedIn(data.user);
-        return;
-      }
-
+      // NOT /api/auth/phone/continue: that endpoint signs the customer in the
+      // moment it recognises the number, which would leave a real session
+      // behind a screen still showing a guest booking. This one only proves
+      // the number, and refuses it outright when an account already holds it.
+      await apiRequest('POST', '/api/guest/phone/verify', { phone: phone.trim(), code });
       setVerifiedPhone(phone.trim());
       setStep('documents');
     } catch (err) {
+      if (parseApiErrorCode(err) === 'ACCOUNT_EXISTS') {
+        // Deserves a dialog rather than a line of red text under the field:
+        // it is not a typo to correct, it is a different route to take.
+        setExistingAccount(true);
+        setOtp('');
+        return;
+      }
       setError(parseApiErrorMessage(err, 'Incorrect code'));
       setOtp('');
     } finally {
@@ -292,6 +289,41 @@ export function GuestVerification({
           {error}
         </p>
       )}
+
+      {/* Not a failure to correct — a different door to go through. The number
+          is theirs, they just already have an account holding their orders,
+          addresses and identity document, and booking beside it as a stranger
+          would split one customer across two records. */}
+      <AlertDialog open={existingAccount} onOpenChange={setExistingAccount}>
+        <AlertDialogContent data-testid="dialog-guest-account-exists">
+          <AlertDialogHeader>
+            <AlertDialogTitle>This number already has an account</AlertDialogTitle>
+            <AlertDialogDescription>
+              +91 {phone} is registered with Bombino. Sign in to book with it — your
+              saved addresses and identity document are already there — or use a
+              different number to carry on as a guest.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                // Back to an empty field, ready for another number. The code
+                // just used is spent either way.
+                setExistingAccount(false);
+                setPhone('');
+                setStep('phone');
+                setError('');
+              }}
+              data-testid="button-guest-use-another-number"
+            >
+              Use a different number
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={onSignIn} data-testid="button-guest-go-sign-in">
+              Sign in
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

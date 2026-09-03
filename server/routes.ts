@@ -1417,6 +1417,11 @@ export async function registerRoutes(
     const verified = await hasRecentVerification(claimed, "auth", OTP_VERIFICATION_WINDOW_MINUTES);
     if (!verified) return null;
 
+    // A number with an account is not a guest, however it got here. Refusing
+    // before the write keeps an identity document from being stored against a
+    // guest ref when the person it belongs to already has somewhere to keep it.
+    if (await findItdUserIdByPhone(claimed)) return null;
+
     // Mints on first upload and returns the same ref afterwards, discarding
     // anything staged under a different number. This is the only thing that
     // creates a guest's ref: they never touch the signup endpoints, so without
@@ -2327,6 +2332,59 @@ export async function registerRoutes(
   //
   // Replaces the old two-call sequence (POST /otp/verify then POST /login/otp),
   // which established a session carrying no ITD token at all.
+  /**
+   * Prove a phone number for a GUEST booking, and refuse it if it has an account.
+   *
+   * Separate from /api/auth/phone/continue on purpose. That endpoint signs the
+   * customer in the moment it recognises the number — correct for the login
+   * screen, wrong here: a guest booking that quietly became an account booking
+   * leaves the browser showing one thing while the server does another. This
+   * one never touches the session.
+   *
+   * A number that already belongs to an account is refused with 409. That is
+   * not a leak: the code was consumed first, so only the owner of the number
+   * can ever see the answer. Somebody guessing numbers learns nothing, because
+   * they cannot get past the OTP to ask.
+   *
+   * Refusing rather than adopting is deliberate. Their orders, addresses and
+   * identity document already exist under that account, and booking beside it
+   * as a stranger would split one customer across two records that nothing
+   * later reconciles.
+   */
+  app.post("/api/guest/phone/verify", async (req: Request, res: Response) => {
+    const parsed = z
+      .object({
+        phone: phoneSchema,
+        code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code"),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ message: parsed.error.issues[0]?.message ?? "Invalid request" });
+      return;
+    }
+    const { phone, code } = parsed.data;
+
+    const otp = await consumeOtp(phone, "auth", code);
+    if (!otp.ok) {
+      res.status(otp.status).json({ message: otp.message });
+      return;
+    }
+
+    const existing = await findItdUserIdByPhone(phone);
+    if (existing) {
+      res.status(409).json({
+        message: "This number already has a Bombino account.",
+        code: "ACCOUNT_EXISTS",
+      });
+      return;
+    }
+
+    // Consuming the code leaves hasRecentVerification(phone, "auth", …) true
+    // for the next few minutes, which is what authorises the document upload
+    // and the booking that follow. No session is created.
+    res.json({ status: "verified" as const });
+  });
+
   app.post("/api/auth/phone/continue", async (req: Request, res: Response) => {
     const parsed = z
       .object({
@@ -3495,6 +3553,20 @@ export async function registerRoutes(
         res.status(401).json({
           message: "Verify your phone number to book as a guest, or sign in.",
           code: PHONE_UNVERIFIED,
+        });
+        return;
+      }
+
+      // The same refusal /api/guest/phone/verify gives, enforced again at the
+      // write. The check there is what the customer sees; this is what makes it
+      // true — a client that skipped the dialog, or an account created in the
+      // minutes since, must not end with one customer split across an account
+      // and a guest record that nothing later reconciles.
+      const owner = await findItdUserIdByPhone(guestPhone!);
+      if (owner) {
+        res.status(409).json({
+          message: "This number already has a Bombino account. Please sign in to book.",
+          code: "ACCOUNT_EXISTS",
         });
         return;
       }
