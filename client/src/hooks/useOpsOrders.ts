@@ -47,6 +47,21 @@ export type OpsBoardOrder = {
   docket_error_problems?: string[];
   /** Who acts next: "auto" (retrying by itself), "ops", or "check_itd". */
   docket_retry?: string | null;
+  /**
+   * An agent cancelled this pickup. On board rows only while the branch still
+   * has to act; on the order page always, with `open` saying which.
+   */
+  agent_cancellation?: OpsAgentCancellation | null;
+};
+
+export type OpsAgentCancellation = {
+  at: string;
+  /** The order's status when the agent cancelled. */
+  from_status: string;
+  open: boolean;
+  agent_id: string;
+  agent_name: string | null;
+  agent_phone: string | null;
 };
 
 export type OpsOrderEvent = {

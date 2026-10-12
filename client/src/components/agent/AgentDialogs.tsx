@@ -12,20 +12,23 @@ import {
 import { BRANCH_HEAD } from '@/lib/branchHead';
 
 /**
- * The agent surface's two "are you sure" moments, and the Problem popup.
+ * The agent surface's "are you sure" moments, and the Problem popup.
  *
- * Start journey is one-way: once on the way the agent can no longer hand the
- * pickup back. Cancel pickup gives the job back to the branch. Both are a
- * single tap otherwise, so both ask first.
+ * Start journey commits the agent to the doorstep. Cancel pickup gives the job
+ * back to the branch — possible until the parcel is collected, never after.
+ * Both are a single tap otherwise, so both ask first.
  */
 
+/** The agent's way out of a job. Never the big button; red to confirm. */
+export const CANCEL_ACTIONS = new Set(['release_pickup']);
+
 /** Actions that ask before they fire. */
-export const CONFIRMED_ACTIONS = new Set(['start_pickup', 'release_pickup']);
+export const CONFIRMED_ACTIONS = new Set(['start_pickup', ...CANCEL_ACTIONS]);
 
 const COPY: Record<string, { title: string; body: string; confirm: string; keep: string }> = {
   start_pickup: {
     title: 'Start your journey?',
-    body: 'Confirm to start your journey to this pickup. Once started, you cannot cancel it.',
+    body: 'Confirm to start your journey to this pickup.',
     confirm: 'Start journey',
     keep: 'Not yet',
   },
@@ -66,7 +69,7 @@ export function ConfirmActionDialog({
             </AlertDialogCancel>
             <AlertDialogAction
               className={
-                action === 'release_pickup'
+                CANCEL_ACTIONS.has(action)
                   ? `${BUTTON} bg-[#B91C1C] hover:bg-[#991B1B] text-white`
                   : `${BUTTON} bg-[#1B2A41] hover:bg-[#1B2A41]/90 text-white`
               }

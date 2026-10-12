@@ -30,6 +30,8 @@ export type OpsBoardOrderLike = {
   guest_phone: string | null;
   customer_name: string | null;
   customer_phone: string | null;
+  /** Set while an agent's cancellation waits on the branch — sorts first. */
+  agent_cancellation?: { open: boolean } | null;
 };
 
 export function matchesOpsSection(
@@ -310,6 +312,11 @@ export function sortOpsBoardOrders<T extends OpsBoardOrderLike>(
   sort: OpsBoardSort,
 ): T[] {
   return [...orders].sort((a, b) => {
+    // An agent cancelled and the branch has not acted yet: always on top,
+    // whatever the sort. A parcel sitting with an agent cannot wait its turn.
+    const flagA = a.agent_cancellation?.open ? 1 : 0;
+    const flagB = b.agent_cancellation?.open ? 1 : 0;
+    if (flagA !== flagB) return flagB - flagA;
     const da = new Date(a.created_at).getTime();
     const db = new Date(b.created_at).getTime();
     const aTime = Number.isFinite(da) ? da : 0;

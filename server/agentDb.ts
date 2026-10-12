@@ -20,7 +20,7 @@ import { supabase } from "./supabaseClient.js";
 import { dbClient, logDbError, type DbError } from "./db/client.js";
 import { toOrder, type OrderRow } from "./ordersDb.js";
 import { reconcilePaymentStatus } from "./paymentsDb.js";
-import type { Order, OrderStatus } from "../shared/orderContract.js";
+import type { AgentCancellation, Order, OrderStatus } from "../shared/orderContract.js";
 
 const ORDER_COLUMNS =
   "id, order_no, user_id, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, metadata, created_at, updated_at";
@@ -194,22 +194,47 @@ export async function claimPickup(
 }
 
 /**
- * An agent hands an assigned pickup back: unassigned again, for the branch head.
+ * The agent's cancellation, merged into the metadata of the row the caller
+ * read. Built from that row rather than re-read: the WHERE clauses below pin
+ * the status and agent it was read at, so a row that moved since is not
+ * written at all, and the window for losing a concurrent metadata write is the
+ * same one `recordCancellationRequest` (ordersDb.ts) accepts.
+ */
+function withAgentCancellation(order: Order, agentId: string) {
+  return {
+    ...(order.metadata ?? {}),
+    agent_cancellation: {
+      at: new Date().toISOString(),
+      agent_id: agentId,
+      from_status: order.status,
+    } satisfies AgentCancellation,
+  };
+}
+
+/**
+ * An agent hands a pickup back before collecting the parcel: unassigned again,
+ * for the branch head. The step it was at goes on the order for ops.
  *
- * `agent_id = agentId` and `status = agent_accepted` in the WHERE: only the
- * holder can hand it back, and only before the journey starts. A double tap
+ * `agent_id = agentId` and `status` = what the caller read, in the WHERE: only
+ * the holder can hand it back, and only from where it was. A double tap
  * matches nothing the second time and returns null.
  */
-export async function releasePickup(orderId: string, agentId: string): Promise<Order | null> {
+export async function releasePickup(order: Order, agentId: string): Promise<Order | null> {
   const client = getSupabaseClient();
   if (!client) return null;
+  if (order.status !== "agent_accepted" && order.status !== "out_for_pickup") return null;
 
   const { data, error } = await client
     .from("orders")
-    .update({ agent_id: null, status: "pickup_requested", updated_at: new Date().toISOString() })
-    .eq("id", orderId)
+    .update({
+      agent_id: null,
+      status: "pickup_requested",
+      metadata: withAgentCancellation(order, agentId),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", order.id)
     .eq("agent_id", agentId)
-    .eq("status", "agent_accepted")
+    .eq("status", order.status)
     .select(ORDER_WRITE_COLUMNS)
     .maybeSingle();
 

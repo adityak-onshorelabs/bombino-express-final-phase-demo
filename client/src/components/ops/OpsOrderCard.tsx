@@ -2,6 +2,7 @@ import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import { Link } from 'wouter';
 import {
   AlertTriangle,
+  Ban,
   Bike,
   CalendarDays,
   FileText,
@@ -15,7 +16,22 @@ import { OpsSenderCell } from '@/components/ops/OpsSenderCell';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
 import { formatInr } from '@/lib/orderDetail';
 import { cn } from '@/lib/utils';
-import type { OpsBoardOrder } from '@/hooks/useOpsOrders';
+import type { OpsAgentCancellation, OpsBoardOrder } from '@/hooks/useOpsOrders';
+
+/** Where the agent was when they cancelled, as the branch would say it. */
+const CANCELLED_AT: Record<string, string> = {
+  agent_accepted: 'before setting off',
+  out_for_pickup: 'on the way',
+};
+
+/**
+ * One short line on an agent's cancellation: when in the job it happened, and
+ * what the branch does next. Short because the card truncates it on a phone.
+ */
+export function agentCancelLine(c: OpsAgentCancellation): string {
+  const when = CANCELLED_AT[c.from_status] ?? 'mid-pickup';
+  return `Cancelled ${when} · assign again`;
+}
 
 /** Still waiting for the parcel to leave the customer — the date can go stale. */
 const BEFORE_COLLECTION = new Set([
@@ -198,8 +214,18 @@ export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
   const place = [order.pickup_area || 'No address', order.pickup_pincode]
     .filter(Boolean)
     .join(', ');
-  // The one problem worth a flag up top; the rows below say the detail.
-  const issue = late ? 'Late' : noAgent ? 'No agent' : order.docket_error ? 'AWB issue' : null;
+  const agentCancel = order.agent_cancellation?.open ? order.agent_cancellation : null;
+  // The one problem worth a flag up top; the rows below say the detail. An
+  // agent's cancellation first: it is the newest news and needs a call.
+  const issue = agentCancel
+    ? 'Agent cancelled'
+    : late
+      ? 'Late'
+      : noAgent
+        ? 'No agent'
+        : order.docket_error
+          ? 'AWB issue'
+          : null;
 
   return (
     <Link
@@ -247,6 +273,16 @@ export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
       </div>
 
       <div className="mt-3 space-y-2">
+        {agentCancel && (
+          <Row
+            icon={Ban}
+            label="Agent cancelled"
+            alert
+            testId={`ops-agent-cancelled-${order.order_no}`}
+          >
+            {agentCancelLine(agentCancel)}
+          </Row>
+        )}
         <div className="flex items-center justify-between gap-3">
           <Row
             icon={dropoff ? Store : MapPin}

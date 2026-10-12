@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { formatInr, formatIst } from '@/lib/orderDetail';
 import { signOutAndRedirect } from '@/lib/session';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Bike, CalendarDays, Loader2, LogOut, Phone } from 'lucide-react';
+import { ArrowLeft, Ban, Bike, CalendarDays, Loader2, LogOut, Phone } from 'lucide-react';
 import { useLocation, useParams, useSearch } from 'wouter';
 import { OpsActionBar } from '@/components/ops/OpsActionBar';
 import { OpsAssignAgentPanel } from '@/components/ops/OpsAssignAgentPanel';
@@ -32,6 +32,7 @@ import {
   useOpsOrderAction,
   useOpsOrderDetail,
   type OpsActionError,
+  type OpsAgentCancellation,
 } from '@/hooks/useOpsOrders';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
 import { useCan } from '@/lib/opsAccess';
@@ -74,6 +75,62 @@ function InfoCard({ title, children }: { title: string; children: ReactNode }) {
 /** The shared helpers answer '—' for nothing; these keep this page's wording. */
 const formatMoney = (value: number | null | undefined): string => formatInr(value) ?? '—';
 const formatWhen = (iso: string): string => formatIst(iso);
+
+/** Where the agent was when they cancelled. */
+const CANCELLED_AT: Record<string, string> = {
+  agent_accepted: 'before setting off',
+  out_for_pickup: 'on the way to the customer',
+};
+
+/**
+ * An agent cancelled this pickup. First thing on the page while the branch
+ * still has to act — red, with the agent's number — and a plain line in the
+ * order's story once it is dealt with.
+ */
+function AgentCancelNotice({ cancel }: { cancel: OpsAgentCancellation }) {
+  const who = cancel.agent_name?.trim() || 'The agent';
+  const when = CANCELLED_AT[cancel.from_status] ?? 'during the pickup';
+  const at = formatWhen(cancel.at);
+
+  if (!cancel.open) {
+    return (
+      <p
+        className="mb-4 rounded-md border border-border bg-white px-4 py-3 text-sm text-muted-foreground"
+        data-testid="ops-agent-cancel-past"
+      >
+        {who} cancelled this pickup {when}, {at}.
+      </p>
+    );
+  }
+
+  return (
+    <section
+      className="mb-4 rounded-md border border-destructive bg-destructive/10 p-4"
+      data-testid="ops-agent-cancel"
+    >
+      <div className="flex items-center gap-2 text-destructive">
+        <Ban className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
+        <h2 className="text-base font-extrabold">Agent cancelled this pickup</h2>
+      </div>
+      <p className="mt-1.5 text-sm font-semibold leading-snug text-foreground">
+        {who} cancelled {when}, {at}.
+      </p>
+      <p className="mt-1 text-sm leading-snug text-foreground">
+        The parcel was not collected. Assign another agent below.
+      </p>
+      {cancel.agent_phone && (
+        <a
+          href={`tel:${cancel.agent_phone.replace(/\s+/g, '')}`}
+          className="mt-3 inline-flex h-11 items-center gap-2 rounded-md border border-border bg-white px-4 text-sm font-bold text-foreground hover:bg-muted"
+          data-testid="ops-agent-cancel-call"
+        >
+          <Phone className="h-4 w-4" strokeWidth={1.75} />
+          Call {who === 'The agent' ? 'agent' : who} · {cancel.agent_phone}
+        </a>
+      )}
+    </section>
+  );
+}
 
 function consigneeLines(consignee: unknown): { name: string; city: string; phone: string } {
   if (!consignee || typeof consignee !== 'object' || Array.isArray(consignee)) {
@@ -338,7 +395,10 @@ export default function OpsOrderDetail() {
   const needsNewHubCode = Boolean(handover && (handover.locked || !handover.code));
   const dropoff = order.pickup_request === 2;
   const day = dayFor(order, todayInIst());
-  const issue = day?.late
+  const agentCancel = order.agent_cancellation ?? null;
+  const issue = agentCancel?.open
+    ? 'Agent cancelled'
+    : day?.late
     ? 'Late'
     : !dropoff && order.status === 'pickup_requested' && !order.agent_id
       ? 'No agent'
@@ -364,6 +424,8 @@ export default function OpsOrderDetail() {
           right. Phones: one column, history last. */}
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:gap-8 lg:items-start">
       <div className="min-w-0">
+
+      {agentCancel && <AgentCancelNotice cancel={agentCancel} />}
 
       {/* Where the order stands, in one look: status, journey, date, agent. */}
       <section

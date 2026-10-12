@@ -91,15 +91,16 @@ export async function handleClaim(input: {
 }
 
 /**
- * The agent hands an assigned pickup back before setting off. It returns to
- * unassigned on the ops board for the branch head to assign again; the next
- * assignment issues the customer a fresh pickup code.
+ * The agent hands a pickup back before collecting the parcel — not yet set
+ * off, or on the way. It returns to unassigned on the ops board for the branch
+ * head to assign again; the next assignment issues the customer a fresh pickup
+ * code.
  */
 export async function handleReleasePickup(input: {
   order: Order;
   callerId: string;
 }): Promise<AgentActionResult> {
-  const updated = await releasePickup(input.order.id, input.callerId);
+  const updated = await releasePickup(input.order, input.callerId);
   if (!updated) {
     return {
       error: {
@@ -109,10 +110,11 @@ export async function handleReleasePickup(input: {
       },
     };
   }
+  const step = input.order.status === "out_for_pickup" ? "on the way" : "before setting off";
   return {
     order: updated,
-    eventNote: "Agent cancelled the pickup; back to unassigned for the branch",
-    eventMeta: { released_agent_id: input.callerId },
+    eventNote: `Agent cancelled the pickup ${step}; back to unassigned for the branch`,
+    eventMeta: { released_agent_id: input.callerId, cancelled_from: input.order.status },
   };
 }
 

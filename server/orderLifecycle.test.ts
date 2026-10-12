@@ -169,7 +169,17 @@ test("another agent cannot cancel someone else's pickup", () => {
   assert.equal(actions(assigned, "agent", AGENT).includes("release_pickup"), false);
 });
 
-test("once the journey starts the pickup cannot be cancelled", () => {
+test("on the way, the agent can still hand the pickup back, after the forward steps", () => {
   const onTheWay = order({ status: "out_for_pickup", agent_id: AGENT });
-  assert.equal(actions(onTheWay, "agent", AGENT).includes("release_pickup"), false);
+  const offered = actions(onTheWay, "agent", AGENT);
+  assert.equal(offered.at(-1), "release_pickup");
+  assert.equal(
+    findTransition(onTheWay, "release_pickup", "agent", { userId: AGENT })?.to,
+    "pickup_requested"
+  );
+});
+
+test("once the parcel is collected the pickup cannot be cancelled", () => {
+  const collected = order({ status: "picked_up", agent_id: AGENT });
+  assert.deepEqual(actions(collected, "agent", AGENT), ["mark_received_at_hub"]);
 });

@@ -14,7 +14,7 @@ import { useOrderAction, type PickupEntry } from '@/hooks/useAgentPickups';
 import { bandForDate } from '@/lib/agentGrouping';
 import { todayInIst } from '@shared/istTime';
 import { useState } from 'react';
-import { ConfirmActionDialog, CONFIRMED_ACTIONS } from '@/components/agent/AgentDialogs';
+import { CANCEL_ACTIONS, ConfirmActionDialog, CONFIRMED_ACTIONS } from '@/components/agent/AgentDialogs';
 
 /**
  * The job in hand, with the next move on the row it belongs to.
@@ -58,7 +58,7 @@ export function ActiveJobCard({ entry }: { entry: PickupEntry }) {
   const owed = amountOwedAtDoor(order);
   // Cancel pickup is never the card's button: handing a job back is a choice
   // made on the job sheet, not the default next step.
-  const next = entry.availableActions.find((a) => a.action !== 'release_pickup');
+  const next = entry.availableActions.find((a) => !CANCEL_ACTIONS.has(a.action));
   const [confirming, setConfirming] = useState<string | null>(null);
   const notDueYet = notDueYetReason(order);
   const phone = order.origin_address?.phone;

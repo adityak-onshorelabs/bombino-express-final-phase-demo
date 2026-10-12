@@ -267,6 +267,7 @@ export default function OpsDashboard() {
   );
   const work = useMemo(
     () => ({
+      agentCancelled: orders.filter((o) => o.agent_cancellation?.open).length,
       noAgent: orders.filter((o) => o.status === 'pickup_requested' && !o.agent_id).length,
       toWeigh: orders.filter((o) => o.status === 'received_at_hub').length,
       toSettle: orders.filter((o) => o.status === 'weighed').length,
@@ -413,6 +414,16 @@ export default function OpsDashboard() {
                 <ul className="divide-y divide-border ops-rise">
                   {movesOrders && (
                     <>
+                      {/* First: an agent handed a job back. The board lists
+                          these on top. */}
+                      <WorkRow
+                        label="Pickups cancelled by agents"
+                        detail="An agent handed it back. Assign someone else."
+                        count={work.agentCancelled}
+                        href="/ops/pickups"
+                        urgent
+                        testId="ops-dash-work-agent-cancelled"
+                      />
                       <WorkRow
                         label="Pickups with no agent"
                         detail="Assign an agent so the pickup can go ahead."

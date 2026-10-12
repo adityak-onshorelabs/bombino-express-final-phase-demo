@@ -24,7 +24,12 @@ import { docketItem, type OrderConsignee } from '@/lib/orderDetail';
 import { HandoverOtpSheet, type HandoverOtpKind } from '@/components/agent/HandoverOtpSheet';
 import { useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';
 import type { AgentPickup } from '@/hooks/useAgentPickups';
-import { ConfirmActionDialog, CONFIRMED_ACTIONS, ProblemDialog } from '@/components/agent/AgentDialogs';
+import {
+  CANCEL_ACTIONS,
+  ConfirmActionDialog,
+  CONFIRMED_ACTIONS,
+  ProblemDialog,
+} from '@/components/agent/AgentDialogs';
 
 /**
  * One job, as a single white sheet under a navy bar carrying its number.
@@ -256,6 +261,7 @@ export default function PickupDetail() {
                   pendingAction={action.isPending ? action.variables?.action ?? null : null}
                   disabled={action.isPending}
                   onAction={handleAction}
+                  neverPrimary={CANCEL_ACTIONS}
                   trailing={
                     <button
                       type="button"

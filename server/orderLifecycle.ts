@@ -134,18 +134,6 @@ export const TRANSITIONS: readonly Transition[] = [
     guard: (order, ctx) => isOwningAgent(order, ctx) && pickupDateArrived(order),
   },
   {
-    // The agent cannot do this pickup: it goes back to unassigned and the
-    // branch head assigns it again. Only before the journey starts — there is
-    // no row from `out_for_pickup`, so once on the way they see it through.
-    // Not date-gated: a job for next week can be handed back today.
-    from: "agent_accepted",
-    action: "release_pickup",
-    role: "agent",
-    to: "pickup_requested",
-    label: "Cancel pickup",
-    guard: isOwningAgent,
-  },
-  {
     // No status change — collection is a `payments` write, and the order is
     // still out_for_pickup afterwards.
     from: "out_for_pickup",
@@ -189,6 +177,27 @@ export const TRANSITIONS: readonly Transition[] = [
     requiresPayload: true,
     guard: isOwningAgent,
   },
+
+  // ── Agent cancels ──
+  // Listed after the forward steps on purpose: the agent app makes the first
+  // action it is sent the big button, and that must never be Cancel.
+  //
+  // The agent cannot do this pickup: it goes back to unassigned and the
+  // branch head assigns it again. Allowed until the parcel is in their hands —
+  // before setting off or on the way — and never after: there is no row from
+  // `picked_up`, so a collected parcel goes to the hub. Not date-gated: a job
+  // for next week can be handed back today. The step it was cancelled at is
+  // kept on the order (`metadata.agent_cancellation`) for ops.
+  ...(["agent_accepted", "out_for_pickup"] as const).map(
+    (from): Transition => ({
+      from,
+      action: "release_pickup",
+      role: "agent",
+      to: "pickup_requested",
+      label: "Cancel pickup",
+      guard: isOwningAgent,
+    })
+  ),
 
   // ── Ops, drop-off path + hub (M2/M3/M5) ────────────────────────────────
   // Listed so `availableActions` is complete for every role from day one.

@@ -10,8 +10,11 @@ import { explainDocketError, type DocketFailure } from "../shared/docketError.js
 import { dbClient, logDbError, type DbError } from "./db/client.js";
 import {
   cancellationState,
+  openAgentCancellation,
+  readAgentCancellation,
   readCancellationRequest,
   type Order,
+  type OrderStatus,
 } from "../shared/orderContract.js";
 import {
   applyOpsBoardQuery,
@@ -99,6 +102,8 @@ export type OpsBoardOrder = {
   docket_error_problems: string[];
   /** Who acts next on a failed docket: "auto", "ops" or "check_itd". */
   docket_retry: string | null;
+  /** An agent cancelled this pickup and the branch has yet to act on it. */
+  agent_cancellation: OpsAgentCancellation | null;
 };
 
 export type OpsOrderDetail = {
@@ -141,9 +146,41 @@ export type OpsOrderDetail = {
   docket_error_problems: string[];
   /** Who acts next on a failed docket: "auto", "ops" or "check_itd". */
   docket_retry: string | null;
+  /** An agent's cancellation, open or already dealt with. */
+  agent_cancellation: OpsAgentCancellation | null;
   created_at: string;
   updated_at: string;
 };
+
+/**
+ * An agent's cancellation, for the console (shared/orderContract.ts
+ * `readAgentCancellation`). `open` while the pickup still needs a new agent.
+ */
+export type OpsAgentCancellation = {
+  at: string;
+  /** The order's status when the agent cancelled. */
+  from_status: OrderStatus;
+  open: boolean;
+  agent_id: string;
+  agent_name: string | null;
+  agent_phone: string | null;
+};
+
+function agentCancellationFor(
+  row: Record<string, unknown>,
+  onlyOpen: boolean
+): OpsAgentCancellation | null {
+  const order = {
+    metadata: (row.metadata as Record<string, unknown> | null) ?? null,
+    status: String(row.status) as OrderStatus,
+    agent_id: (row.agent_id as string | null) ?? null,
+  };
+  const c = readAgentCancellation(order);
+  if (!c) return null;
+  const open = openAgentCancellation(order) !== null;
+  if (onlyOpen && !open) return null;
+  return { ...c, open, agent_name: null, agent_phone: null };
+}
 
 export type OpsOrderEvent = {
   id: string;
@@ -240,6 +277,7 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
     docket_error_hint: docketErrorHint(row.metadata),
     docket_error_problems: docketErrorProblems(row.metadata),
     docket_retry: docketErrorRetry(row.metadata),
+    agent_cancellation: agentCancellationFor(row, true),
   };
 }
 
@@ -291,6 +329,7 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
     docket_error_hint: docketErrorHint(row.metadata),
     docket_error_problems: docketErrorProblems(row.metadata),
     docket_retry: docketErrorRetry(row.metadata),
+    agent_cancellation: agentCancellationFor(row, false),
     created_at: String(row.created_at),
     updated_at: String(row.updated_at),
   };
@@ -393,7 +432,16 @@ export async function getOrderByIdForOps(id: string): Promise<OpsOrderDetail | n
   const [detail] = await withCustomerNames(
     await withAgentNames([mapDetailRow(data as Record<string, unknown>)])
   );
-  return detail ?? null;
+  if (!detail) return null;
+  // Who cancelled, by name and number: the branch may want to ask why.
+  if (detail.agent_cancellation) {
+    const contact = (await getUserContactsByIds([detail.agent_cancellation.agent_id])).get(
+      detail.agent_cancellation.agent_id
+    );
+    detail.agent_cancellation.agent_name = contact?.full_name ?? null;
+    detail.agent_cancellation.agent_phone = contact?.phone ?? null;
+  }
+  return detail;
 }
 
 /** Registered customer's orders — never matches null user_id (guests). */

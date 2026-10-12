@@ -320,6 +320,54 @@ export function hasOpenCancellationRequest(order: Pick<Order, 'metadata' | 'stat
   return cancellationState(order) === 'pending';
 }
 
+// ── Agent cancelled a pickup ───────────────────────────────────────────────
+
+/**
+ * An agent's cancellation, as `metadata.agent_cancellation`.
+ *
+ * Only possible before the parcel is collected: the pickup goes back to
+ * unassigned and the branch gives it to someone else. Ops needs to know it
+ * happened, and at which step — that is `from_status`.
+ */
+export interface AgentCancellation {
+  at: string;
+  /** `users.id` of the agent who cancelled. */
+  agent_id: string;
+  /** The order's status when the agent cancelled. */
+  from_status: OrderStatus;
+}
+
+export function readAgentCancellation(
+  order: Pick<Order, 'metadata'>
+): AgentCancellation | null {
+  const raw = order.metadata?.agent_cancellation;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.at !== 'string' || typeof r.agent_id !== 'string' || typeof r.from_status !== 'string') {
+    return null;
+  }
+  return {
+    at: r.at,
+    agent_id: r.agent_id,
+    from_status: r.from_status as OrderStatus,
+  };
+}
+
+/**
+ * The agent's cancellation still needs someone to act on it.
+ *
+ * Derived from where the order is now rather than stored as a flag, so nobody
+ * has to remember to clear it: done with once the pickup has a new agent (or
+ * ops cancels the order).
+ */
+export function openAgentCancellation(
+  order: Pick<Order, 'metadata' | 'status' | 'agent_id'>
+): AgentCancellation | null {
+  const c = readAgentCancellation(order);
+  if (!c) return null;
+  return order.status === 'pickup_requested' && !order.agent_id ? c : null;
+}
+
 // ── Customer-facing derivation (M6 owns the fan-out; this is the mapping) ──
 
 /**
