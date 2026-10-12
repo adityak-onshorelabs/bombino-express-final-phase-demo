@@ -2,9 +2,11 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { formatInr, formatIst } from '@/lib/orderDetail';
 import { signOutAndRedirect } from '@/lib/session';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Loader2, LogOut } from 'lucide-react';
-import { Link, useLocation, useParams, useSearch } from 'wouter';
+import { ArrowLeft, Bike, CalendarDays, Loader2, LogOut, Phone } from 'lucide-react';
+import { useLocation, useParams, useSearch } from 'wouter';
 import { OpsActionBar } from '@/components/ops/OpsActionBar';
+import { OpsAssignAgentPanel } from '@/components/ops/OpsAssignAgentPanel';
+import { JourneyBar, dayFor } from '@/components/ops/OpsOrderCard';
 import { OpsSenderCell } from '@/components/ops/OpsSenderCell';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { PdfDocButton, fetchPdfBase64 } from '@/components/PdfDocButton';
@@ -22,37 +24,50 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { parseApiErrorMessage } from '@/lib/apiError';
 import { apiRequest } from '@/lib/queryClient';
 import {
   opsOrderDetailKey,
-  useOpsAssign,
   useOpsOrderAction,
   useOpsOrderDetail,
-  useOpsAssignableAgents,
   type OpsActionError,
 } from '@/hooks/useOpsOrders';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
 import { useCan } from '@/lib/opsAccess';
+import { cn } from '@/lib/utils';
+import { todayInIst } from '@shared/istTime';
 
-function Fact({ label, value }: { label: string; value: ReactNode }) {
+function Fact({
+  label,
+  value,
+  span = false,
+}: {
+  label: string;
+  value: ReactNode;
+  span?: boolean;
+}) {
   return (
-    <div className="bg-white px-4 py-2.5">
-      <p className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+    <div className={span ? 'col-span-2 min-w-0' : 'min-w-0'}>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
-      <p className="text-sm font-semibold text-foreground mt-0.5 break-words">
+      <p className="mt-0.5 text-sm font-semibold text-foreground break-words">
         {value ?? '—'}
       </p>
     </div>
+  );
+}
+
+/** One group of facts: a titled card, two columns even on a phone. */
+function InfoCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-md border border-border bg-white">
+      <h2 className="px-4 pt-3 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h2>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 px-4 pt-2 pb-4">{children}</div>
+    </section>
   );
 }
 
@@ -103,7 +118,6 @@ export default function OpsOrderDetail() {
     return () => clearTimeout(t);
   }, [fromScan, data]);
   const action = useOpsOrderAction(orderId);
-  const assign = useOpsAssign(orderId);
   // Customer support and accounts see the order but never move it.
   const canAct = useCan('orders.act');
   const canAssign =
@@ -111,8 +125,6 @@ export default function OpsOrderDetail() {
     data?.order.pickup_request === 1 &&
     data.order.status === 'pickup_requested' &&
     !data.order.agent_id;
-  const agents = useOpsAssignableAgents(orderId, canAssign);
-  const [selectedAgentId, setSelectedAgentId] = useState('');
 
   const regenerateHandover = useMutation({
     mutationFn: async (id: string) => {
@@ -156,6 +168,13 @@ export default function OpsOrderDetail() {
     error.message.startsWith('403:');
 
   const handleLogout = (): Promise<void> => signOutAndRedirect(setLocation);
+
+  // Back to wherever the order was opened from (a board, a customer, the
+  // dashboard). Opened straight from a link, there is nothing behind it.
+  const goBack = (): void => {
+    if (window.history.length > 1) window.history.back();
+    else setLocation('/ops');
+  };
 
   const runAction = (actionName: string, payload?: Record<string, unknown>): void => {
     setPendingAction(actionName);
@@ -287,13 +306,14 @@ export default function OpsOrderDetail() {
       error instanceof Error && error.message.startsWith('404:');
     return (
       <OpsShell title="Order" subtitle={notFound ? 'Not found' : 'Error'}>
-        <Link
-          href="/ops"
+        <button
+          type="button"
+          onClick={goBack}
           className="inline-flex items-center gap-1 text-sm font-semibold text-[#F2A123] mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back to board
-        </Link>
+          Back
+        </button>
         <p className="text-sm text-muted-foreground">
           {notFound ? 'That order could not be found.' : 'Could not load this order.'}
         </p>
@@ -316,22 +336,98 @@ export default function OpsOrderDetail() {
   const consignee = consigneeLines(order.consignee);
   const dueAmount = order.final_amount ?? order.quoted_amount ?? 0;
   const needsNewHubCode = Boolean(handover && (handover.locked || !handover.code));
+  const dropoff = order.pickup_request === 2;
+  const day = dayFor(order, todayInIst());
+  const issue = day?.late
+    ? 'Late'
+    : !dropoff && order.status === 'pickup_requested' && !order.agent_id
+      ? 'No agent'
+      : order.docket_error && !order.awb_no
+        ? 'AWB issue'
+        : null;
+  const senderPhone =
+    (order.user_id ? order.customer_phone : order.guest_phone)?.trim() || null;
 
   return (
     <OpsShell title={order.order_no} subtitle={getOrderStatusLabel(order.status)} wide>
-      <Link
-        href="/ops"
-        className="inline-flex items-center gap-1 text-sm font-semibold text-[#F2A123] mb-4"
+      <button
+        type="button"
+        onClick={goBack}
+        className="inline-flex min-h-11 items-center gap-1 -ml-1 px-1 text-sm font-semibold text-muted-foreground hover:text-foreground mb-1"
         data-testid="link-ops-back-board"
       >
         <ArrowLeft className="w-4 h-4" />
-        Back to board
-      </Link>
+        Back
+      </button>
 
       {/* Desktop: the order and what to do on the left, its history on the
           right. Phones: one column, history last. */}
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:gap-8 lg:items-start">
       <div className="min-w-0">
+
+      {/* Where the order stands, in one look: status, journey, date, agent. */}
+      <section
+        className="mb-4 rounded-md border border-border bg-white p-4"
+        data-testid="ops-order-summary"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs font-semibold text-muted-foreground tabular-nums">
+            {order.order_no}
+            <span className="font-medium"> · {dropoff ? 'Drop-off' : 'Pickup'}</span>
+          </span>
+          {issue && (
+            <span
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-destructive/10 px-2 py-1 text-[11px] font-bold leading-none text-destructive"
+              data-testid="ops-order-issue"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden />
+              {issue}
+            </span>
+          )}
+        </div>
+        <p className="mt-1.5 text-xl font-extrabold leading-tight text-foreground">
+          {getOrderStatusLabel(order.status)}
+        </p>
+        <JourneyBar status={order.status} orderNo={order.order_no} />
+        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+          {day && (
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5 tabular-nums',
+                day.late ? 'font-bold text-destructive' : 'font-semibold text-foreground',
+              )}
+            >
+              <CalendarDays
+                className={cn('w-4 h-4', day.late ? 'text-destructive' : 'text-muted-foreground')}
+                strokeWidth={1.75}
+                aria-label="Date"
+              />
+              {day.text}
+            </span>
+          )}
+          {!dropoff && (
+            <span
+              className={cn(
+                'inline-flex min-w-0 items-center gap-1.5',
+                order.agent_id ? 'font-semibold text-foreground' : 'font-bold text-destructive',
+              )}
+            >
+              <Bike
+                className={cn('w-4 h-4 shrink-0', order.agent_id ? 'text-muted-foreground' : 'text-destructive')}
+                strokeWidth={1.75}
+                aria-label="Agent"
+              />
+              <span className="truncate">
+                {order.agent_id ? order.agent_name?.trim() || 'Assigned' : 'No agent yet'}
+              </span>
+            </span>
+          )}
+        </div>
+      </section>
+
+      {/* Nothing moves until someone has the pickup, so assigning comes first. */}
+      {canAssign && <OpsAssignAgentPanel orderId={order.id} />}
+
       {handover && canAct && (
         <div
           className={`rounded-md border border-[#F2A123] bg-[#F2A123]/15 px-4 py-3 mb-4 transition-shadow duration-300 ${scanFocus ? 'ring-4 ring-[#F2A123]/40' : ''}`}
@@ -372,51 +468,6 @@ export default function OpsOrderDetail() {
         </div>
       )}
 
-      {order.awb_no && (
-        <div
-          className="rounded-md border border-[#F2A123] bg-[#F2A123]/15 px-4 py-3 mb-4"
-          data-testid="ops-order-awb"
-        >
-          <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground">
-            AWB
-          </p>
-          <p className="text-lg font-extrabold tabular-nums text-foreground mt-0.5">
-            {order.awb_no}
-          </p>
-        </div>
-      )}
-
-      {/* Booked without an ITD login (a guest, or an account we hold no ITD
-          password for): the box goes out with our QR label, not an AWB. The
-          counter can print one for a box that arrived without it. */}
-      {!order.awb_no && order.status !== 'cancelled' && (!order.user_id || !data.owner_has_itd_login) && (
-        <div
-          className="flex items-center justify-between gap-3 rounded-md border border-border bg-white px-4 py-3 mb-4"
-          data-testid="ops-order-box-label"
-        >
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-foreground">Box label (QR)</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Order number and QR, for a box that arrived without one.
-            </p>
-          </div>
-          <PdfDocButton
-            text="Print"
-            title="Box label"
-            fileName={`${order.order_no}-box-label.pdf`}
-            testId="button-ops-box-label"
-            fetchBase64={() =>
-              fetchPdfBase64(
-                `/api/ops/orders/${encodeURIComponent(order.id)}/box-label`,
-                'boxLabel',
-                'Box label',
-                toast
-              )
-            }
-          />
-        </div>
-      )}
-
       {/* An AWB this order was supposed to have and does not, why, and who acts
           next (server/docketFiling.ts): the automatic retry, ops after a
           correction, or a check of ITD's portal before filing again. */}
@@ -436,7 +487,7 @@ export default function OpsOrderDetail() {
               {docketRetryLabel}
             </span>
           </div>
-          <p className="text-sm font-semibold text-foreground mt-1 leading-snug">
+          <p className="text-sm font-semibold text-foreground mt-1 leading-snug break-words">
             {order.docket_error}
           </p>
           {order.docket_error_problems && order.docket_error_problems.length > 0 && (
@@ -457,156 +508,140 @@ export default function OpsOrderDetail() {
         </div>
       )}
 
-      <section
-        className="grid sm:grid-cols-2 gap-px rounded-md border border-border bg-border overflow-hidden mb-6 sm:[&>*:last-child:nth-child(odd)]:col-span-2"
-        data-testid="ops-order-facts"
-      >
-        <Fact label="Status" value={getOrderStatusLabel(order.status)} />
-        <Fact
-          label="Mode"
-          value={order.pickup_request === 2 ? 'Drop-off' : 'Pickup'}
-        />
-        <Fact
-          label="Pickup date"
-          value={order.pickup_date ?? '—'}
-        />
-        <Fact label="Booked weight" value={order.booked_weight != null ? `${order.booked_weight} kg` : '—'} />
-        <Fact label="Actual weight" value={order.actual_weight != null ? `${order.actual_weight} kg` : '—'} />
-        <Fact label="Quoted amount" value={formatMoney(order.quoted_amount)} />
-        <Fact label="Final amount" value={formatMoney(order.final_amount)} />
-        <Fact
-          label="Payment"
-          value={
-            order.is_cod
-              ? 'COD'
-              : `${order.payment_method.replace(/_/g, ' ')} · ${order.payment_status}`
-          }
-        />
-        {order.user_id ? (
-          <Fact
-            label="Customer"
-            value={<OpsSenderCell order={order} context="detail" />}
+      {availableActions.length > 0 && (
+        <section
+          className={`mb-4 rounded-md border border-border bg-white p-4 transition-shadow duration-300 ${scanFocus && !handover ? 'ring-4 ring-[#F2A123]/40' : ''}`}
+          data-testid="ops-order-actions"
+        >
+          <h2 className="text-[11px] uppercase tracking-wide font-semibold text-muted-foreground mb-3">
+            Next step
+          </h2>
+          <OpsActionBar
+            actions={availableActions}
+            onAction={handleAction}
+            pendingAction={pendingAction}
+            disabled={action.isPending}
+            orderNo={order.order_no}
           />
-        ) : (
-          <>
-            <Fact
-              label="Sender"
-              value={<OpsSenderCell order={order} context="detail" />}
-            />
-            <Fact label="Sender phone" value={order.guest_phone?.trim() || '—'} />
-            <Fact label="Sender email" value={order.guest_email?.trim() || '—'} />
-          </>
-        )}
-        <Fact label="Consignee" value={consignee.name} />
-        <Fact label="City" value={consignee.city} />
-        <Fact label="Phone" value={consignee.phone} />
-        <Fact
-          label="Agent"
-          value={
-            order.agent_id ? order.agent_name?.trim() || 'Assigned' : 'Unassigned'
-          }
-        />
-        <Fact label="AWB" value={order.awb_no ?? '—'} />
-        <Fact label="Created" value={formatWhen(order.created_at)} />
-      </section>
+        </section>
+      )}
 
-      {order.pickup_request === 1 &&
-        order.status === 'pickup_requested' &&
-        !order.agent_id && (
-          <section
-            className="rounded-md border border-border bg-white p-4 mb-6"
-            data-testid="ops-assign-agent"
-          >
-            <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-3">
-              Assign to agent
-            </h2>
-            <Label className="text-sm font-medium">Pickup agent</Label>
-            {agents.data && (
-              <p className="text-xs text-muted-foreground mt-1" data-testid="ops-assign-agent-scope">
-                {agents.data.scoped
-                  ? `Agents in ${agents.data.city}`
-                  : agents.data.city
-                    ? `No agents set up for ${agents.data.city} yet. Showing all agents.`
-                    : "Couldn't tell the pickup city. Showing all agents."}
+      <div className="space-y-4 mb-6" data-testid="ops-order-facts">
+        <InfoCard title={order.user_id ? 'Customer' : 'Sender (guest)'}>
+          <div className="col-span-2 flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-base font-bold text-foreground">
+                <OpsSenderCell order={order} context="detail" />
               </p>
-            )}
-            <Select
-              value={selectedAgentId || undefined}
-              onValueChange={setSelectedAgentId}
-            >
-              <SelectTrigger
-                className="h-12 bg-[#F3F4F6] border border-[#E2E8F0] rounded-md mt-2 w-full"
-                data-testid="select-ops-assign-agent"
-              >
-                <SelectValue placeholder="Select an agent" />
-              </SelectTrigger>
-              <SelectContent>
-                {(agents.data?.agents ?? []).map((user) => (
-                  <SelectItem key={user.id} value={user.id}>
-                    {user.full_name}
-                    {user.phone ? ` · ${user.phone}` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {agents.isError && (
-              <p className="text-sm text-red-600 mt-2">Could not load agents.</p>
-            )}
-            <Button
-              type="button"
-              disabled={!selectedAgentId || assign.isPending}
-              onClick={() => {
-                assign.mutate(
-                  { agentId: selectedAgentId },
-                  {
-                    onSuccess: (result) => {
-                      setSelectedAgentId('');
-                      toast({
-                        title: 'Assigned',
-                        description: `${result.order.order_no} — ${getOrderStatusLabel(result.order.status)}`,
-                      });
-                    },
-                    onError: (err: OpsActionError) => {
-                      toast({
-                        title:
-                          err.status === 409 ? 'Pickup already taken' : 'Could not assign',
-                        description:
-                          err.status === 409
-                            ? 'This pickup was just taken or assigned.'
-                            : err.message,
-                        variant: 'destructive',
-                      });
-                    },
-                  },
-                );
-              }}
-              className="mt-4 w-full h-12 rounded-md bg-primary text-white font-bold"
-              data-testid="button-ops-assign-agent"
-            >
-              {assign.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                'Confirm'
+              <p className="mt-0.5 text-sm font-medium text-muted-foreground tabular-nums">
+                {senderPhone ?? 'No phone on file'}
+              </p>
+              {!order.user_id && order.guest_email?.trim() && (
+                <p className="mt-0.5 truncate text-sm text-muted-foreground">
+                  {order.guest_email.trim()}
+                </p>
               )}
-            </Button>
-          </section>
+            </div>
+            {senderPhone && (
+              <a
+                href={`tel:${senderPhone.replace(/\s+/g, '')}`}
+                aria-label={`Call ${senderPhone}`}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border bg-white text-foreground hover:bg-muted"
+                data-testid="ops-order-call-sender"
+              >
+                <Phone className="w-5 h-5" strokeWidth={1.75} />
+              </a>
+            )}
+          </div>
+        </InfoCard>
+
+        <InfoCard title={dropoff ? 'Drop-off' : 'Pickup'}>
+          <Fact
+            span
+            label={dropoff ? 'Sender address' : 'Pickup address'}
+            value={order.pickup_address || 'No address on file'}
+          />
+          <Fact
+            label="Date"
+            value={
+              order.pickup_date
+                ? new Date(`${order.pickup_date}T00:00:00Z`).toLocaleDateString('en-IN', {
+                    weekday: 'short',
+                    day: 'numeric',
+                    month: 'short',
+                    timeZone: 'UTC',
+                  })
+                : '—'
+            }
+          />
+          <Fact label="Booked weight" value={order.booked_weight != null ? `${order.booked_weight} kg` : '—'} />
+          {order.packaging_required && <Fact span label="Packaging" value="Customer asked for packaging" />}
+        </InfoCard>
+
+        <InfoCard title="Payment">
+          <Fact
+            label="Method"
+            value={
+              order.is_cod
+                ? 'Cash on pickup (COD)'
+                : `${order.payment_method.replace(/_/g, ' ')} · ${order.payment_status}`
+            }
+          />
+          <Fact
+            label={order.payment_status === 'paid' ? 'Paid' : 'Due'}
+            value={
+              <span className={order.payment_status === 'paid' ? undefined : 'text-[#F2A123] font-extrabold'}>
+                {formatMoney(order.final_amount ?? order.quoted_amount)}
+              </span>
+            }
+          />
+          <Fact label="Quoted" value={formatMoney(order.quoted_amount)} />
+          <Fact label="Final (after weighing)" value={formatMoney(order.final_amount)} />
+          <Fact label="Actual weight" value={order.actual_weight != null ? `${order.actual_weight} kg` : 'Not weighed'} />
+          <Fact label="AWB" value={order.awb_no ?? '—'} />
+        </InfoCard>
+
+        <InfoCard title="Receiver (USA)">
+          <Fact label="Name" value={consignee.name} />
+          <Fact label="City" value={consignee.city} />
+          <Fact span label="Phone" value={consignee.phone} />
+        </InfoCard>
+
+        {/* Booked without an ITD login (a guest, or an account we hold no ITD
+            password for): the box goes out with our QR label, not an AWB. The
+            counter can print one for a box that arrived without it. */}
+        {!order.awb_no && order.status !== 'cancelled' && (!order.user_id || !data.owner_has_itd_login) && (
+          <div
+            className="flex items-center justify-between gap-3 rounded-md border border-border bg-white px-4 py-3"
+            data-testid="ops-order-box-label"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">Box label (QR)</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                For a box that arrived without one.
+              </p>
+            </div>
+            <PdfDocButton
+              text="Print"
+              title="Box label"
+              fileName={`${order.order_no}-box-label.pdf`}
+              testId="button-ops-box-label"
+              fetchBase64={() =>
+                fetchPdfBase64(
+                  `/api/ops/orders/${encodeURIComponent(order.id)}/box-label`,
+                  'boxLabel',
+                  'Box label',
+                  toast
+                )
+              }
+            />
+          </div>
         )}
 
-      <section
-        className={`mb-6 rounded-md transition-shadow duration-300 ${scanFocus && !handover ? 'ring-4 ring-[#F2A123]/40 ring-offset-4' : ''}`}
-        data-testid="ops-order-actions"
-      >
-        <h2 className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground mb-3">
-          Actions
-        </h2>
-        <OpsActionBar
-          actions={availableActions}
-          onAction={handleAction}
-          pendingAction={pendingAction}
-          disabled={action.isPending}
-          orderNo={order.order_no}
-        />
-      </section>
+        <p className="text-xs text-muted-foreground tabular-nums">
+          Booked {formatWhen(order.created_at)}
+        </p>
+      </div>
       </div>
 
       <Dialog open={awbOpen} onOpenChange={(open) => !action.isPending && setAwbOpen(open)}>

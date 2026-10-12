@@ -27,11 +27,17 @@ import { reconcilePaymentStatus } from "./paymentsDb.js";
 /** PostgREST default max-rows is ~1000; page past that so export never truncates. */
 const EXPORT_PAGE_SIZE = 1000;
 
+// origin_address: where the parcel is in India — the branch's view of an
+// order. The US receiver means nothing to the person running pickups.
 const BOARD_COLUMNS =
-  "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no, metadata";
+  "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, created_at, pickup_request, pickup_date, payment_method, payment_status, is_cod, quoted_amount, final_amount, consignee, agent_id, awb_no, metadata, origin_address:addresses(address_line_2, city, pincode)";
 
 const DETAIL_COLUMNS =
   "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at";
+
+// The order page also shows where the parcel is collected from.
+const DETAIL_COLUMNS_WITH_ORIGIN =
+  "id, order_no, user_id, guest_ref, guest_name, guest_email, guest_phone, status, pickup_request, pickup_date, origin_address_id, consignee, items, booked_weight, quoted_amount, packaging_required, payment_method, payment_status, is_cod, agent_id, actual_weight, final_amount, awb_no, itd_docket_response, metadata, created_at, updated_at, origin_address:addresses(address_line_1, address_line_2, city, pincode)";
 
 const logSupabaseError = (operation: string, error: DbError): void =>
   logDbError("opsDb", operation, error);
@@ -74,6 +80,9 @@ export type OpsBoardOrder = {
   final_amount: number | null;
   consignee_name: string | null;
   consignee_city: string | null;
+  /** Pickup locality (address line 2, else city), from the origin address. */
+  pickup_area: string | null;
+  pickup_pincode: string | null;
   agent_id: string | null;
   agent_name: string | null;
   awb_no: string | null;
@@ -106,6 +115,10 @@ export type OpsOrderDetail = {
   pickup_request: number;
   pickup_date: string | null;
   origin_address_id: string | null;
+  /** Full pickup address on one line, when the order page asked for it. */
+  pickup_address: string | null;
+  pickup_area: string | null;
+  pickup_pincode: string | null;
   consignee: unknown;
   items: unknown;
   booked_weight: number | null;
@@ -218,6 +231,8 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
     final_amount: toNum(row.final_amount),
     consignee_name: consigneeField(row.consignee, ["name", "full_name"]),
     consignee_city: consigneeField(row.consignee, ["city", "consignee_city"]),
+    pickup_area: originField(row.origin_address, "address_line_2") ?? originField(row.origin_address, "city"),
+    pickup_pincode: originField(row.origin_address, "pincode"),
     agent_id: (row.agent_id as string | null) ?? null,
     agent_name: null,
     awb_no: (row.awb_no as string | null) ?? null,
@@ -226,6 +241,13 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
     docket_error_problems: docketErrorProblems(row.metadata),
     docket_retry: docketErrorRetry(row.metadata),
   };
+}
+
+/** One trimmed string off the embedded origin address (object, or one-row array). */
+function originField(address: unknown, key: string): string | null {
+  const row = Array.isArray(address) ? address[0] : address;
+  if (!row || typeof row !== "object") return null;
+  return parseNullableString((row as Record<string, unknown>)[key]);
 }
 
 function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
@@ -243,6 +265,13 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
     pickup_request: row.pickup_request === 2 ? 2 : 1,
     pickup_date: (row.pickup_date as string | null) ?? null,
     origin_address_id: (row.origin_address_id as string | null) ?? null,
+    pickup_address:
+      ["address_line_1", "address_line_2", "city", "pincode"]
+        .map((key) => originField(row.origin_address, key))
+        .filter(Boolean)
+        .join(", ") || null,
+    pickup_area: originField(row.origin_address, "address_line_2") ?? originField(row.origin_address, "city"),
+    pickup_pincode: originField(row.origin_address, "pincode"),
     consignee: row.consignee ?? null,
     items: row.items ?? null,
     booked_weight: toNum(row.booked_weight),
@@ -351,7 +380,7 @@ export async function getOrderByIdForOps(id: string): Promise<OpsOrderDetail | n
 
   const { data, error } = await client
     .from("orders")
-    .select(DETAIL_COLUMNS)
+    .select(DETAIL_COLUMNS_WITH_ORIGIN)
     .eq("id", id)
     .maybeSingle();
 

@@ -405,7 +405,7 @@ export function OpsSectionBoard({
           {mode === 'flat' && (
             <div
               className={cn(
-                'rounded-md border border-border bg-white px-3 divide-y divide-border',
+                'space-y-3',
                 hideCardsOnDesktop && 'md:hidden',
               )}
               data-testid="ops-board-flat"
@@ -429,16 +429,16 @@ export function OpsSectionBoard({
                   return (
                     <section
                       key={phase.id}
-                      className="min-w-0 rounded-md border border-border bg-white overflow-hidden"
+                      className="min-w-0"
                       data-testid={`ops-phase-col-${phase.id}`}
                     >
-                      <div className="px-3 pt-3 flex items-start justify-between gap-2">
+                      <div className="flex items-start justify-between gap-2">
                         <BandHeader label={phase.label} />
                         <span className="text-xs font-semibold text-muted-foreground tabular-nums shrink-0">
                           {list.length}
                         </span>
                       </div>
-                      <div className="px-3 pb-2 divide-y divide-border">
+                      <div className="space-y-3">
                         <OrderList orders={list} />
                       </div>
                     </section>
@@ -457,7 +457,7 @@ export function OpsSectionBoard({
                           {list.length}
                         </span>
                       </div>
-                      <div className="rounded-md border border-border bg-white px-3 divide-y divide-border ops-rise">
+                      <div className="space-y-3 ops-rise">
                         <OrderList orders={list} />
                       </div>
                     </section>

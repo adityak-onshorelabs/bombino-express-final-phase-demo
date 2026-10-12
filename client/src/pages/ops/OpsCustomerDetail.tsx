@@ -399,7 +399,7 @@ export default function OpsCustomerDetail() {
                   <p className="text-sm text-muted-foreground">No orders on file.</p>
                 )}
                 {!ordersQuery.isLoading && !ordersQuery.isError && (ordersQuery.data?.length ?? 0) > 0 && (
-                  <div className="rounded-md border border-border px-3">
+                  <div className="space-y-3">
                     {ordersQuery.data!.map((order) => (
                       <OpsOrderCard key={order.id} order={order} />
                     ))}

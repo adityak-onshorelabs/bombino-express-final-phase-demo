@@ -29,6 +29,9 @@ export type OpsBoardOrder = {
   final_amount: number | null;
   consignee_name: string | null;
   consignee_city: string | null;
+  /** Pickup locality (address line 2, else city), from the origin address. */
+  pickup_area?: string | null;
+  pickup_pincode?: string | null;
   agent_id: string | null;
   agent_name: string | null;
   awb_no: string | null;
@@ -57,6 +60,9 @@ export type OpsOrderEvent = {
 
 export type OpsOrderDetail = OpsBoardOrder & {
   origin_address_id: string | null;
+  /** Full pickup address on one line. */
+  pickup_address?: string | null;
+  packaging_required?: boolean;
   consignee: unknown;
   items: unknown;
   booked_weight: number | null;
