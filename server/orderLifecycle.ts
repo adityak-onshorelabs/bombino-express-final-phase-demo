@@ -157,14 +157,9 @@ export const TRANSITIONS: readonly Transition[] = [
     guard: (order, ctx) => isOwningAgent(order, ctx) && !owesAtPickup(order),
   },
   {
-    // The agent closes their own job, but not on their own say-so: the hub code
-    // is on ops' console and appears nowhere in the agent app, so typing it is
-    // proof the agent reached the counter and someone there read it out.
-    //
-    // The verifier is the agent and the owner is ops — the reverse of the
-    // pickup, and the same rule (`handoverCodes.ts`: never return a code to the
-    // party that types it in). Ops still has `override_handover` below for a
-    // dead phone.
+    // The agent drops the parcel at the hub and taps to say so. No code: since
+    // 12 Oct 2026 the hub and the agents do not read codes to each other. The
+    // customer's code at the doorstep is unchanged.
     //
     // This is the last thing the agent does with the parcel: `received_at_hub`
     // has no `role: agent` row, so the job leaves their queue the moment it
@@ -174,7 +169,6 @@ export const TRANSITIONS: readonly Transition[] = [
     role: "agent",
     to: "received_at_hub",
     label: "Hand over at hub",
-    requiresPayload: true,
     guard: isOwningAgent,
   },
 
@@ -226,12 +220,13 @@ export const TRANSITIONS: readonly Transition[] = [
     requiresPayload: true,
   },
   {
+    // The counter takes the parcel in from the agent. No code either way, so
+    // this is a plain receipt rather than an override.
     from: "picked_up",
-    action: "override_handover",
+    action: "mark_received_at_hub",
     role: "admin",
     to: "received_at_hub",
-    label: "Complete without code",
-    requiresPayload: true,
+    label: "Mark received at hub",
   },
   {
     from: "awaiting_dropoff",

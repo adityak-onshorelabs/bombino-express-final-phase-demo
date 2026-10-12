@@ -183,3 +183,13 @@ test("once the parcel is collected the pickup cannot be cancelled", () => {
   const collected = order({ status: "picked_up", agent_id: AGENT });
   assert.deepEqual(actions(collected, "agent", AGENT), ["mark_received_at_hub"]);
 });
+
+test("handing over at the hub needs no code, from the agent or the counter", () => {
+  const collected = order({ status: "picked_up", agent_id: AGENT });
+  const agentStep = findTransition(collected, "mark_received_at_hub", "agent", { userId: AGENT });
+  assert.equal(agentStep?.requiresPayload ?? false, false);
+  const opsStep = findTransition(collected, "mark_received_at_hub", "admin", { userId: "ops-1" });
+  assert.equal(opsStep?.to, "received_at_hub");
+  assert.equal(opsStep?.requiresPayload ?? false, false);
+  assert.equal(actions(collected, "admin", "ops-1").includes("override_handover"), false);
+});

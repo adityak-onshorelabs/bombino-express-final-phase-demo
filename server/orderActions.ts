@@ -163,7 +163,6 @@ export async function handleStartPickup(input: {
  */
 export const HANDOVER_KIND_FOR_ACTION = {
   mark_picked_up: "pickup",
-  mark_received_at_hub: "hub",
   mark_received_dropoff: "dropoff",
 } as const satisfies Record<string, HandoverKind>;
 
@@ -280,14 +279,6 @@ export async function handleHandover(input: {
     };
   }
 
-  // The parcel is now in the agent's bag and the next handover is at the hub
-  // counter, where ops reads this number off their console. Issued here rather
-  // than at the counter so it is already on the ops screen when the agent walks
-  // up.
-  if (input.action === "mark_picked_up") {
-    await issueCode(input.order.id, "hub");
-  }
-
   return {
     order: updated,
     eventNote: `${input.role === "agent" ? "Agent" : "Ops"} completed the ${kind} handover with ${
@@ -297,10 +288,53 @@ export async function handleHandover(input: {
   };
 }
 
+/**
+ * The parcel reaches the hub: the agent taps to hand it over, or the counter
+ * marks it received. No code — the hub and the agents do not share one.
+ */
+export async function handleHubReceipt(input: {
+  order: Order;
+  callerId: string;
+  role: Role;
+  expectedFrom: OrderStatus;
+  to: OrderStatus;
+}): Promise<AgentActionResult> {
+  // The agent may only hand over a parcel they hold; ops may take in anyone's.
+  const updated =
+    input.role === "agent"
+      ? await advanceOrderStatus({
+          orderId: input.order.id,
+          agentId: input.callerId,
+          expectedFrom: input.expectedFrom,
+          to: input.to,
+        })
+      : await transitionOrderStatus({
+          orderId: input.order.id,
+          expectedFrom: input.expectedFrom,
+          to: input.to,
+        });
+  if (!updated) {
+    return {
+      error: {
+        status: 409,
+        message: "This parcel has already moved on. Refresh your list.",
+        code: "ORDER_STATE_CHANGED",
+      },
+    };
+  }
+  return {
+    order: updated,
+    eventNote:
+      input.role === "agent"
+        ? "Agent handed the parcel over at the hub"
+        : "Ops received the parcel at the hub",
+    eventMeta: { handover: "hub" },
+  };
+}
+
 /** Which handover an ops override is waving through, by the status it acts on. */
 export const HANDOVER_KIND_FOR_STATUS: Partial<Record<OrderStatus, HandoverKind>> = {
   out_for_pickup: "pickup",
-  picked_up: "hub",
   awaiting_dropoff: "dropoff",
 };
 

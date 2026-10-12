@@ -123,6 +123,7 @@ import {
   handleClaim,
   handleCollectPayment,
   handleHandover,
+  handleHubReceipt,
   handleOverrideHandover,
   handleRejectCancellation,
   handleRequestCancellation,
@@ -3600,7 +3601,6 @@ export async function registerRoutes(
   /** Which handover an ops override is waving through, by the status it acts on. */
   const HANDOVER_KIND_FOR_STATUS: Partial<Record<OrderStatus, HandoverKind>> = {
     out_for_pickup: "pickup",
-    picked_up: "hub",
     awaiting_dropoff: "dropoff",
   };
 
@@ -3764,10 +3764,27 @@ export async function registerRoutes(
           break;
         }
 
+        // The parcel reaches the hub. No code since 12 Oct 2026.
+        case "mark_received_at_hub": {
+          if (!transition.to) {
+            res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
+            return;
+          }
+          const result = await handleHubReceipt({
+            order,
+            callerId,
+            role,
+            expectedFrom: transition.from,
+            to: transition.to,
+          });
+          if (!applyResult(result)) return;
+          break;
+        }
+
         // ── OTP-gated handovers ───────────────────────────────────────────
-        // Three steps, one shape, and they live in server/orderActions.ts.
+        // The customer's code at the door and at the counter, in
+        // server/orderActions.ts.
         case "mark_picked_up":
-        case "mark_received_at_hub":
         case "mark_received_dropoff": {
           if (!transition.to) {
             res.status(500).json({ message: "Malformed transition", code: "BAD_TRANSITION" });
@@ -4119,22 +4136,9 @@ export async function registerRoutes(
         ) {
           kind = "pickup";
         }
-      } else if (can(role, "orders.act")) {
-        // The hub code, and only the hub code. Ops shows that one to the agent
-        // at the counter, so ops is the party entitled to refresh it.
-        //
-        // Not `dropoff`, even though it is also read at their counter: that code
-        // is the customer's and ops is the one who types it in. Not `pickup`
-        // either, for the same reason at the other end. A verifier who could
-        // mint a fresh code would be testing themselves, which is the one rule
-        // `handoverCodes.ts` exists to hold.
-        //
-        // The agent has no branch here at all any more — they type the hub code
-        // now, so the entitlement moved with the handover.
-        if (order.status === "picked_up") {
-          kind = "hub";
-        }
       }
+      // No hub code since 12 Oct 2026: the agent taps to hand over, so ops has
+      // nothing to refresh here.
 
       if (!kind) {
         res.status(409).json({

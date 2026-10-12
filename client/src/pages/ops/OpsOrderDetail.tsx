@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { formatInr, formatIst } from '@/lib/orderDetail';
 import { signOutAndRedirect } from '@/lib/session';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Ban, Bike, CalendarDays, Loader2, LogOut, Phone } from 'lucide-react';
 import { useLocation, useParams, useSearch } from 'wouter';
 import { OpsActionBar } from '@/components/ops/OpsActionBar';
@@ -25,8 +25,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { parseApiErrorMessage } from '@/lib/apiError';
-import { apiRequest } from '@/lib/queryClient';
 import {
   opsOrderDetailKey,
   useOpsOrderAction,
@@ -160,15 +158,12 @@ export default function OpsOrderDetail() {
   const { data, isLoading, error, isError } = useOpsOrderDetail(orderId);
 
   // Arrived from "Scan to receive" on a board: bring the receive step into
-  // view and mark it for a moment, so the counter does not hunt for it. The
-  // hub handover code when an agent is handing over, the actions otherwise.
+  // view and mark it for a moment, so the counter does not hunt for it.
   const fromScan = new URLSearchParams(useSearch()).get('scan') === 'receive';
   const [scanFocus, setScanFocus] = useState(false);
   useEffect(() => {
     if (!fromScan || !data) return;
-    const target =
-      document.querySelector('[data-testid="ops-hub-handover-code"]') ??
-      document.querySelector('[data-testid="ops-order-actions"]');
+    const target = document.querySelector('[data-testid="ops-order-actions"]');
     target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     setScanFocus(true);
     const t = setTimeout(() => setScanFocus(false), 2500);
@@ -182,29 +177,6 @@ export default function OpsOrderDetail() {
     data?.order.pickup_request === 1 &&
     data.order.status === 'pickup_requested' &&
     !data.order.agent_id;
-
-  const regenerateHandover = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await apiRequest('POST', `/api/orders/${id}/handover-code`);
-      return (await res.json()) as { handover: { kind: string; code: string } };
-    },
-    onSuccess: () => {
-      if (orderId) {
-        void queryClient.invalidateQueries({ queryKey: opsOrderDetailKey(orderId) });
-      }
-      toast({
-        title: 'New code ready',
-        description: 'Read this number to the pickup agent.',
-      });
-    },
-    onError: (err: unknown) => {
-      toast({
-        title: 'Could not get a new code',
-        description: parseApiErrorMessage(err, 'Please try again.'),
-        variant: 'destructive',
-      });
-    },
-  });
 
   const [weighOpen, setWeighOpen] = useState(false);
   const [collectOpen, setCollectOpen] = useState(false);
@@ -392,7 +364,6 @@ export default function OpsOrderDetail() {
         : 'Needs ops';
   const consignee = consigneeLines(order.consignee);
   const dueAmount = order.final_amount ?? order.quoted_amount ?? 0;
-  const needsNewHubCode = Boolean(handover && (handover.locked || !handover.code));
   const dropoff = order.pickup_request === 2;
   const day = dayFor(order, todayInIst());
   const agentCancel = order.agent_cancellation ?? null;
@@ -490,46 +461,6 @@ export default function OpsOrderDetail() {
       {/* Nothing moves until someone has the pickup, so assigning comes first. */}
       {canAssign && <OpsAssignAgentPanel orderId={order.id} />}
 
-      {handover && canAct && (
-        <div
-          className={`rounded-md border border-[#F2A123] bg-[#F2A123]/15 px-4 py-3 mb-4 transition-shadow duration-300 ${scanFocus ? 'ring-4 ring-[#F2A123]/40' : ''}`}
-          data-testid="ops-hub-handover-code"
-        >
-          <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-muted-foreground">
-            Hub handover code
-          </p>
-          <p className="text-sm text-muted-foreground mt-1">
-            Read this to the pickup agent
-          </p>
-          {needsNewHubCode ? (
-            <>
-              <p className="text-sm font-semibold text-foreground mt-2">
-                {handover.locked
-                  ? 'This code is locked after too many wrong tries.'
-                  : 'No hub code on this order yet.'}
-              </p>
-              <Button
-                type="button"
-                onClick={() => regenerateHandover.mutate(order.id)}
-                disabled={regenerateHandover.isPending}
-                className="mt-3 h-11 rounded-md bg-primary text-white font-bold"
-                data-testid="button-ops-regenerate-hub-code"
-              >
-                {regenerateHandover.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  'Regenerate code'
-                )}
-              </Button>
-            </>
-          ) : (
-            <p className="text-2xl font-extrabold tabular-nums tracking-[0.2em] text-foreground mt-1">
-              {handover.code}
-            </p>
-          )}
-        </div>
-      )}
-
       {/* An AWB this order was supposed to have and does not, why, and who acts
           next (server/docketFiling.ts): the automatic retry, ops after a
           correction, or a check of ITD's portal before filing again. */}
@@ -572,7 +503,7 @@ export default function OpsOrderDetail() {
 
       {availableActions.length > 0 && (
         <section
-          className={`mb-4 rounded-md border border-border bg-white p-4 transition-shadow duration-300 ${scanFocus && !handover ? 'ring-4 ring-[#F2A123]/40' : ''}`}
+          className={`mb-4 rounded-md border border-border bg-white p-4 transition-shadow duration-300 ${scanFocus ? 'ring-4 ring-[#F2A123]/40' : ''}`}
           data-testid="ops-order-actions"
         >
           <h2 className="text-[11px] uppercase tracking-wide font-semibold text-muted-foreground mb-3">

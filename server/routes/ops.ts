@@ -52,7 +52,7 @@ import {
   listStaffUsers,
   updateStaffUser,
 } from "../appDb.js";
-import { getCodeForOwner, issueCode } from "../handoverCodes.js";
+import { issueCode } from "../handoverCodes.js";
 import {
   getIdentityVerificationByUserIdAndKind,
   identityKindsForUserIds,
@@ -517,17 +517,9 @@ export function registerOpsRoutes(app: Express): void {
           ? availableActions(asOrder(order), role, { userId: callerId })
           : [];
 
-      // Hub code is owned by ops and typed by the agent. Read only — never
-      // issueCode here, or a page load would rotate the number the agent was told.
-      let handover: { kind: "hub"; code: string | null; locked: boolean } | null = null;
-      if (order.status === "picked_up") {
-        const hub = await getCodeForOwner(order.id, "hub");
-        handover = {
-          kind: "hub",
-          code: hub?.code ?? null,
-          locked: hub?.locked ?? false,
-        };
-      }
+      // No hub handover code since 12 Oct 2026: the agent taps to hand over.
+      // Kept in the response as null so older clients render nothing.
+      const handover = null;
 
       // Which way to an AWB this order has: a real filing on the customer's own
       // ITD login (Generate docket / Retry AWB), or ops filing it in ITD's

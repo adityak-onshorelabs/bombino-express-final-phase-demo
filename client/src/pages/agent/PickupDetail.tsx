@@ -65,7 +65,6 @@ import {
  */
 const OTP_ACTIONS = {
   mark_picked_up: 'pickup',
-  mark_received_at_hub: 'hub',
 } as const satisfies Record<string, HandoverOtpKind>;
 
 type OtpAction = keyof typeof OTP_ACTIONS;

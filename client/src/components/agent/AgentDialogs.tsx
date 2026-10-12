@@ -23,13 +23,19 @@ import { BRANCH_HEAD } from '@/lib/branchHead';
 export const CANCEL_ACTIONS = new Set(['release_pickup']);
 
 /** Actions that ask before they fire. */
-export const CONFIRMED_ACTIONS = new Set(['start_pickup', ...CANCEL_ACTIONS]);
+export const CONFIRMED_ACTIONS = new Set(['start_pickup', 'mark_received_at_hub', ...CANCEL_ACTIONS]);
 
 const COPY: Record<string, { title: string; body: string; confirm: string; keep: string }> = {
   start_pickup: {
     title: 'Start your journey?',
     body: 'Confirm to start your journey to this pickup.',
     confirm: 'Start journey',
+    keep: 'Not yet',
+  },
+  mark_received_at_hub: {
+    title: 'Handed over at the hub?',
+    body: 'Confirm only once the parcel is with the hub team.',
+    confirm: 'Yes, handed over',
     keep: 'Not yet',
   },
   release_pickup: {
