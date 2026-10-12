@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useLocation, useRoute } from 'wouter';
-import { Loader2, Phone, Navigation, MapPin, Clock, Package, Globe, CreditCard } from 'lucide-react';
+import { Loader2, Phone, MapPin, Clock, Package, Globe, CreditCard } from 'lucide-react';
 import { AgentJobSheet } from '@/components/agent/AgentShell';
 import { ActionBar } from '@/components/agent/ActionButtons';
 import { PressableButton } from '@/components/motion/Pressable';
@@ -21,6 +21,7 @@ import {
 } from '@/components/agent/PickupCard';
 import { todayInIst } from '@shared/istTime';
 import { docketItem, type OrderConsignee } from '@/lib/orderDetail';
+import { GoogleMapsIcon } from '@/components/agent/GoogleMapsIcon';
 import { HandoverOtpSheet, type HandoverOtpKind } from '@/components/agent/HandoverOtpSheet';
 import { useMyPickups, useOrderAction } from '@/hooks/useAgentPickups';
 import type { AgentPickup } from '@/hooks/useAgentPickups';
@@ -262,11 +263,12 @@ export default function PickupDetail() {
                   disabled={action.isPending}
                   onAction={handleAction}
                   neverPrimary={CANCEL_ACTIONS}
+                  danger={CANCEL_ACTIONS}
                   trailing={
                     <button
                       type="button"
                       onClick={() => setProblemOpen(true)}
-                      className="w-full h-full flex items-center justify-center border border-[#CBD5E1]! bg-white text-[19px] font-semibold text-[#1B2A41]"
+                      className="w-full h-full flex items-center justify-center bg-[#FACC15] text-[19px] font-bold text-[#1B2A41]"
                       data-testid="button-problem"
                     >
                       Problem
@@ -359,12 +361,12 @@ export default function PickupDetail() {
             className="border-t border-[#E8EDF2]!"
           />
 
-          {/* The two things done with a phone, one hairline apart. */}
-          <div className="flex border-t border-[#E8EDF2]!">
+          {/* The two things done with a phone: Call in green, Map in blue. */}
+          <div className="flex gap-2.5 border-t border-[#E8EDF2]! px-5 py-4">
             {address?.phone ? (
               <a
                 href={`tel:${address.phone}`}
-                className="flex-1 h-[68px] flex items-center justify-center gap-2.5 bg-[#15803D]"
+                className="flex-1 h-[60px] flex items-center justify-center gap-2.5 bg-[#15803D] active:opacity-90"
                 data-testid="button-call-sender"
               >
                 <Phone className="w-[21px] h-[21px] text-white" strokeWidth={1.5} />
@@ -372,7 +374,7 @@ export default function PickupDetail() {
               </a>
             ) : (
               <span
-                className="flex-1 h-[68px] flex items-center justify-center border-r border-[#E8EDF2]! text-[17px] font-semibold text-[#94A3B8]"
+                className="flex-1 h-[60px] flex items-center justify-center border border-[#E8EDF2]! text-[17px] font-semibold text-[#94A3B8]"
                 data-testid="no-phone"
               >
                 No phone
@@ -382,11 +384,13 @@ export default function PickupDetail() {
               href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`}
               target="_blank"
               rel="noreferrer"
-              className="flex-1 h-[68px] flex items-center justify-center gap-2.5 border-l border-[#E8EDF2]!"
+              className="flex-1 h-[60px] flex items-center justify-center gap-2.5 bg-[#1D4ED8] active:opacity-90"
               data-testid="button-navigate"
             >
-              <Navigation className="w-[21px] h-[21px] text-[#1B2A41]" strokeWidth={1.5} />
-              <span className="text-[19px] font-semibold text-[#1B2A41]">Map</span>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white">
+                <GoogleMapsIcon className="h-[22px] w-auto" />
+              </span>
+              <span className="text-[19px] font-bold text-white">Open map</span>
             </a>
           </div>
 

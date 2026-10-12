@@ -58,6 +58,7 @@ export function ActionBar({
   disabled = false,
   trailing,
   neverPrimary,
+  danger,
 }: {
   actions: AvailableAction[];
   /** Puts the amount in the money button's label, as the design does. */
@@ -77,6 +78,8 @@ export function ActionBar({
    * for it — a way out of the job, say, while the only other action is money.
    */
   neverPrimary?: ReadonlySet<string>;
+  /** Actions drawn red — a way out of the job, never confused with a step. */
+  danger?: ReadonlySet<string>;
 }) {
   if (actions.length === 0 && !trailing) return null;
 
@@ -132,7 +135,9 @@ export function ActionBar({
               className={cn(
                 BUTTON_BASE,
                 BAR_HEIGHT,
-                'min-w-[112px] px-3 border border-[#CBD5E1]! bg-white text-[19px] font-semibold text-[#1B2A41]',
+                danger?.has(action)
+                  ? 'min-w-[112px] px-3 bg-[#B91C1C] text-[19px] font-bold text-white'
+                  : 'min-w-[112px] px-3 border border-[#CBD5E1]! bg-white text-[19px] font-semibold text-[#1B2A41]',
               )}
               data-testid={`button-action-${action}`}
             >
