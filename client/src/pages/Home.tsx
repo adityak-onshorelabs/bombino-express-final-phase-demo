@@ -34,44 +34,6 @@ function HomeShipmentsSkeleton() {
   );
 }
 
-function WhyBombinoSection() {
-  return (
-    <section className="pt-2 text-center" data-testid="zone-trust">
-      <div className="px-1 pb-8">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground/90 mb-1">Why <span className="text-primary">Bombino</span>?</h2>
-        <p className="text-xs text-muted-foreground/90 tracking-wide">Trusted worldwide. Reliable, efficient, premium logistics.</p>
-      </div>
-
-      <div className="flex flex-wrap justify-center gap-x-8 gap-y-8 sm:gap-x-10">
-        <div className="flex flex-col items-center min-w-0 flex-1 basis-24">
-          <p className="text-[1.625rem] font-bold tabular-nums tracking-tight leading-none text-foreground">
-            <span className="metric-number-shimmer">30+</span>
-          </p>
-          <p className="text-sm font-medium text-gray-500 tracking-tight mt-0.5 min-h-[2.25rem] flex items-center justify-center">Years</p>
-          <p className="text-xs text-muted-foreground mt-3 tracking-wide max-w-[11rem]">Of global logistics excellence</p>
-        </div>
-
-        <div className="flex flex-col items-center min-w-0 flex-1 basis-24">
-          <p className="text-[1.625rem] font-bold tabular-nums tracking-tight leading-none text-foreground">
-            <span className="metric-number-shimmer">140+</span>
-          </p>
-          <p className="text-sm font-medium text-gray-500 tracking-tight mt-0.5 min-h-[2.25rem] flex items-center justify-center">Kilograms</p>
-          <p className="text-xs text-muted-foreground mt-3 tracking-wide max-w-[11rem]">Shipped around the world per hour</p>
-        </div>
-
-        <div className="flex flex-col items-center min-w-0 flex-1 basis-24">
-          <p className="text-[1.625rem] font-bold tabular-nums tracking-tight leading-none text-foreground">
-            <span className="metric-number-shimmer">250+</span>
-          </p>
-          <p className="text-sm font-medium text-gray-500 tracking-tight mt-0.5 min-h-[2.25rem] flex items-center justify-center">Happy Clients</p>
-          <p className="text-xs text-muted-foreground mt-3 tracking-wide max-w-[11rem]">Sending and receiving shipments worldwide</p>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-
 export default function Home() {
   const isMobile = useIsMobile();
 
@@ -258,7 +220,7 @@ function HomeMobile() {
                 href={waHref}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-green-700 text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-green-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
+                className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-green-700 text-sm font-medium shadow-card hover:border-green-200 hover:shadow-card-hover active:scale-[0.98] transition-all"
                 data-testid="button-whatsapp-home"
               >
                 <img src={whatsAppLogo} alt="WhatsApp" className="w-4 h-4 object-contain" />
@@ -266,7 +228,7 @@ function HomeMobile() {
               </a>
               <a
                 href={telHref}
-                className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-foreground text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-primary/20 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
+                className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-foreground text-sm font-medium shadow-card hover:border-primary/20 hover:shadow-card-hover active:scale-[0.98] transition-all"
                 data-testid="button-call-home"
               >
                 <Phone className="w-4 h-4 text-muted-foreground" />
@@ -275,15 +237,13 @@ function HomeMobile() {
               <button
                 type="button"
                 onClick={() => openBia({ screen: { surface: "home" } })}
-                className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-foreground text-sm font-medium shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:border-primary/20 hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)] active:scale-[0.98] transition-all"
+                className="flex-1 flex items-center justify-center gap-2 h-11 rounded-xl bg-white border border-border text-foreground text-sm font-medium shadow-card hover:border-primary/20 hover:shadow-card-hover active:scale-[0.98] transition-all"
                 data-testid="button-bia-home"
               >
                 <Sparkles className="w-4 h-4 text-[#F2A123]" />
                 Ask BIA
               </button>
             </div>
-
-            <WhyBombinoSection />
           </>
         )}
 
@@ -366,17 +326,11 @@ function HomeMobile() {
                   notifications. Only what the customer has to act on; drawn
                   only when there is something. */}
               <NeedsAttention rows={shipmentRows} bell={apiNotifications} loading={shipmentsLoading} />
-              <div className="hidden md:block">
-                <WhyBombinoSection />
-              </div>
             </div>
 
           </div>
         )}
 
-        <div className="md:hidden">
-          {isLoggedIn && <WhyBombinoSection />}
-        </div>
       </main>
 
       <BottomNav />

@@ -44,7 +44,7 @@ export default function Receive() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 md:gap-8 md:items-start">
           {/* Left — Track by AWB */}
-          <div className="bg-white rounded-2xl border border-[#E2E8F0] p-5 mb-5 md:mb-0 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+          <div className="bg-white rounded-2xl border border-[#E2E8F0] p-5 mb-5 md:mb-0 shadow-card">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-11 h-11 rounded-xl bg-[lab(34.0831_-9.57756_-27.7093)]/8 flex items-center justify-center">
                 <ScanSearch className="w-5 h-5 text-[lab(34.0831_-9.57756_-27.7093)]" />
@@ -68,7 +68,7 @@ export default function Receive() {
               />
               <Button
                 onClick={handleTrack}
-                className="h-12 w-12 bg-[#F2A123] hover:bg-[#F2A123]/90 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] shrink-0"
+                className="h-12 w-12 bg-[#F2A123] hover:bg-[#F2A123]/90 rounded-xl shadow-card-hover shrink-0"
                 data-testid="button-track-submit"
               >
                 <ArrowRight className="w-5 h-5 text-[lab(34.0831_-9.57756_-27.7093)]" />
@@ -96,7 +96,7 @@ export default function Receive() {
                       <Link
                         key={shipment.key}
                         href={shipment.awb ? `/shipment/${shipment.awb}` : `/orders/${shipment.displayId}`}
-                        className="block bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] hover:shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] transition-all"
+                        className="block bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card hover:shadow-card-hover transition-all"
                         data-testid={`incoming-shipment-${shipment.displayId}`}
                       >
                         <div className="flex items-center justify-between mb-2">
@@ -112,7 +112,7 @@ export default function Receive() {
                   </div>
                 </div>
               ) : (
-                <div className="bg-white rounded-2xl border border-[#E2E8F0] p-8 text-center shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+                <div className="bg-white rounded-2xl border border-[#E2E8F0] p-8 text-center shadow-card">
                   <div className="w-14 h-14 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-3">
                     <PackageSearch className="w-7 h-7 text-[lab(34.0831_-9.57756_-27.7093)]" />
                   </div>
@@ -123,7 +123,7 @@ export default function Receive() {
                 </div>
               )
             ) : (
-              <div className="bg-white rounded-2xl border border-[#E2E8F0] p-8 text-center shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+              <div className="bg-white rounded-2xl border border-[#E2E8F0] p-8 text-center shadow-card">
                 <div className="w-14 h-14 bg-[lab(34.0831_-9.57756_-27.7093)]/8 rounded-full flex items-center justify-center mx-auto mb-3">
                   <Package className="w-7 h-7 text-[lab(34.0831_-9.57756_-27.7093)]" />
                 </div>

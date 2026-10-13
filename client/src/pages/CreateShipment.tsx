@@ -465,7 +465,7 @@ function StepActions({
 
         <Button
           onClick={onNext}
-          className="h-12 flex-1 rounded-xl bg-[#F2A123] text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)] shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] hover:bg-[#F2A123]/90"
+          className="h-12 flex-1 rounded-xl bg-[#F2A123] text-sm font-semibold text-[lab(34.0831_-9.57756_-27.7093)] shadow-card-hover hover:bg-[#F2A123]/90"
           data-testid="button-next-step"
         >
           {nextLabel}
@@ -1306,7 +1306,7 @@ export default function CreateShipment() {
             <div className="mt-5 w-full space-y-3">
               <Button
                 onClick={() => setGuestMode(true)}
-                className="w-full h-auto flex-col gap-1 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold py-3 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+                className="w-full h-auto flex-col gap-1 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold py-3 rounded-xl shadow-card-hover"
                 data-testid="button-continue-as-known-guest"
               >
                 <span className="text-sm font-semibold">
@@ -1343,7 +1343,7 @@ export default function CreateShipment() {
             <div className="mt-6 w-full space-y-3">
               <Button
                 onClick={() => setLocation('/login?redirect=/create')}
-                className="w-full bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-12 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+                className="w-full bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-12 rounded-xl shadow-card-hover"
                 data-testid="button-login-to-create"
               >
                 Sign in
@@ -1412,7 +1412,7 @@ export default function CreateShipment() {
               : 'Drop your parcel off whenever suits you.'}
           </p>
 
-          <div className="bg-card rounded-xl border border-border p-4 mb-6 text-left shadow-sm w-full">
+          <div className="bg-card rounded-xl border border-border p-4 mb-6 text-left shadow-card w-full">
             <button
               type="button"
               onClick={copyOrderNo}
@@ -2294,7 +2294,7 @@ export default function CreateShipment() {
 
             <SectionLabel>Sender details</SectionLabel>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-card">
               <div>
                 <Label className="text-xs text-muted-foreground">Full Name <span className="text-red-400">*</span></Label>
                 <Input
@@ -2448,7 +2448,7 @@ export default function CreateShipment() {
 
             <SectionLabel>Collection</SectionLabel>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <Label className="text-sm font-semibold mb-3 block">Pickup or Drop-off?</Label>
 
               <div className="flex items-center justify-between">
@@ -2741,7 +2741,7 @@ export default function CreateShipment() {
                 )}
               />
             )}
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-2">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card space-y-2">
               <Label className="text-xs text-muted-foreground">Destination Country</Label>
               <CountryCombobox
                 value={destinationCountry}
@@ -2796,7 +2796,7 @@ export default function CreateShipment() {
               }}
             />
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-card">
               <div>
                 <Label className="text-xs text-muted-foreground">Receiver Name</Label>
                 <Input
@@ -2974,7 +2974,7 @@ export default function CreateShipment() {
 
         {currentStep === 3 && (
           <div className="space-y-4 animate-fade-in">
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <ShipmentContentSearch
                 value={shipmentContent}
                 onChange={(v) => {
@@ -3022,7 +3022,7 @@ export default function CreateShipment() {
               </button>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <div className="flex items-center justify-between mb-3">
                 <Label className="text-sm font-semibold">Weight</Label>
                 <div className="flex bg-muted rounded-lg p-0.5">
@@ -3092,7 +3092,7 @@ export default function CreateShipment() {
                 box and not theirs. Carries no price: any packaging cost is
                 settled at the hub with the rest of the reprice, so nothing on
                 this card moves the quote. */}
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <Label className="text-sm font-semibold mb-3 block">Packaging</Label>
 
               <div className="flex items-center justify-between gap-3">
@@ -3145,7 +3145,7 @@ export default function CreateShipment() {
               </p>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <div className="flex items-center justify-between mb-3">
                 <Label className="text-sm font-semibold">
                   Dimensions <span className="text-red-400">*</span>
@@ -3287,7 +3287,7 @@ export default function CreateShipment() {
               </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <Label className="text-sm font-semibold mb-3 block">Shipment Value</Label>
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2">
@@ -3363,7 +3363,7 @@ export default function CreateShipment() {
               Required for Indian customs clearance. These details appear on the commercial invoice.
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <Label className="text-sm font-semibold mb-3 block">Service Details</Label>
               <div className="space-y-2">
                 <div className="space-y-1">
@@ -3742,7 +3742,7 @@ export default function CreateShipment() {
                       type="button"
                       onClick={handleOpenServiceModal}
                       disabled={!productType.trim() || rateMutation.isPending}
-                      className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
+                      className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-card-hover disabled:opacity-70 flex items-center justify-center gap-2"
                       data-testid="button-get-rates-invoice"
                     >
                       {rateMutation.isPending ? (
@@ -3773,7 +3773,7 @@ export default function CreateShipment() {
               </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-card">
               <div>
                 <Label className="text-sm font-semibold">Invoice Item</Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -3879,7 +3879,7 @@ export default function CreateShipment() {
             <Button
               onClick={handleSubmit}
               disabled={createMutation.isPending || !selectedService}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-card-hover disabled:opacity-70"
               data-testid="button-submit-shipment"
             >
               {createMutation.isPending ? (
@@ -3897,7 +3897,7 @@ export default function CreateShipment() {
         <div className="hidden lg:block lg:col-span-5">
           <div className="sticky top-6 space-y-4">
             {currentStep < 4 && (
-              <div className="bg-white rounded-2xl border border-[#E2E8F0] overflow-hidden shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+              <div className="bg-white rounded-2xl border border-[#E2E8F0] overflow-hidden shadow-card">
                 <div className="px-5 py-3.5 border-b border-[#E2E8F0] flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-[#F2A123]">Draft</span>
@@ -4001,7 +4001,7 @@ export default function CreateShipment() {
                   type="button"
                   onClick={handleOpenServiceModal}
                   disabled={!productType.trim() || rateMutation.isPending}
-                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70 flex items-center justify-center gap-2"
+                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-card-hover disabled:opacity-70 flex items-center justify-center gap-2"
                 >
                   {rateMutation.isPending ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
@@ -4021,7 +4021,7 @@ export default function CreateShipment() {
                 ) : null}
 
                 {selectedService && (
-                  <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-1.5 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06)]">
+                  <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-1.5 shadow-card">
                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Selected service</p>
                     <p className="font-semibold text-sm text-[lab(34.0831_-9.57756_-27.7093)]">{selectedService.internal_api_service_code || selectedService.code}</p>
                     <p className="font-mono text-lg font-semibold text-[#2F4468]">{formatInr(selectedService.total)}</p>
@@ -4049,7 +4049,7 @@ export default function CreateShipment() {
                 <Button
                   onClick={handleSubmit}
                   disabled={createMutation.isPending || !selectedService}
-                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+                  className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-card-hover disabled:opacity-70"
                   data-testid="button-submit-shipment-desktop"
                 >
                   {createMutation.isPending ? (
@@ -4179,7 +4179,7 @@ export default function CreateShipment() {
                           }
                         }}
                         className={cn(
-                          'rounded-xl border border-[#E2E8F0] bg-white overflow-hidden relative outline-none focus-visible:ring-2 focus-visible:ring-[#2F4468] cursor-pointer shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]',
+                          'rounded-xl border border-[#E2E8F0] bg-white overflow-hidden relative outline-none focus-visible:ring-2 focus-visible:ring-[#2F4468] cursor-pointer shadow-card',
                           isSelected && 'ring-2 ring-[#F2A123] border-[#F2A123]'
                         )}
                         data-testid={`invoice-rate-card-${idx}`}
@@ -4336,7 +4336,7 @@ export default function CreateShipment() {
                   setShowServiceModal(false);
                 }}
                 disabled={!pendingService}
-                className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+                className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-card-hover disabled:opacity-70"
                 data-testid="button-confirm-service"
               >
                 {pendingService ? 'Confirm Selection' : 'Select a service to continue'}
@@ -4465,7 +4465,7 @@ export default function CreateShipment() {
             <Button
               onClick={handleConfirmBooking}
               disabled={createMutation.isPending}
-              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)] disabled:opacity-70"
+              className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-card-hover disabled:opacity-70"
               data-testid="button-confirm-booking"
             >
               {createMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Booking'}

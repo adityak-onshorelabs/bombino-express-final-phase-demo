@@ -351,7 +351,7 @@ export default function Notifications() {
             </p>
             <Button
               onClick={() => setLocation('/login')}
-              className="bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-11 px-6 rounded-xl shadow-[0_4px_20px_oklch(17%_0.048_248_/_0.10)]"
+              className="bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] font-semibold h-11 px-6 rounded-xl shadow-card-hover"
               data-testid="button-login-notifications"
             >
               <LogIn className="w-4 h-4 mr-2" />
@@ -523,9 +523,9 @@ function NotificationRow({
         'has-[[data-primary]:active]:bg-[#F8FAFC] has-[[data-primary]:active]:shadow-none',
         unread
           ? isCode
-            ? 'border-[#F5D9A8] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.08)]'
-            : 'border-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.08),_0_1px_3px_oklch(17%_0.048_248_/_0.05)]'
-          : 'border-[#E2E8F0] shadow-[0_1px_3px_oklch(17%_0.048_248_/_0.04)] hover:shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.08)]'
+            ? 'border-[#F5D9A8] shadow-card'
+            : 'border-[#E2E8F0] shadow-card'
+          : 'border-[#E2E8F0] shadow-[0_1px_3px_oklch(17%_0.048_248_/_0.04)] hover:shadow-card'
       )}
       data-testid={`notification-item-${notif.id}`}
       data-category={category}

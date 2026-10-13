@@ -352,7 +352,7 @@ export default function Profile() {
 
           {/* LEFT — avatar + identity */}
           <div className="md:col-span-5 flex flex-col items-center text-center md:text-left md:items-start mb-6 md:mb-0 md:sticky md:top-6">
-            <div className="w-20 h-20 bg-primary/8 rounded-2xl flex items-center justify-center mb-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06)]">
+            <div className="w-20 h-20 bg-primary/8 rounded-2xl flex items-center justify-center mb-4 shadow-card">
               <User className="w-10 h-10 text-foreground" />
             </div>
             <h2 className="text-xl font-bold text-foreground leading-tight">
@@ -374,7 +374,7 @@ export default function Profile() {
           {/* RIGHT — details + support + sign out */}
           <div className="md:col-span-7 space-y-5">
             {/* Details card */}
-            <div className="bg-white rounded-2xl border border-border divide-y divide-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-2xl border border-border divide-y divide-[#E2E8F0] shadow-card">
               <div className="flex items-center gap-3 p-4">
                 <div className="w-9 h-9 bg-muted rounded-xl flex items-center justify-center shrink-0">
                   <Mail className="w-4 h-4 text-secondary" />
@@ -472,7 +472,7 @@ export default function Profile() {
             {verification && !verification.verified && (
               <div
                 id="documents"
-                className="scroll-mt-20 bg-white rounded-2xl border border-amber-200 p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-3"
+                className="scroll-mt-20 bg-white rounded-2xl border border-amber-200 p-4 shadow-card space-y-3"
                 data-testid="profile-documents-section"
               >
                 <div>
@@ -521,7 +521,7 @@ export default function Profile() {
             {kycOnFile && (
               <div
                 id="kyc"
-                className="bg-white rounded-2xl border border-border p-4 shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] space-y-3"
+                className="bg-white rounded-2xl border border-border p-4 shadow-card space-y-3"
                 data-testid="profile-kyc-section"
               >
                 <div>
@@ -540,7 +540,7 @@ export default function Profile() {
             <NudgePrefs />
 
             {/* Support card */}
-            <div className="bg-white rounded-2xl border border-border divide-y divide-[#E2E8F0] shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)]">
+            <div className="bg-white rounded-2xl border border-border divide-y divide-[#E2E8F0] shadow-card">
               <a
                 href={waHref}
                 target="_blank"
@@ -638,7 +638,7 @@ export default function Profile() {
             <Button
               onClick={() => void handleSaveUsername()}
               disabled={isSavingUsername}
-              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-[var(--shadow-hover)]"
+              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-card-hover"
               data-testid="button-username-save"
             >
               {isSavingUsername ? 'Saving…' : 'Save'}
@@ -747,7 +747,7 @@ export default function Profile() {
                 changeStep === 'phone' ? void handleSendChangeOtp() : void handleConfirmChange()
               }
               disabled={isChanging}
-              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-[var(--shadow-hover)]"
+              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-card-hover"
               data-testid="button-change-submit"
             >
               {isChanging
@@ -815,7 +815,7 @@ export default function Profile() {
                 waStep === 'send' ? void handleSendWhatsappOtp() : void handleConfirmWhatsapp()
               }
               disabled={isWaBusy}
-              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-[var(--shadow-hover)]"
+              className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold rounded-xl shadow-card-hover"
               data-testid="button-verify-whatsapp-submit"
             >
               {isWaBusy ? 'Working…' : waStep === 'send' ? 'Send code' : 'Verify'}

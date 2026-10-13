@@ -481,7 +481,7 @@ export default function ShipmentDetails() {
 
       {/* Details — asymmetric panels (4-field meta + 6-field parties) */}
       <section className="mt-10 md:mt-12 grid grid-cols-1 md:grid-cols-[5fr_7fr] gap-4 md:gap-5">
-        <div className="relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_12px_28px_-14px_lab(34.0831_-9.57756_-27.7093_/_0.16)] p-5 md:p-6">
+        <div className="relative rounded-xl bg-white border border-[#E2E8F0] shadow-card p-5 md:p-6">
           <div className="flex items-center gap-2 mb-5">
             <span className="block w-1 h-3.5 rounded-sm bg-[#F2A123]" aria-hidden />
             <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-muted-foreground">
@@ -494,7 +494,7 @@ export default function ShipmentDetails() {
             ))}
           </dl>
         </div>
-        <div className="relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_12px_28px_-14px_lab(34.0831_-9.57756_-27.7093_/_0.16)] p-5 md:p-6">
+        <div className="relative rounded-xl bg-white border border-[#E2E8F0] shadow-card p-5 md:p-6">
           <div className="flex items-center gap-2 mb-5">
             <span className="block w-1 h-3.5 rounded-sm bg-[#F2A123]" aria-hidden />
             <h2 className="text-[11px] font-bold tracking-[0.14em] uppercase text-muted-foreground">

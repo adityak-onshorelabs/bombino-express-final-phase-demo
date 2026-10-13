@@ -49,7 +49,7 @@ export function ProfileProgressTracker({
 
   return (
     <section
-      className={cn('overflow-hidden rounded-2xl border border-border bg-card shadow-sm', className)}
+      className={cn('overflow-hidden rounded-2xl border border-border bg-card shadow-card', className)}
       aria-label="Your profile"
       data-testid="profile-progress-tracker"
     >

@@ -368,7 +368,7 @@ export default function Rates() {
                 return (
                   <div
                     key={service.id}
-                    className="rounded-xl border border-[#E2E8F0] bg-white overflow-hidden shadow-[0_2px_12px_oklch(17%_0.048_248_/_0.06),_0_1px_3px_oklch(17%_0.048_248_/_0.04)] md:rounded-2xl"
+                    className="rounded-xl border border-[#E2E8F0] bg-white overflow-hidden shadow-card md:rounded-2xl"
                     data-testid={`rate-card-${idx}`}
                   >
                     <div className="flex items-center gap-3 px-4 pt-4 pb-3 md:px-6 md:pt-5 md:pb-4 md:gap-4">
@@ -558,7 +558,7 @@ export default function Rates() {
         </p>
 
         <div className="mb-5 space-y-3 md:mb-6">
-          <div className="flex items-end gap-2 md:gap-0 md:items-stretch md:bg-white md:rounded-2xl md:border md:border-[#E2E8F0] md:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] md:p-1 md:mb-3">
+          <div className="flex items-end gap-2 md:gap-0 md:items-stretch md:bg-white md:rounded-2xl md:border md:border-[#E2E8F0] md:shadow-card md:p-1 md:mb-3">
             <div className="flex-1 min-w-0 md:flex-1 md:p-3">
               <Label className="text-[10px] text-muted-foreground mb-1 block md:text-[10px] md:font-bold md:text-muted-foreground md:uppercase md:tracking-[0.14em]">From</Label>
               <CountryCombobox value={selectedOrigin} onValueChange={handleOriginChange} />
@@ -583,7 +583,7 @@ export default function Rates() {
         </div>
 
         <div className="space-y-4">
-          <div className="bg-card rounded-xl border border-border p-4 shadow-sm md:p-5 md:rounded-2xl md:border-[#E2E8F0] md:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)]">
+          <div className="bg-card rounded-xl border border-border p-4 shadow-card md:p-5 md:rounded-2xl md:border-[#E2E8F0]">
             <div className="flex items-center justify-between mb-3 md:mb-4">
               <Label className="text-sm font-semibold md:text-[13px] md:font-bold md:tracking-tight">Weight &amp; pieces</Label>
               <div className="flex bg-muted rounded-lg p-0.5">
@@ -641,7 +641,7 @@ export default function Rates() {
           </div>
 
           {/* Box size: optional here; blank quotes on weight alone */}
-          <div className="bg-card rounded-xl border border-border p-4 shadow-sm md:p-5 md:rounded-2xl md:border-[#E2E8F0] md:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)]">
+          <div className="bg-card rounded-xl border border-border p-4 shadow-card md:p-5 md:rounded-2xl md:border-[#E2E8F0]">
             <div className="flex items-center justify-between mb-3 md:mb-4">
               <Label className="text-sm font-semibold md:text-[13px] md:font-bold md:tracking-tight">
                 Box size <span className="font-normal text-muted-foreground">(optional)</span>
@@ -698,7 +698,7 @@ export default function Rates() {
           </div>
 
           {/* Optional pincodes */}
-          <div className="bg-card rounded-xl border border-border p-4 shadow-sm md:p-5 md:rounded-2xl md:border-[#E2E8F0] md:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)]">
+          <div className="bg-card rounded-xl border border-border p-4 shadow-card md:p-5 md:rounded-2xl md:border-[#E2E8F0]">
             <div className="flex items-center gap-1.5 mb-3">
               <Info className="w-3.5 h-3.5 shrink-0 text-muted-foreground" aria-hidden />
               <p className="text-xs text-muted-foreground">

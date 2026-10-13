@@ -393,7 +393,7 @@ export function KycUpload({
     selectedDocType === 'Aadhaar Number' ? AADHAAR_DISPLAY_MAX_LENGTH : docConfig.maxLength;
 
   return (
-    <div className="bg-card rounded-xl border border-border p-4 shadow-sm space-y-4">
+    <div className="bg-card rounded-xl border border-border p-4 shadow-card space-y-4">
       <div className="flex items-center justify-between">
         <Label className="text-sm font-semibold">KYC Details</Label>
         <span className="text-[10px] text-muted-foreground">

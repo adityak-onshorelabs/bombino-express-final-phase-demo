@@ -78,7 +78,7 @@ function TrackBar({
   onSubmit: () => void;
 }) {
   return (
-    <div className="rounded-xl bg-white border border-border shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] p-1.5 flex items-center gap-2">
+    <div className="rounded-xl bg-white border border-border shadow-card p-1.5 flex items-center gap-2">
       <div className="relative flex-1">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <input
@@ -192,7 +192,7 @@ function ShipmentRow({
       data-testid={`order-row-${displayId}`}
     >
       {/* ─── MOBILE CARD — amber-rail brand accent ──────────────── */}
-      <div className="md:hidden relative rounded-xl bg-white border border-[#E2E8F0] shadow-[0_1px_1px_lab(34.0831_-9.57756_-27.7093_/_0.03),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.06),0_12px_28px_-12px_lab(34.0831_-9.57756_-27.7093_/_0.18)] active:shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.05),0_4px_10px_-4px_lab(34.0831_-9.57756_-27.7093_/_0.12)] active:translate-y-px transition-[transform,box-shadow] duration-150 overflow-hidden">
+      <div className="md:hidden relative rounded-xl bg-white border border-[#E2E8F0] shadow-card-hover active:shadow-card active:translate-y-px transition-[transform,box-shadow] duration-150 overflow-hidden">
         {/* Amber accent rail (full height, left edge) */}
         <span
           className="absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-[#F2A123] via-[#F2A123] to-[#F2A123]/60 rounded-l-xl"

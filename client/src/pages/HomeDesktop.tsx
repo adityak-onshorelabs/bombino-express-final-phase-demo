@@ -65,7 +65,7 @@ function TrackBar({
   recent: string[];
 }) {
   return (
-    <div className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] p-1.5 flex items-center gap-2">
+    <div className="rounded-2xl bg-white border border-[#E2E8F0] shadow-card p-1.5 flex items-center gap-2">
       <div className="flex items-center gap-2 px-3 text-[11px] font-semibold tracking-[0.12em] text-[#F2A123] uppercase border-r border-[#E2E8F0] pr-4 ml-2">
         <span className="relative flex h-1.5 w-1.5">
           <span className="absolute inline-flex h-full w-full rounded-full bg-[#F2A123] opacity-60 animate-ping" />
@@ -119,7 +119,7 @@ function ActionCards() {
       {/* Get Rates */}
       <Link
         href="/rates"
-        className="group relative rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] hover:shadow-[0_6px_24px_lab(34.0831_-9.57756_-27.7093_/_0.10),0_2px_6px_lab(34.0831_-9.57756_-27.7093_/_0.05)] transition-all overflow-hidden"
+        className="group relative rounded-2xl bg-white border border-[#E2E8F0] shadow-card hover:shadow-card-hover transition-all overflow-hidden"
         data-testid="card-get-rates"
       >
         <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-[#FFF6E5] to-transparent pointer-events-none" />
@@ -178,7 +178,7 @@ function ActionCards() {
       {/* Ship Now */}
       <Link
         href="/create"
-        className="group relative rounded-2xl bg-gradient-to-br from-[lab(34.0831_-9.57756_-27.7093)] to-[#0c1a25] text-white shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] hover:shadow-[0_6px_24px_lab(34.0831_-9.57756_-27.7093_/_0.18)] transition-all overflow-hidden"
+        className="group relative rounded-2xl bg-gradient-to-br from-[lab(34.0831_-9.57756_-27.7093)] to-[#0c1a25] text-white shadow-card hover:shadow-card-hover transition-all overflow-hidden"
         data-testid="card-ship-now"
       >
         <div
@@ -252,7 +252,7 @@ function ActionCards() {
 // ─── Popular routes ───
 function PopularRoutes() {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-card overflow-hidden">
       <div className="px-6 py-4 flex items-center justify-between border-b border-[#E2E8F0]">
         <div>
           <h3 className="text-sm font-bold tracking-tight text-foreground">Popular routes this week</h3>
@@ -343,7 +343,7 @@ function StatsBand() {
 function SupportWidget() {
   const { waHref, telHref, officeLabel, whatsappLabel } = useSupportContacts();
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-card overflow-hidden">
       <div className="px-5 pt-5 pb-3 flex items-center justify-between">
         <h3 className="text-sm font-bold tracking-tight text-foreground">Need to talk to us?</h3>
         <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
@@ -398,7 +398,7 @@ function KycHomeTip() {
 
   if (kycOnFile) {
     return (
-      <section className="rounded-2xl bg-white border border-green-200 bg-green-50/30 shadow-sm p-4">
+      <section className="rounded-2xl bg-white border border-green-200 bg-green-50/30 shadow-card p-4">
         <div className="flex items-start gap-3">
           <div className="w-8 h-8 rounded-lg bg-green-100 text-green-700 flex items-center justify-center flex-shrink-0">
             <ShieldCheck className="w-4 h-4" />
@@ -422,7 +422,7 @@ function KycHomeTip() {
   }
 
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-sm p-4">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-card p-4">
       <div className="flex items-start gap-3">
         <div className="w-8 h-8 rounded-lg bg-[#FFF6E5] text-[#F2A123] flex items-center justify-center flex-shrink-0">
           <ShieldCheck className="w-4 h-4" />
@@ -448,7 +448,7 @@ function KycHomeTip() {
 // ─── Tips widget (right rail, guest / pre-KYC users) ───
 function TipsWidget() {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-card overflow-hidden">
       <div className="px-5 pt-5 pb-3 flex items-center justify-between">
         <h3 className="text-sm font-bold tracking-tight text-foreground">Before you ship</h3>
         <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-muted-foreground">3 steps</span>
@@ -522,7 +522,7 @@ function MyShipmentsTable({
   loading: boolean;
 }) {
   return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_2px_lab(34.0831_-9.57756_-27.7093_/_0.04),0_2px_12px_lab(34.0831_-9.57756_-27.7093_/_0.05)] overflow-hidden">
+    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-card overflow-hidden">
       <div className="px-6 py-4 flex items-center justify-between border-b border-[#E2E8F0]">
         <div>
           <h3 className="text-sm font-bold tracking-tight text-foreground">My shipments</h3>
