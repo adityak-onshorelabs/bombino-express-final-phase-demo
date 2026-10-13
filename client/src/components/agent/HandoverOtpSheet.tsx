@@ -121,21 +121,22 @@ export function HandoverOtpSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
-        side="bottom"
+        side="top"
         className={cn(
-          'agent-surface rounded-none border-t-2 border-[#1B2A41] p-0 [&>button]:hidden',
-          'overflow-y-auto',
+          'agent-surface rounded-none border-b-2 border-[#1B2A41] p-0 [&>button]:hidden',
+          'overflow-y-auto pt-[env(safe-area-inset-top)]',
           // The shared primitive's 500ms open is a desktop drawer's timing. An
           // agent opens this one standing at a door with a code being read out
           // to them; it has to be there when they look down.
           AGENT_SHEET_MOTION,
         )}
-        // Sits on top of the keyboard rather than under it, as BIA does: on
-        // iOS the keyboard covers a bottom sheet without moving it, which hid
-        // the field and both buttons (lib/keyboardInset.ts).
+        // Drops from the top, where the keyboard never reaches: on iOS the
+        // keyboard covers a bottom sheet without moving it, which hid the
+        // field and both buttons, and lifting it left it floating mid-screen.
+        // Capped at the space above the keyboard (lib/keyboardInset.ts).
         style={{
-          bottom: 'var(--kb, 0px)',
-          maxHeight: 'min(92dvh, calc(var(--visible, 100dvh) - 12px))',
+          top: 'var(--vv-top, 0px)',
+          maxHeight: 'min(92dvh, var(--visible, 100dvh))',
         }}
         data-testid="sheet-handover-otp"
       >
