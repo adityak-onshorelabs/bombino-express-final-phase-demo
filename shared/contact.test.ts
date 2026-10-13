@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { isValidReceiverPhone, toIndianMobile, withoutDialCode, withoutTrunkZero } from "./contact.js";
+import { isValidReceiverPhone, repairCutMobile, toIndianMobile, withoutDialCode, withoutTrunkZero } from "./contact.js";
 
 test("a bare 10-digit mobile is kept as-is", () => {
   assert.equal(toIndianMobile("7558372885"), "7558372885");
@@ -21,6 +21,18 @@ test("typing a +91 number digit by digit ends on the right number", () => {
 
 test("a number that starts with 91 itself is not cut", () => {
   assert.equal(toIndianMobile("9198332075"), "9198332075");
+});
+
+test("a saved number cut from the account's +91 number is put back", () => {
+  assert.equal(repairCutMobile("9175583728", "7558372885"), "7558372885");
+  assert.equal(repairCutMobile("9175583728", "+91 7558372885"), "7558372885");
+});
+
+test("any other saved number is left alone", () => {
+  assert.equal(repairCutMobile("7558372885", "7558372885"), "7558372885");
+  assert.equal(repairCutMobile("9876543210", "7558372885"), "9876543210");
+  assert.equal(repairCutMobile("9175583728", null), "9175583728");
+  assert.equal(repairCutMobile("9175583728", "12345"), "9175583728");
 });
 
 test("a receiver's trunk zero is dropped before the dial code goes on", () => {

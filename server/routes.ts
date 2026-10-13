@@ -159,6 +159,7 @@ import {
   NANP_PHONE_MESSAGE,
   isIndianMobile,
   isValidReceiverPhone,
+  repairCutMobile,
 } from "../shared/contact.js";
 import { MAX_UPLOAD_BYTES, UPLOAD_TYPE_MESSAGE, isAllowedUploadType } from "../shared/upload.js";
 import {
@@ -3239,6 +3240,18 @@ export async function registerRoutes(
     // guest whose phone is verified and whose real problem is that they have
     // uploaded nothing yet. The KYC gates below say that properly.
     const bookingAsGuest = !req.session.dbUserId;
+
+    // A sender phone saved before the +91 fix can still be the account's own
+    // number cut to "91" + its first eight digits; picking that saved address
+    // sent BOM-100339 to ITD with it. Put the account's number back on both
+    // copies before anything is stored or filed.
+    if (req.session.dbUserId) {
+      const account = (await getUserContactsByIds([req.session.dbUserId])).get(req.session.dbUserId);
+      const shipper = repairCutMobile(String(body.items.shipper_contact_no ?? ""), account?.phone);
+      if (shipper !== body.items.shipper_contact_no) body.items.shipper_contact_no = shipper;
+      body.origin_address.phone = repairCutMobile(body.origin_address.phone, account?.phone);
+    }
+
     const guestPhone = bookingAsGuest ? body.origin_address.phone.trim() : null;
 
     // A guest has never signed the contract — there was no account creation to

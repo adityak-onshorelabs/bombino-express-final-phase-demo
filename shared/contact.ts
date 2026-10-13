@@ -34,6 +34,21 @@ export function toIndianMobile(value: string): string {
 }
 
 /**
+ * `saved`, unless it is `known` cut the old way: "+91" kept and the last two
+ * digits lost. Then `known`, the number it was cut from.
+ *
+ * `toIndianMobile` stops new input being cut, but addresses saved before it
+ * still hold `9175583728` for `7558372885`, and picking one put the cut number
+ * on BOM-100339. Ten digits either way, so only a known number can tell which
+ * is right: the account's own phone.
+ */
+export function repairCutMobile(saved: string, known: string | null | undefined): string {
+  const knownTen = toIndianMobile(known ?? "");
+  if (knownTen.length !== 10) return saved;
+  return saved.trim() === ("91" + knownTen).slice(0, 10) ? knownTen : saved;
+}
+
+/**
  * A foreign number without its trunk `0`, ready for a dial code in front.
  * `+1` + `09198332075` reached ITD as the receiver's phone (BOM-100333).
  */
