@@ -780,6 +780,7 @@ export default function OpsOrderDetail() {
       <OpsWeighSheet
         open={weighOpen}
         onOpenChange={setWeighOpen}
+        orderId={order.id}
         bookedWeight={order.booked_weight}
         isPending={action.isPending && pendingAction === 'weigh'}
         onConfirm={(payload) => runAction('weigh', payload)}

@@ -102,6 +102,7 @@ import {
   handleSettle,
   handleWeigh,
   itdRateAtWeight,
+  repriceOrderAtWeight,
   itdRatesLoginFor,
 } from "./opsActions.js";
 import { isIndiaHubId } from "../shared/hubs.js";
@@ -3626,6 +3627,67 @@ export async function registerRoutes(
   function resolveRole(raw: string | undefined): Role | null {
     return isRole(raw) ? raw : null;
   }
+
+  /**
+   * What a weight would do to the price, without weighing.
+   *
+   * The weigh sheet shows this before ops confirms: the new price and the
+   * difference the customer will be asked for or refunded. Nothing is written
+   * and nothing is sent. The weigh itself reprices again on confirm, so this is
+   * a preview, never the amount of record.
+   *
+   * Same gate as the weigh action: whoever may weigh this order may preview it.
+   */
+  app.post(
+    "/api/orders/:id/weigh-preview",
+    requireUser,
+    ensureDbUser,
+    requireActiveAgent,
+    loadOpsStaffIfOps,
+    async (req: Request, res: Response) => {
+      const callerId = req.session.dbUserId;
+      const role = req.staff?.role ?? resolveRole(req.session.user?.role);
+      if (!callerId || !role) {
+        res.status(403).json({ message: "You do not have permission to do this.", code: "FORBIDDEN" });
+        return;
+      }
+      const parsed = z
+        .object({ actual_weight: z.number().positive("Enter the actual weight in kg") })
+        .safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          message: parsed.error.issues[0]?.message ?? "Enter the actual weight in kg",
+          code: "INVALID_PAYLOAD",
+        });
+        return;
+      }
+      const order = await getOrderById(req.params.id);
+      if (!order || !(await isCallersOrder(req, order))) {
+        res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+        return;
+      }
+      if (!findTransition(order, "weigh", role, { userId: callerId })) {
+        res.status(403).json({
+          message: "This order can't be weighed right now. Refresh and try again.",
+          code: "ACTION_NOT_AVAILABLE",
+        });
+        return;
+      }
+      const reprice = await repriceOrderAtWeight(order, parsed.data.actual_weight);
+      if (!reprice.ok) {
+        res.status(502).json({ message: reprice.message, code: reprice.code });
+        return;
+      }
+      res.json({
+        actual_weight: parsed.data.actual_weight,
+        booked_weight: order.booked_weight,
+        quoted_amount: reprice.quotedAmount,
+        final_amount: reprice.finalAmount,
+        delta: reprice.delta,
+        source: reprice.source,
+      });
+    }
+  );
 
   app.post(
     "/api/orders/:id/actions",

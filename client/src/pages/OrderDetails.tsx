@@ -338,7 +338,7 @@ export default function OrderDetails() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { telHref } = useSupportContacts();
+  const { telHref, waHref, officeLabel } = useSupportContacts();
   const [copied, copy] = useCopy();
   const [showAllParcel, setShowAllParcel] = useState(false);
   const [showBookingLog, setShowBookingLog] = useState(false);
@@ -542,8 +542,23 @@ export default function OrderDetails() {
   const isCsbv = itemStr(items, 'is_csbv_shipment') === 'true';
   // Pay-now orders still owed money. `partially_paid` is a reprice at the hub
   // and settles there, not here.
+  // Weighed at the hub at a different price from the booking. Shown until the
+  // order settles. A heavier parcel is confirmed with the Bombino team, never
+  // paid from here (Aditya, 13 Oct 2026).
+  const repriceDelta =
+    order.status === 'weighed' &&
+    order.actual_weight != null &&
+    order.final_amount != null &&
+    order.quoted_amount != null
+      ? Math.round(order.final_amount - order.quoted_amount)
+      : 0;
+  const weighedHeavier = repriceDelta > 0;
+  const weighedLighter = repriceDelta < 0;
   const payDue =
-    order.payment_method === 'pay_now' && order.payment_status === 'pending' && !isCancelled;
+    order.payment_method === 'pay_now' &&
+    order.payment_status === 'pending' &&
+    !isCancelled &&
+    !weighedHeavier;
   const amountLabel = formatInr(order.final_amount ?? order.quoted_amount);
 
   const originLine = [origin?.city, origin?.state].filter(Boolean).join(', ');
@@ -596,6 +611,8 @@ export default function OrderDetails() {
   const showAgent = isPickup && beforeCollection;
 
   const hasTodo =
+    weighedHeavier ||
+    weighedLighter ||
     showAwbNote ||
     cancelPending ||
     cancelDeclined ||
@@ -618,6 +635,46 @@ export default function OrderDetails() {
         {todoTitle}
       </h2>
       <div className="rounded-lg border border-[#E2E8F0] bg-white overflow-hidden divide-y divide-[#E2E8F0]">
+        {weighedHeavier && (
+          <Notice tone="amber" title="Your parcel weighed more than booked" testId="banner-weighed-heavier">
+            Booked at {formatKg(order.booked_weight) ?? '—'}, weighed{' '}
+            <span className="font-semibold">{formatKg(order.actual_weight)}</span> at our hub. The new
+            price is <span className="font-semibold">{formatInr(order.final_amount)}</span> (was{' '}
+            {formatInr(order.quoted_amount)}), so{' '}
+            <span className="font-semibold">{formatInr(repriceDelta)} more</span>. Please contact the
+            Bombino team to confirm it. Your parcel ships once it's settled.
+            <span className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+              <a href={telHref} className="font-semibold underline underline-offset-2" data-testid="link-weighed-call">
+                Call {officeLabel}
+              </a>
+              <a
+                href={waHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold underline underline-offset-2"
+                data-testid="link-weighed-whatsapp"
+              >
+                WhatsApp us
+              </a>
+            </span>
+          </Notice>
+        )}
+
+        {weighedLighter && (
+          <Task
+            title="Your parcel weighed less than booked"
+            hint={
+              <>
+                Booked at {formatKg(order.booked_weight) ?? '—'}, weighed {formatKg(order.actual_weight)} at
+                our hub. The new price is {formatInr(order.final_amount)} (was{' '}
+                {formatInr(order.quoted_amount)}). If you have paid more than that, our accounts team will be
+                in touch about the {formatInr(Math.abs(repriceDelta))} difference.
+              </>
+            }
+            testId="card-weighed-lighter"
+          />
+        )}
+
         {/* Only when the AWB is waiting on the customer (shared/docketError.ts
             returns a note for nothing else). */}
         {showAwbNote && (
