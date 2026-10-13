@@ -134,6 +134,8 @@ export type OpsOrderDetail = {
   is_cod: boolean;
   agent_id: string | null;
   agent_name: string | null;
+  /** The assigned agent's number, for the branch to call. Order page only. */
+  agent_phone: string | null;
   actual_weight: number | null;
   final_amount: number | null;
   awb_no: string | null;
@@ -320,6 +322,7 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
     is_cod: Boolean(row.is_cod),
     agent_id: (row.agent_id as string | null) ?? null,
     agent_name: null,
+    agent_phone: null,
     actual_weight: toNum(row.actual_weight),
     final_amount: toNum(row.final_amount),
     awb_no: (row.awb_no as string | null) ?? null,
@@ -433,13 +436,19 @@ export async function getOrderByIdForOps(id: string): Promise<OpsOrderDetail | n
     await withAgentNames([mapDetailRow(data as Record<string, unknown>)])
   );
   if (!detail) return null;
-  // Who cancelled, by name and number: the branch may want to ask why.
-  if (detail.agent_cancellation) {
-    const contact = (await getUserContactsByIds([detail.agent_cancellation.agent_id])).get(
-      detail.agent_cancellation.agent_id
-    );
-    detail.agent_cancellation.agent_name = contact?.full_name ?? null;
-    detail.agent_cancellation.agent_phone = contact?.phone ?? null;
+  // The agent on the job and, if one handed it back, who: both by name and
+  // number, because the branch rings them. One lookup for both.
+  const cancelledBy = detail.agent_cancellation?.agent_id ?? null;
+  const ids = [detail.agent_id, cancelledBy].filter((id): id is string => Boolean(id));
+  if (ids.length > 0) {
+    const contacts = await getUserContactsByIds(ids);
+    if (detail.agent_id) {
+      detail.agent_phone = contacts.get(detail.agent_id)?.phone ?? null;
+    }
+    if (detail.agent_cancellation && cancelledBy) {
+      detail.agent_cancellation.agent_name = contacts.get(cancelledBy)?.full_name ?? null;
+      detail.agent_cancellation.agent_phone = contacts.get(cancelledBy)?.phone ?? null;
+    }
   }
   return detail;
 }

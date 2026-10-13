@@ -179,6 +179,21 @@ test("on the way, the agent can still hand the pickup back, after the forward st
   );
 });
 
+test("once money is collected at the door the pickup cannot be cancelled", () => {
+  for (const payment_status of ["paid", "partially_paid"] as const) {
+    const paidAtDoor = order({
+      status: "out_for_pickup",
+      agent_id: AGENT,
+      payment_method: "pay_at_pickup",
+      payment_status,
+    });
+    assert.equal(actions(paidAtDoor, "agent", AGENT).includes("release_pickup"), false, payment_status);
+  }
+  // Paid online before the agent came: nothing changed hands at the door.
+  const prepaid = order({ status: "out_for_pickup", agent_id: AGENT, payment_method: "pay_now", payment_status: "paid" });
+  assert.ok(actions(prepaid, "agent", AGENT).includes("release_pickup"));
+});
+
 test("once the parcel is collected the pickup cannot be cancelled", () => {
   const collected = order({ status: "picked_up", agent_id: AGENT });
   assert.deepEqual(actions(collected, "agent", AGENT), ["mark_received_at_hub"]);

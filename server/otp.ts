@@ -90,6 +90,7 @@ export const TEST_OTP_NUMBERS: ReadonlySet<string> = new Set([
   "9000000001", // Test Agent One
   "9000000031", // Demo User
   "9000000055", // Demo Agent
+  "9000000050", // added 13 Oct 2026
   "9898989898", // Pickup Agent
   "9797979797", // Ganesh
   // Guest booking (no account)

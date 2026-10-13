@@ -100,6 +100,15 @@ const pickupDateArrived = (order: Order): boolean => {
   return order.pickup_date <= todayInIst();
 };
 
+/**
+ * The agent has taken money at the door — all of it or part. Once cash or UPI
+ * has changed hands the pickup cannot be handed back: the agent would be
+ * holding the customer's money for a pickup nobody is doing.
+ */
+const collectedAtDoor = (order: Order): boolean =>
+  order.payment_method === "pay_at_pickup" &&
+  (order.payment_status === "paid" || order.payment_status === "partially_paid");
+
 /** Money is owed at the door and has not been taken yet. */
 const owesAtPickup = (order: Order): boolean =>
   order.payment_method === "pay_at_pickup" && order.payment_status !== "paid";
@@ -189,7 +198,8 @@ export const TRANSITIONS: readonly Transition[] = [
       role: "agent",
       to: "pickup_requested",
       label: "Cancel pickup",
-      guard: isOwningAgent,
+      // Not once money has been collected at the door.
+      guard: (order, ctx) => isOwningAgent(order, ctx) && !collectedAtDoor(order),
     })
   ),
 

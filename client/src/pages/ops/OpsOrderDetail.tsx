@@ -31,6 +31,8 @@ import {
   useOpsOrderDetail,
   type OpsActionError,
   type OpsAgentCancellation,
+  type OpsOrderDetail as OpsOrderDetailData,
+  type OpsOrderEvent,
 } from '@/hooks/useOpsOrders';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
 import { useCan } from '@/lib/opsAccess';
@@ -73,6 +75,68 @@ function InfoCard({ title, children }: { title: string; children: ReactNode }) {
 /** The shared helpers answer '—' for nothing; these keep this page's wording. */
 const formatMoney = (value: number | null | undefined): string => formatInr(value) ?? '—';
 const formatWhen = (iso: string): string => formatIst(iso);
+
+/** Where the agent is with the job, as the branch would say it. */
+const AGENT_STAGE: Record<string, string> = {
+  pickup_requested: 'Waiting for an agent',
+  agent_accepted: 'Assigned, not set off yet',
+  out_for_pickup: 'On the way to the customer',
+  picked_up: 'Has the parcel, bringing it to the hub',
+  received_at_hub: 'Handed over at the hub',
+};
+
+/**
+ * The pickup agent: who, their number, where they are with the job and when
+ * they were given it. Calling the agent is what a branch does most with a
+ * live pickup, so the number is a button.
+ */
+function AgentCard({ order, events }: { order: OpsOrderDetailData; events: OpsOrderEvent[] }) {
+  const assigned = [...events]
+    .reverse()
+    .find((e) => (e.metadata as { action?: unknown } | null)?.action === 'assign');
+  const name = order.agent_name?.trim() || null;
+  const phone = order.agent_phone?.trim() || null;
+  const stage = AGENT_STAGE[order.status] ?? null;
+
+  return (
+    <InfoCard title="Pickup agent">
+      {order.agent_id ? (
+        <>
+          <div className="col-span-2 flex items-center gap-3" data-testid="ops-order-agent">
+            <span
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-muted text-base font-bold text-foreground"
+              aria-hidden
+            >
+              {(name ?? 'A').charAt(0).toUpperCase()}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-base font-bold text-foreground">{name ?? 'Agent'}</p>
+              <p className="mt-0.5 text-sm font-medium text-muted-foreground tabular-nums">
+                {phone ?? 'No phone on file'}
+              </p>
+            </div>
+            {phone && (
+              <a
+                href={`tel:${phone.replace(/\s+/g, '')}`}
+                aria-label={`Call ${name ?? 'agent'}`}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border bg-white text-foreground hover:bg-muted"
+                data-testid="ops-order-call-agent"
+              >
+                <Phone className="w-5 h-5" strokeWidth={1.75} />
+              </a>
+            )}
+          </div>
+          {stage && <Fact label="Now" value={stage} />}
+          <Fact label="Assigned" value={assigned ? formatWhen(assigned.created_at) : '—'} />
+        </>
+      ) : (
+        <p className="col-span-2 text-sm font-bold text-destructive" data-testid="ops-order-no-agent">
+          No agent yet
+        </p>
+      )}
+    </InfoCard>
+  );
+}
 
 /** Where the agent was when they cancelled. */
 const CANCELLED_AT: Record<string, string> = {
@@ -547,6 +611,8 @@ export default function OpsOrderDetail() {
             )}
           </div>
         </InfoCard>
+
+        {!dropoff && <AgentCard order={order} events={events} />}
 
         <InfoCard title={dropoff ? 'Drop-off' : 'Pickup'}>
           <Fact

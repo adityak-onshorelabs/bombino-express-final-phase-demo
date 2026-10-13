@@ -77,6 +77,8 @@ export type OpsOrderDetail = OpsBoardOrder & {
   origin_address_id: string | null;
   /** Full pickup address on one line. */
   pickup_address?: string | null;
+  /** The assigned agent's phone number. */
+  agent_phone?: string | null;
   packaging_required?: boolean;
   consignee: unknown;
   items: unknown;
