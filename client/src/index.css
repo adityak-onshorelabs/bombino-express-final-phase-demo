@@ -134,6 +134,27 @@ body {
   line-height: 1.5;
 }
 
+/* On a touch screen the app behaves like an app: a long press does not
+   select text or pop the Copy / Look Up menu. Form fields stay editable and
+   selectable, and anything marked `select-text` can still be selected. Order
+   numbers and codes have their own copy buttons. Desktop keeps normal text
+   selection. */
+@media (hover: none) and (pointer: coarse) {
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  input,
+  textarea,
+  [contenteditable]:not([contenteditable='false']),
+  .select-text {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+  }
+}
+
 /* Applied at the element rather than per-component: shadcn's Input, Textarea
    and the plain inputs scattered through the booking flow each set their own
    `placeholder:` utility, so a component-level fix would have missed most of
