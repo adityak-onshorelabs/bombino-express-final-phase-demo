@@ -2,9 +2,10 @@
  * Which build of the app is running, so a screenshot from any phone says
  * exactly what code it came from. Every deploy is logged in docs/builds/.
  *
- *   version  package.json's "version", bumped by hand for a release
- *   commit   the git commit the bundle was built from (Railway's, or local git)
- *   builtAt  when the bundle was built
+ *   "v26.10.13 #2"  the 2nd deploy on 13 Oct 2026, from build.json, which
+ *                   `npm run build:next` bumps before each deploy
+ *   commit          the git commit the bundle was built from (Railway's, or
+ *                   local git); kept out of the label, in its title and data-commit
  *
  * The values are replaced at build time by Vite's `define` (vite.config.ts).
  *
@@ -15,29 +16,18 @@
 
 import { isCapacitorNative } from '@/lib/platform';
 
-declare const __APP_VERSION__: string;
+declare const __BUILD_DATE__: string;
+declare const __BUILD_NUMBER__: number;
 declare const __BUILD_COMMIT__: string;
-declare const __BUILD_TIME__: string;
 
-export const APP_VERSION: string = __APP_VERSION__;
+export const BUILD_DATE: string = __BUILD_DATE__;
+export const BUILD_NUMBER: number = __BUILD_NUMBER__;
 export const BUILD_COMMIT: string = __BUILD_COMMIT__;
-export const BUILD_TIME: string = __BUILD_TIME__;
 
-/** "13 Oct 2026", in India time, where the team reads it. */
-export function buildDateLabel(): string {
-  const date = new Date(BUILD_TIME);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'Asia/Kolkata',
-  });
-}
-
-/** "v1.0.0 · 3d0ac14 · 13 Oct 2026" */
+/** "v26.10.13 #2" */
 export function webBuildLabel(): string {
-  return [`v${APP_VERSION}`, BUILD_COMMIT, buildDateLabel()].filter(Boolean).join(' · ');
+  const [year = '', month = '', day = ''] = BUILD_DATE.split('-');
+  return `v${year.slice(2)}.${month}.${day} #${BUILD_NUMBER}`;
 }
 
 interface AppInfo {

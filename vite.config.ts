@@ -21,15 +21,16 @@ function buildCommit(): string {
   }
 }
 
-const appVersion: string = JSON.parse(
-  readFileSync(path.resolve(import.meta.dirname, "package.json"), "utf-8"),
-).version;
+// The deploy's date and number that day, bumped by `npm run build:next`.
+const build: { date: string; number: number } = JSON.parse(
+  readFileSync(path.resolve(import.meta.dirname, "build.json"), "utf-8"),
+);
 
 export default defineConfig({
   define: {
-    __APP_VERSION__: JSON.stringify(appVersion),
+    __BUILD_DATE__: JSON.stringify(build.date),
+    __BUILD_NUMBER__: JSON.stringify(build.number),
     __BUILD_COMMIT__: JSON.stringify(buildCommit()),
-    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
   plugins: [
     react(),

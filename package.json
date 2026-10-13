@@ -11,6 +11,7 @@
     "dev": "cross-env NODE_OPTIONS=--import=./server/dns-ipv4first.mjs NODE_ENV=development tsx watch --clear-screen=false server/index.ts",
     "dev:noreload": "cross-env NODE_OPTIONS=--import=./server/dns-ipv4first.mjs NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
+    "build:next": "node scripts/next-build.mjs",
     "start": "cross-env NODE_OPTIONS=--import=./server/dns-ipv4first.mjs NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "lint": "eslint .",
