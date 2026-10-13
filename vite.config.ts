@@ -2,10 +2,35 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import { execSync } from "child_process";
+import { readFileSync } from "fs";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { metaImagesPlugin } from "./vite-plugin-meta-images";
 
+// Which build is running, baked in at build time (client/src/lib/buildInfo.ts).
+// Railway sets RAILWAY_GIT_COMMIT_SHA itself; locally the commit comes from git.
+function buildCommit(): string {
+  const fromRailway = process.env.RAILWAY_GIT_COMMIT_SHA;
+  if (fromRailway) return fromRailway.slice(0, 7);
+  try {
+    return execSync("git rev-parse --short=7 HEAD", { stdio: ["ignore", "pipe", "ignore"] })
+      .toString()
+      .trim();
+  } catch {
+    return "dev";
+  }
+}
+
+const appVersion: string = JSON.parse(
+  readFileSync(path.resolve(import.meta.dirname, "package.json"), "utf-8"),
+).version;
+
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+    __BUILD_COMMIT__: JSON.stringify(buildCommit()),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   plugins: [
     react(),
     runtimeErrorOverlay(),

@@ -26,6 +26,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
+import { BuildVersion } from '@/components/BuildVersion';
 import {
   Dialog,
   DialogContent,
@@ -367,7 +368,7 @@ export default function Profile() {
             )}
             <div className="mt-8 hidden md:block">
               <img src={bombinoLogo} alt="Bombino" className="h-6 w-auto mb-1 opacity-30" />
-              <p className="text-[10px] text-muted-foreground">Bombino Express v1.0</p>
+              <BuildVersion />
             </div>
           </div>
 
@@ -585,7 +586,7 @@ export default function Profile() {
             {/* Footer (mobile only) */}
             <div className="mt-4 text-center md:hidden">
               <img src={bombinoLogo} alt="Bombino" className="h-5 w-auto mx-auto mb-1 opacity-30" />
-              <p className="text-[10px] text-muted-foreground">Bombino Express v1.0</p>
+              <BuildVersion />
             </div>
           </div>
         </div>

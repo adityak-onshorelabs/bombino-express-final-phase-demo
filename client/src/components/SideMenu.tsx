@@ -7,6 +7,7 @@ import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { formatGuestPhone } from '@/lib/shadowProfile';
 import { GuestSignOutDialog } from '@/components/GuestSignOutDialog';
 import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
+import { BuildVersion } from '@/components/BuildVersion';
 import bombinoLogo from '@/assets/bombino-logo.png';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
@@ -277,9 +278,7 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
               </motion.nav>
 
               <div className="p-4 border-t border-border">
-                <p className="text-xs text-muted-foreground text-center">
-                  Bombino Express v1.0.0
-                </p>
+                <BuildVersion className="text-xs text-center" />
               </div>
             </div>
           </motion.div>
