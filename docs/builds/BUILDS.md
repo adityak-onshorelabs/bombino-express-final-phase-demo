@@ -19,12 +19,21 @@ The total was counted from Railway's history of `bombino-staging`: 80 good
 deploys from 18 Sep to 13 Oct 2026 (1 failed deploy on 1 Oct not counted).
 Deploys of the app-domain project (other Railway workspace) are not in it.
 
-It lives in `build.json` at the repo root. Before each deploy:
+It lives in `build.json` at the repo root, which always holds the **upcoming**
+build — the one the next push will deploy.
+
+- Every commit message starts with it: `[81.261013.10] feat(app): ...`. A local
+  `prepare-commit-msg` hook (`.git/hooks/`, not versioned) adds it from
+  `build.json`; it skips messages that already start with `[`.
+- Right after each deploy, start the next build and log the one just shipped:
 
 ```bash
-npm run build:next   # bumps build.json, prints the new label
-# commit it with the change, push, then add the row below with the commit
+npm run build:next   # bumps build.json to the next build, prints its label
+# add the row below for the build just deployed; build.json goes in with the next commit
 ```
+
+If the push lands on a later day than the bump, update `date`/`number` in
+`build.json` (and the unpushed commit prefixes) before pushing.
 
 The git commit is not in the label but is on the element (`title` /
 `data-commit`) and in the log below.

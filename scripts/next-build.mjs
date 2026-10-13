@@ -1,4 +1,6 @@
-// Bumps build.json to the next deploy before it is committed and pushed.
+// Bumps build.json to the next build, right after a deploy. build.json always
+// holds the upcoming build; commits are prefixed with it ("[81.261013.10] ...")
+// by the local prepare-commit-msg hook (docs/builds/BUILDS.md).
 //
 //   total   every deploy ever, +1 each time (counted from Railway's history
 //           of bombino-staging: 80 good deploys up to 13 Oct 2026)
@@ -11,7 +13,7 @@
 //
 //   npm run build:next
 //
-// Then add the row to docs/builds/BUILDS.md once the commit is known.
+// Then add the row for the build just deployed to docs/builds/BUILDS.md.
 
 import { readFileSync, writeFileSync } from "fs";
 
