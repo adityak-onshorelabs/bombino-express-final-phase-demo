@@ -2,10 +2,15 @@
  * Which build of the app is running, so a screenshot from any phone says
  * exactly what code it came from. Every deploy is logged in docs/builds/.
  *
- *   "v26.10.13 #2"  the 2nd deploy on 13 Oct 2026, from build.json, which
- *                   `npm run build:next` bumps before each deploy
- *   commit          the git commit the bundle was built from (Railway's, or
- *                   local git); kept out of the label, in its title and data-commit
+ *   "V1 (Build 81.261013.10)"
+ *      V1      major version, changed by hand for a big release
+ *      81      deploys ever, the one to quote ("build 81")
+ *      261013  the deploy's date, yymmdd
+ *      10      which deploy that day
+ *   From build.json, which `npm run build:next` bumps before each deploy.
+ *
+ *   commit  the git commit the bundle was built from (Railway's, or local
+ *           git); kept out of the label, in its title and data-commit
  *
  * The values are replaced at build time by Vite's `define` (vite.config.ts).
  *
@@ -16,18 +21,22 @@
 
 import { isCapacitorNative } from '@/lib/platform';
 
+declare const __BUILD_MAJOR__: number;
+declare const __BUILD_TOTAL__: number;
 declare const __BUILD_DATE__: string;
 declare const __BUILD_NUMBER__: number;
 declare const __BUILD_COMMIT__: string;
 
+export const BUILD_MAJOR: number = __BUILD_MAJOR__;
+export const BUILD_TOTAL: number = __BUILD_TOTAL__;
 export const BUILD_DATE: string = __BUILD_DATE__;
 export const BUILD_NUMBER: number = __BUILD_NUMBER__;
 export const BUILD_COMMIT: string = __BUILD_COMMIT__;
 
-/** "v26.10.13 #2" */
+/** "V1 (Build 81.261013.10)" */
 export function webBuildLabel(): string {
   const [year = '', month = '', day = ''] = BUILD_DATE.split('-');
-  return `v${year.slice(2)}.${month}.${day} #${BUILD_NUMBER}`;
+  return `V${BUILD_MAJOR} (Build ${BUILD_TOTAL}.${year.slice(2)}${month}${day}.${BUILD_NUMBER})`;
 }
 
 interface AppInfo {

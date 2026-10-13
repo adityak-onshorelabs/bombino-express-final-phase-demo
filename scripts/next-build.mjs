@@ -1,6 +1,13 @@
-// Bumps build.json to the next deploy before it is committed and pushed:
-// the same day counts up (#1, #2, ...), a new day starts again at #1.
-// The app shows it as "v26.10.13 #2" (client/src/lib/buildInfo.ts).
+// Bumps build.json to the next deploy before it is committed and pushed.
+//
+//   total   every deploy ever, +1 each time (counted from Railway's history
+//           of bombino-staging: 80 good deploys up to 13 Oct 2026)
+//   date    the deploy's day, India time
+//   number  which deploy that day: +1 on the same day, back to 1 on a new one
+//   major   the "V1", changed by hand for a big release
+//
+// The app shows it as "Bombino Express V1 (Build 81.261013.10)"
+// (client/src/lib/buildInfo.ts).
 //
 //   npm run build:next
 //
@@ -20,6 +27,8 @@ const today = new Intl.DateTimeFormat("en-CA", {
 
 const current = JSON.parse(readFileSync(FILE, "utf-8"));
 const next = {
+  major: current.major,
+  total: current.total + 1,
   date: today,
   number: current.date === today ? current.number + 1 : 1,
 };
@@ -27,4 +36,4 @@ const next = {
 writeFileSync(FILE, `${JSON.stringify(next, null, 2)}\n`);
 
 const [y, m, d] = today.split("-");
-console.log(`v${y.slice(2)}.${m}.${d} #${next.number}`);
+console.log(`V${next.major} (Build ${next.total}.${y.slice(2)}${m}${d}.${next.number})`);

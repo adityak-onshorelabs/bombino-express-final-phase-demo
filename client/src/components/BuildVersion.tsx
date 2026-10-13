@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import { BUILD_COMMIT, nativeShellLabel, webBuildLabel } from '@/lib/buildInfo';
 
 /**
- * "Bombino Express v26.10.13 #2", with the store app's own version on a
+ * "Bombino Express V1 (Build 81.261013.10)", with the store app's own version on a
  * second line inside the iOS or Android app.
  */
 export function BuildVersion({ className }: { className?: string }): React.JSX.Element {

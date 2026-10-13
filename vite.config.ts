@@ -21,13 +21,15 @@ function buildCommit(): string {
   }
 }
 
-// The deploy's date and number that day, bumped by `npm run build:next`.
-const build: { date: string; number: number } = JSON.parse(
+// Which deploy this is, bumped by `npm run build:next` (scripts/next-build.mjs).
+const build: { major: number; total: number; date: string; number: number } = JSON.parse(
   readFileSync(path.resolve(import.meta.dirname, "build.json"), "utf-8"),
 );
 
 export default defineConfig({
   define: {
+    __BUILD_MAJOR__: JSON.stringify(build.major),
+    __BUILD_TOTAL__: JSON.stringify(build.total),
     __BUILD_DATE__: JSON.stringify(build.date),
     __BUILD_NUMBER__: JSON.stringify(build.number),
     __BUILD_COMMIT__: JSON.stringify(buildCommit()),
