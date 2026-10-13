@@ -56,5 +56,6 @@ store release; a store release only changes that second line.
 
 | Total | Build | Date | Target | Commit | Notes |
 |---|---|---|---|---|---|
+| 81 | V1 (Build 81.261013.10) | 13 Oct 2026 | Web (Railway bombino-staging) | f5aa1ad | First build with the label: build shown on customer/guest/agent Profile, ops Settings and side menu; handover code sheet opens from the top; commits prefixed with the build. |
 | 80 | V1 (Build 80.261013.9) | 13 Oct 2026 | Web (Railway bombino-staging) | 3d0ac14 | Handover code sheet above the iOS keyboard; no SMS-code autofill. Before the label existed. |
 | 1–79 | — | 18 Sep – 13 Oct 2026 | Web (Railway bombino-staging) | — | Earlier deploys, counted from Railway history, not logged one by one. |
