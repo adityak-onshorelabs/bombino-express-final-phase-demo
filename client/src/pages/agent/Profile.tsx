@@ -4,6 +4,7 @@ import { Check, Loader2, Pencil, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AgentShell, useLogout } from '@/components/agent/AgentShell';
 import { BandHeader } from '@/components/agent/BandHeader';
+import { BuildVersion } from '@/components/BuildVersion';
 import { JobCard, money } from '@/components/agent/PickupCard';
 import { PressableButton } from '@/components/motion/Pressable';
 import { StaggerItem } from '@/components/motion/Stagger';
@@ -488,9 +489,12 @@ export default function Profile() {
             </PressableButton>
           </StaggerItem>
 
-          <p className="border-t border-[#D8DFE7]! pt-4 text-[13px] font-bold uppercase tracking-[0.1em] text-[#94A3B8]">
-            Bombino Express · Agent
-          </p>
+          <div className="border-t border-[#D8DFE7]! pt-4">
+            <p className="text-[13px] font-bold uppercase tracking-[0.1em] text-[#94A3B8]">
+              Bombino Express · Agent
+            </p>
+            <BuildVersion name="" className="mt-1 text-[13px] font-semibold text-[#94A3B8]" />
+          </div>
         </div>
       )}
     </AgentShell>

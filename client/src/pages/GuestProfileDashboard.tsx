@@ -13,6 +13,7 @@ import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { parseApiErrorMessage } from '@/lib/apiError';
 import { Button } from '@/components/ui/button';
 import { GuestSignOutDialog } from '@/components/GuestSignOutDialog';
+import { BuildVersion } from '@/components/BuildVersion';
 import { BottomNav } from '@/components/BottomNav';
 import { StateBlock } from '@/components/StateBlock';
 import { ProfileProgressTracker } from '@/components/ProfileProgressTracker';
@@ -225,6 +226,8 @@ export default function GuestProfileDashboard(): React.JSX.Element {
           <LogOut className="h-4 w-4" aria-hidden />
           Sign out of this device
         </button>
+
+        <BuildVersion className="text-center" />
       </div>
 
       {/* Forget this device — see GuestSignOutDialog. */}

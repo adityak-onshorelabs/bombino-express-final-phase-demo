@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { OpsShell } from '@/components/ops/OpsShell';
+import { BuildVersion } from '@/components/BuildVersion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -124,6 +125,7 @@ export default function OpsSettings() {
         >
           Editing settings needs a super-admin account.
         </p>
+        <BuildVersion className="mt-6 text-[11px]" />
       </OpsShell>
     );
   }
@@ -238,6 +240,8 @@ export default function OpsSettings() {
           payments test mode will live here.
         </p>
       </section>
+
+      <BuildVersion className="mt-6 text-[11px]" />
     </OpsShell>
   );
 }

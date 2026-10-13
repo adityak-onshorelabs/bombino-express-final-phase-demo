@@ -6,7 +6,14 @@ import { BUILD_COMMIT, nativeShellLabel, webBuildLabel } from '@/lib/buildInfo';
  * "Bombino Express V1 (Build 81.261013.10)", with the store app's own version on a
  * second line inside the iOS or Android app.
  */
-export function BuildVersion({ className }: { className?: string }): React.JSX.Element {
+export function BuildVersion({
+  className,
+  name = 'Bombino Express',
+}: {
+  className?: string;
+  /** Before the build; empty where the screen already names the app. */
+  name?: string;
+}): React.JSX.Element {
   const [shell, setShell] = useState<string | null>(null);
 
   useEffect(() => {
@@ -24,7 +31,7 @@ export function BuildVersion({ className }: { className?: string }): React.JSX.E
       data-commit={BUILD_COMMIT}
       data-testid="text-build-version"
     >
-      <p>Bombino Express {webBuildLabel()}</p>
+      <p>{name ? `${name} ${webBuildLabel()}` : webBuildLabel()}</p>
       {shell && <p>App {shell}</p>}
     </div>
   );
