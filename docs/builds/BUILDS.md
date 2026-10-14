@@ -56,6 +56,7 @@ store release; a store release only changes that second line.
 
 | Total | Build | Date | Target | Commit | Notes |
 |---|---|---|---|---|---|
+| 84 | V1 (Build 84.261014.3) | 14 Oct 2026 | Web (Railway bombino-staging + app domain) | 1fa633e | Real-view login 9000000099 (121212, super admin) sees ops as real staff: test orders hidden. |
 | 83 | V1 (Build 83.261014.2) | 14 Oct 2026 | Web (Railway bombino-staging + app domain) | ed28734 | 9833207558 (CUSTOMER MOBILE APP) is a test phone. 51 more old orders marked test by hand; only BOM-100326 and BOM-100319 stay real. |
 | 82 | V1 (Build 82.261014.1) | 14 Oct 2026 | Web (Railway bombino-staging + app domain) | ec09a41 | Test orders and test accounts hidden from all real staff (super admin too); TEST AWBs, never ITD; test staff get an All/Real/Test filter; 9000000011 can mark orders test or real. 25 old test orders backfilled. |
 | 81 | V1 (Build 81.261013.10) | 13 Oct 2026 | Web (Railway bombino-staging) | f5aa1ad | First build with the label: build shown on customer/guest/agent Profile, ops Settings and side menu; handover code sheet opens from the top; commits prefixed with the build. |
