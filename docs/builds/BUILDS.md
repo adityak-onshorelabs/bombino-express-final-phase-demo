@@ -56,6 +56,7 @@ store release; a store release only changes that second line.
 
 | Total | Build | Date | Target | Commit | Notes |
 |---|---|---|---|---|---|
+| 82 | V1 (Build 82.261014.1) | 14 Oct 2026 | Web (Railway bombino-staging + app domain) | ec09a41 | Test orders and test accounts hidden from all real staff (super admin too); TEST AWBs, never ITD; test staff get an All/Real/Test filter; 9000000011 can mark orders test or real. 25 old test orders backfilled. |
 | 81 | V1 (Build 81.261013.10) | 13 Oct 2026 | Web (Railway bombino-staging) | f5aa1ad | First build with the label: build shown on customer/guest/agent Profile, ops Settings and side menu; handover code sheet opens from the top; commits prefixed with the build. |
 | 80 | V1 (Build 80.261013.9) | 13 Oct 2026 | Web (Railway bombino-staging) | 3d0ac14 | Handover code sheet above the iOS keyboard; no SMS-code autofill. Before the label existed. |
 | 1–79 | — | 18 Sep – 13 Oct 2026 | Web (Railway bombino-staging) | — | Earlier deploys, counted from Railway history, not logged one by one. |
