@@ -26,7 +26,18 @@ const TEAM_TEST_PHONES: readonly string[] = [
   "9833207558", // "CUSTOMER MOBILE APP", Bombino's shared ITD login, added 14 Oct 2026
 ];
 
-export const TEST_ORDER_PHONES: ReadonlySet<string> = new Set([...TEST_OTP_NUMBERS, ...TEAM_TEST_PHONES]);
+/**
+ * Fixed-code (121212) logins that are NOT test phones: a tester signs in on
+ * one to see the ops console exactly as the real team does, test orders
+ * hidden. Never book on one; its orders would be real.
+ */
+const REAL_VIEW_PHONES: readonly string[] = [
+  "9000000099", // Real View Super Admin, added 14 Oct 2026
+];
+
+export const TEST_ORDER_PHONES: ReadonlySet<string> = new Set(
+  [...TEST_OTP_NUMBERS, ...TEAM_TEST_PHONES].filter((phone) => !REAL_VIEW_PHONES.includes(phone))
+);
 
 /**
  * Ops accounts that may mark any order test or real by hand, from the order

@@ -19,6 +19,11 @@ test("the team's real test phone still logs in with a real code", () => {
   assert.equal(isTestOtpNumber("7558372885"), false);
 });
 
+test("the real-view login takes 121212 but is not a test phone", () => {
+  assert.equal(isTestOtpNumber("9000000099"), true);
+  assert.equal(isTestPhone("9000000099"), false);
+});
+
 test("other numbers are real", () => {
   assert.equal(isTestPhone("9867603072"), false);
   assert.equal(isTestPhone(null), false);
