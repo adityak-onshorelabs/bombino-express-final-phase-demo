@@ -12,6 +12,7 @@ test("fixed-OTP test numbers and the team's real test phone make test orders", (
   assert.equal(isTestPhone("+91 90000 00096"), true);
   assert.equal(isTestPhone("7558372885"), true);
   assert.equal(isTestPhone("+917558372885"), true);
+  assert.equal(isTestPhone("9833207558"), true);
 });
 
 test("the team's real test phone still logs in with a real code", () => {
