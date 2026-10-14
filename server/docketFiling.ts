@@ -27,6 +27,9 @@
  * (shared/docketRules.ts): the retry sweep, ops after a correction, or a person
  * checking ITD's portal first. The customer is never shown any of it
  * (shared/docketError.ts `customerNote`).
+ *
+ * A test order skips all of it after the pre-check and gets a test AWB
+ * (`fileTestDocket`). Nothing about it reaches ITD.
  */
 
 import crypto from "crypto";
@@ -34,6 +37,7 @@ import crypto from "crypto";
 import { buildItdKycPayload } from "../shared/kyc.js";
 import { classifyDocketFailure, docketProblems, DOCKET_AUTO_ATTEMPTS, type DocketRetry } from "../shared/docketRules.js";
 import type { Order } from "../shared/orderContract.js";
+import { isTestOrderMetadata, testAwbFor } from "../shared/testOrders.js";
 import { itdClient, isItdAuthExpired, type CreateShipmentPayload, type CreateShipmentResponse } from "./itd.js";
 import { withTimeout, itdTokenExpiryIso } from "./itdTokenRefresh.js";
 import { decryptPassword } from "./crypto.js";
@@ -205,6 +209,7 @@ export async function fileDocket(
   }
 ): Promise<FileDocketResult> {
   const writeEvent = opts.writeEvent ?? true;
+  if (isTestOrderMetadata(order.metadata)) return fileTestDocket(order, opts, writeEvent);
   if (!isRealDocketFilingEnabled()) {
     // Not recorded on the order: nothing failed, this server just may not file.
     return {
@@ -347,6 +352,49 @@ export async function fileDocket(
   } finally {
     if (!lockHandedOff) await releaseDocketLock(order.id);
   }
+}
+
+/**
+ * A test order's AWB: `TEST` + the order number's digits, saved the way a real
+ * one is, with nothing sent to ITD (shared/testOrders.ts). The booking
+ * pre-check still runs, so a tester sees the same "missing details" refusal a
+ * real booking would get. No identity document, rate or ITD login is needed.
+ */
+async function fileTestDocket(
+  order: Order,
+  opts: { source: DocketSource; actorUserId: string | null },
+  writeEvent: boolean
+): Promise<FileDocketResult> {
+  if (order.awb_no) return { status: "busy" };
+  const problems = docketProblems(order.items);
+  if (problems.length) {
+    return fail(order, {
+      stage: "precheck",
+      retry: "ops",
+      message: "The booking is missing details ITD needs. Correct them, then retry.",
+      problems,
+    });
+  }
+
+  const awb = testAwbFor(order.order_no);
+  const docketed = await applyBookingDocket({
+    orderId: order.id,
+    awbNo: awb,
+    docketResponse: { test: true, awb_no: awb, issued_at: new Date().toISOString() },
+  });
+  if (!docketed) return { status: "busy" };
+  await clearBookingDocketError(order.id);
+
+  if (writeEvent) {
+    void insertOrderEvent({
+      order_id: order.id,
+      status: docketed.status,
+      note: `${EVENT_NOTE[opts.source]} · test AWB ${awb}`,
+      actor_user_id: opts.actorUserId,
+      metadata: { action: "docket_filed", awb_no: awb, test: true },
+    });
+  }
+  return { status: "issued", awb_no: awb, order: docketed };
 }
 
 /**

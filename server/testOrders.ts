@@ -1,0 +1,70 @@
+/**
+ * Which phones are test phones, and who on the team sees what they make.
+ *
+ * A test phone's bookings are test orders, and its account, guest profile and
+ * account application are test records: hidden from real staff on the
+ * Customers, Guests and Applications tabs, and its application does not email
+ * the team. Nothing is stored for the account side; the phone decides, so a
+ * number added here turns its existing records into test ones too.
+ *
+ * The rules for a test order itself are in shared/testOrders.ts.
+ *
+ * The numbers are the fixed-OTP test accounts (`TEST_OTP_NUMBERS`) plus the
+ * real phones the team tests with. A real phone here only marks its orders as
+ * test: it still logs in with a real code, because it is not in
+ * TEST_OTP_NUMBERS.
+ */
+
+import type { Request } from "express";
+
+import { TEST_OTP_NUMBERS } from "./otp.js";
+import { isTestOrderMetadata } from "../shared/testOrders.js";
+
+/** Real phones whose bookings are test orders. Exact numbers only. */
+const TEAM_TEST_PHONES: readonly string[] = [
+  "7558372885", // Aditya, added 14 Oct 2026
+];
+
+export const TEST_ORDER_PHONES: ReadonlySet<string> = new Set([...TEST_OTP_NUMBERS, ...TEAM_TEST_PHONES]);
+
+/**
+ * Ops accounts that may mark any order test or real by hand, from the order
+ * page. Exact numbers only; each must also be a test phone, so it sees both.
+ */
+const TEST_ORDER_MARKER_PHONES: readonly string[] = [
+  "9000000011", // Test Super Admin, added 14 Oct 2026
+];
+
+/** The last ten digits, or null when there are fewer. */
+function lastTen(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  return digits.length >= 10 ? digits.slice(-10) : null;
+}
+
+/** Whether bookings by this phone are test orders, and whether staff on it see them. */
+export function isTestPhone(phone: string | null | undefined): boolean {
+  if (!phone) return false;
+  const ten = lastTen(phone);
+  return ten !== null && TEST_ORDER_PHONES.has(ten);
+}
+
+/** Whether staff signed in on this phone may mark orders test or real. */
+export function canMarkTestOrders(phone: string | null | undefined): boolean {
+  if (!phone || !isTestPhone(phone)) return false;
+  return TEST_ORDER_MARKER_PHONES.includes(lastTen(phone) ?? "");
+}
+
+/**
+ * Whether this ops caller sees test orders: only staff signed in on a test
+ * phone. No role sees them otherwise, super admin included.
+ */
+export function seesTestOrders(req: Request): boolean {
+  return req.staff?.test === true;
+}
+
+/** The rows this caller may see, as far as test orders and test accounts go. */
+export function withoutHiddenTestRows<T extends { is_test?: boolean }>(req: Request, rows: T[]): T[] {
+  return seesTestOrders(req) ? rows : rows.filter((row) => !row.is_test);
+}
+
+export { isTestOrderMetadata };

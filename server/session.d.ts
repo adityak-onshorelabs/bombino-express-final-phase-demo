@@ -27,6 +27,10 @@ declare global {
         scoped: boolean;
         /** Their city when scoped; null when unscoped or the account has no hub. */
         city: string | null;
+        /** Signed in on a test number (server/testOrders.ts): sees test orders. */
+        test: boolean;
+        /** May mark orders test or real by hand (server/testOrders.ts). */
+        marksTest: boolean;
       };
     }
   }

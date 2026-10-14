@@ -11,6 +11,7 @@ import type { Express, NextFunction, Request, RequestHandler, Response } from "e
 import { findItdUserIdByCustomerId, getIsActiveById, getStaffAccessById } from "./appDb.js";
 import { can, isCityScoped, isOpsRole, type OpsPermission } from "../shared/staffAccess.js";
 import { hubCityForId } from "../shared/hubs.js";
+import { canMarkTestOrders, isTestPhone } from "./testOrders.js";
 
 /**
  * An async handler whose rejection reaches the error middleware.
@@ -169,7 +170,13 @@ export async function loadOpsStaff(req: Request, res: Response, next: NextFuncti
     req.session.user.role = access.role;
   }
   const scoped = isCityScoped(access.role);
-  req.staff = { role: access.role, scoped, city: scoped ? hubCityForId(access.hub_id) : null };
+  req.staff = {
+    role: access.role,
+    scoped,
+    city: scoped ? hubCityForId(access.hub_id) : null,
+    test: isTestPhone(access.phone),
+    marksTest: canMarkTestOrders(access.phone),
+  };
   next();
 }
 

@@ -4,6 +4,7 @@ import { Loader2, Search } from 'lucide-react';
 import { OpsMobileField, OpsMobileItem, OpsMobileList } from '@/components/ops/OpsMobileList';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Input } from '@/components/ui/input';
+import { TestBadge } from '@/components/ops/TestBadge';
 import { useOpsGuests, type OpsGuestAccountType } from '@/hooks/useOpsGuests';
 import { cn } from '@/lib/utils';
 
@@ -189,7 +190,12 @@ export default function OpsGuests() {
                   <OpsMobileItem
                     key={row.guest_ref}
                     href={`/ops/guests/${row.guest_ref}`}
-                    title={guestDisplayName(row.full_name)}
+                    title={
+                      <>
+                        {guestDisplayName(row.full_name)}
+                        {row.is_test && <TestBadge className="ml-1.5 align-middle" />}
+                      </>
+                    }
                     testId={`ops-guest-card-${row.guest_ref}`}
                   >
                     <OpsMobileField label="Phone">{row.phone || '—'}</OpsMobileField>
@@ -229,6 +235,7 @@ export default function OpsGuests() {
                           >
                             {guestDisplayName(row.full_name)}
                           </Link>
+                          {row.is_test && <TestBadge className="ml-1.5 align-middle" />}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground tabular-nums whitespace-nowrap">
                           {row.phone || '—'}

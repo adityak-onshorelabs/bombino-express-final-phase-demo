@@ -52,6 +52,7 @@ import { AuditLogUnavailableError, logDocumentAccessOrThrow } from "../documentA
 import { sendDocumentFile, wantsDownload } from "../documentResponse.js";
 import { maskNumber } from "../accountEmails.js";
 import { applicationToFix, fixNeeds, FIX_NOT_OPEN_MESSAGE } from "../applicationFix.js";
+import { isTestPhone, withoutHiddenTestRows } from "../testOrders.js";
 import {
   COMPANY_CATEGORY_SPECS,
   DOC_SLOT_SPECS,
@@ -99,6 +100,8 @@ function queueItem(row: ApplicationRow) {
     finalize_error: row.finalize_error,
     email_error: row.email_error,
     email_sent_at: row.email_sent_at,
+    /** Applied from a test number (server/testOrders.ts). */
+    is_test: isTestPhone(row.phone),
   };
 }
 
@@ -207,7 +210,7 @@ export function registerAccountApplicationRoutes(app: Express): void {
       return;
     }
     const rows = await listApplications({ statuses });
-    res.json({ enabled: true, applications: rows.map(queueItem) });
+    res.json({ enabled: true, applications: withoutHiddenTestRows(req, rows.map(queueItem)) });
   });
 
   // GET /api/ops/applications/:id — everything a reviewer needs to decide.

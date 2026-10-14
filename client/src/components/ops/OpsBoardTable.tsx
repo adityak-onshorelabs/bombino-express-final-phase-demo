@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'wouter';
 import { StatusBadge } from '@/components/StatusBadge';
 import { OpsSenderCell } from '@/components/ops/OpsSenderCell';
+import { TestBadge } from '@/components/ops/TestBadge';
 import type { OpsBoardOrder } from '@/hooks/useOpsOrders';
 import {
   formatInr,
@@ -87,6 +88,7 @@ export function OpsBoardTable({
                   <Link href={href} className="font-semibold text-foreground hover:underline">
                     {order.order_no}
                   </Link>
+                  {order.is_test && <TestBadge className="ml-1.5 align-middle" />}
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {isDropoff ? 'Drop-off' : `Pickup on ${formatIstDate(order.pickup_date)}`}
                   </p>

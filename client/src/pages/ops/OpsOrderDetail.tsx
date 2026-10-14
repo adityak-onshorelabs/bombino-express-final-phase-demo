@@ -16,6 +16,8 @@ import { OpsWeighSheet } from '@/components/ops/OpsWeighSheet';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { TestBadge } from '@/components/ops/TestBadge';
+import { OpsTestMarkControl } from '@/components/ops/OpsTestMarkControl';
 import {
   Dialog,
   DialogContent,
@@ -416,9 +418,11 @@ export default function OpsOrderDetail() {
 
   const { order, events, handover } = data;
   // One way to an AWB is offered, whichever fits the customer: a real filing
-  // on their own ITD login, or ops entering one filed in ITD's portal.
+  // on their own ITD login, or ops entering one filed in ITD's portal. A test
+  // order always takes Generate docket, which gives it a test AWB.
+  const filesItself = data.owner_has_itd_login || order.is_test === true;
   const availableActions = data.availableActions.filter((a) =>
-    data.owner_has_itd_login ? a.action !== 'record_awb' : a.action !== 'generate_docket'
+    filesItself ? a.action !== 'record_awb' : a.action !== 'generate_docket'
   );
   const docketRetryLabel =
     order.docket_retry === 'auto'
@@ -460,6 +464,10 @@ export default function OpsOrderDetail() {
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:gap-8 lg:items-start">
       <div className="min-w-0">
 
+      {data.can_mark_test && (
+        <OpsTestMarkControl orderId={order.id} isTest={order.is_test === true} awbNo={order.awb_no ?? null} />
+      )}
+
       {agentCancel && <AgentCancelNotice cancel={agentCancel} />}
 
       {/* Where the order stands, in one look: status, journey, date, agent. */}
@@ -471,6 +479,7 @@ export default function OpsOrderDetail() {
           <span className="text-xs font-semibold text-muted-foreground tabular-nums">
             {order.order_no}
             <span className="font-medium"> · {dropoff ? 'Drop-off' : 'Pickup'}</span>
+            {order.is_test && <TestBadge className="ml-1.5 align-middle" />}
           </span>
           {issue && (
             <span

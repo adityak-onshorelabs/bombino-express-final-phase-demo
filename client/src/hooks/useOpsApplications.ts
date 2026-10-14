@@ -22,6 +22,8 @@ export type OpsApplicationRow = {
   finalize_error: string | null;
   email_error: string | null;
   email_sent_at: string | null;
+  /** Made on a test number (server/testOrders.ts). */
+  is_test?: boolean;
 };
 
 export type OpsApplicationDocument = {

@@ -24,6 +24,7 @@ import {
   type OpsBoardSort,
 } from "../shared/opsBoardQuery.js";
 import { nowInIst, startOfIstDayIso } from "../shared/istTime.js";
+import { isTestAwb, isTestOrderMetadata } from "../shared/testOrders.js";
 import { getUserContactsByIds, toOrder, type OrderRow } from "./ordersDb.js";
 import { reconcilePaymentStatus } from "./paymentsDb.js";
 
@@ -104,11 +105,15 @@ export type OpsBoardOrder = {
   docket_retry: string | null;
   /** An agent cancelled this pickup and the branch has yet to act on it. */
   agent_cancellation: OpsAgentCancellation | null;
+  /** Booked on a test number (shared/testOrders.ts). */
+  is_test: boolean;
 };
 
 export type OpsOrderDetail = {
   id: string;
   order_no: string;
+  /** Booked on a test number (shared/testOrders.ts). */
+  is_test: boolean;
   user_id: string | null;
   customer_name: string | null;
   customer_phone: string | null;
@@ -280,6 +285,7 @@ function mapBoardRow(row: Record<string, unknown>): OpsBoardOrder {
     docket_error_problems: docketErrorProblems(row.metadata),
     docket_retry: docketErrorRetry(row.metadata),
     agent_cancellation: agentCancellationFor(row, true),
+    is_test: isTestOrderMetadata(row.metadata),
   };
 }
 
@@ -294,6 +300,7 @@ function mapDetailRow(row: Record<string, unknown>): OpsOrderDetail {
   return {
     id: String(row.id),
     order_no: String(row.order_no),
+    is_test: isTestOrderMetadata(row.metadata),
     user_id: parseNullableString(row.user_id),
     customer_name: null,
     customer_phone: null,
@@ -413,6 +420,54 @@ export async function listAllOrdersForOps(opts: {
   }
 
   return withBoardNames((data ?? []).map((row) => mapBoardRow(row as Record<string, unknown>)));
+}
+
+/**
+ * Mark an order test or real by hand (PUT /api/ops/orders/:id/test).
+ *
+ * Marking it real takes off a test AWB, so the order can be filed with ITD
+ * like any other. A real ITD AWB stays either way: that shipment exists in
+ * ITD whatever the order is marked here.
+ *
+ * Read-then-write: `metadata` is one jsonb value, so its other keys are
+ * carried across by hand.
+ */
+export async function setOrderTestMark(
+  id: string,
+  test: boolean
+): Promise<{ changed: boolean; removedAwb: string | null } | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client.from("orders").select("metadata, awb_no").eq("id", id).maybeSingle();
+  if (error) {
+    logSupabaseError("setOrderTestMark.read", error);
+    return null;
+  }
+  if (!data) return null;
+
+  const metadata =
+    data.metadata && typeof data.metadata === "object" ? (data.metadata as Record<string, unknown>) : {};
+  if (isTestOrderMetadata(metadata) === test) return { changed: false, removedAwb: null };
+
+  const awb = typeof data.awb_no === "string" ? data.awb_no : null;
+  const removedAwb = !test && isTestAwb(awb) ? awb : null;
+  const { test: _old, ...rest } = metadata;
+  const update: Record<string, unknown> = {
+    metadata: test ? { ...rest, test: true } : rest,
+    updated_at: new Date().toISOString(),
+  };
+  if (removedAwb) {
+    update.awb_no = null;
+    update.itd_docket_response = null;
+  }
+
+  const { error: writeError } = await client.from("orders").update(update).eq("id", id);
+  if (writeError) {
+    logSupabaseError("setOrderTestMark.write", writeError);
+    return null;
+  }
+  return { changed: true, removedAwb };
 }
 
 /** Full order by id — no user_id filter. */
@@ -780,6 +835,8 @@ export type OpsPaymentRow = {
   collected_at: string | null;
   status: string;
   reference: string | null;
+  /** The payment is for a test order. */
+  is_test: boolean;
 };
 
 export type OpsPaymentTotals = {
@@ -796,6 +853,7 @@ export type OpsPendingCancellation = {
   consignee_name: string | null;
   requested_at: string;
   reason: string | null;
+  is_test: boolean;
 };
 
 function addCalendarDays(ymd: string, days: number): string {
@@ -835,7 +893,7 @@ function threeWayTotals(payments: OpsPaymentRow[]): OpsPaymentTotals {
  */
 export async function listOpsPayments(
   range: OpsPaymentRange,
-  opts?: { limit?: number | null }
+  opts?: { limit?: number | null; includeTest?: boolean }
 ): Promise<{ payments: OpsPaymentRow[]; totals: OpsPaymentTotals } | null> {
   const client = getSupabaseClient();
   if (!client) return null;
@@ -845,7 +903,7 @@ export async function listOpsPayments(
   let query = client
     .from("payments")
     .select(
-      "id, txn_id, order_id, amount, currency, method, collection_mode, collected_by, collected_at, status, reference, orders(order_no)"
+      "id, txn_id, order_id, amount, currency, method, collection_mode, collected_by, collected_at, status, reference, orders(order_no, metadata)"
     )
     .gte("collected_at", startIso)
     .order("collected_at", { ascending: false });
@@ -871,12 +929,11 @@ export async function listOpsPayments(
     const collectedBy = (row.collected_by as string | null) ?? null;
     const named = collectedBy ? contacts.get(collectedBy)?.full_name?.trim() : null;
     const embedded = row.orders as
-      | { order_no?: string }
-      | { order_no?: string }[]
+      | { order_no?: string; metadata?: unknown }
+      | { order_no?: string; metadata?: unknown }[]
       | null;
-    const orderNo = Array.isArray(embedded)
-      ? (embedded[0]?.order_no ?? null)
-      : (embedded?.order_no ?? null);
+    const embeddedOrder = Array.isArray(embedded) ? embedded[0] : embedded;
+    const orderNo = embeddedOrder?.order_no ?? null;
     const mode = row.collection_mode;
     return {
       id: String(row.id),
@@ -892,10 +949,13 @@ export async function listOpsPayments(
       collected_at: (row.collected_at as string | null) ?? null,
       status: String(row.status),
       reference: (row.reference as string | null) ?? null,
+      is_test: isTestOrderMetadata(embeddedOrder?.metadata),
     };
   });
 
-  return { payments, totals: threeWayTotals(payments) };
+  // Test orders' money stays out of the totals unless the caller sees them.
+  const shown = opts?.includeTest ? payments : payments.filter((p) => !p.is_test);
+  return { payments: shown, totals: threeWayTotals(shown) };
 }
 
 export type OpsOrdersExportParams = {
@@ -998,6 +1058,7 @@ export async function listPendingCancellationsForOps(): Promise<{
         consignee_name: consigneeField(order.consignee, ["name", "full_name"]),
         requested_at: request?.requested_at ?? order.updated_at,
         reason: request?.reason ?? null,
+        is_test: isTestOrderMetadata(order.metadata),
       };
     })
     .sort((a, b) => (a.requested_at < b.requested_at ? 1 : -1))

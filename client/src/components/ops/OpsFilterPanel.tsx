@@ -9,7 +9,9 @@ import {
   type OpsDateField,
   type OpsFilterConfig,
   type OpsStageFilter,
+  type OpsTestKindFilter,
 } from '@/hooks/useOpsBoardFilters';
+import { useOpsTestAccess } from '@/hooks/useOpsOrders';
 import { cn } from '@/lib/utils';
 
 function Chip({
@@ -70,6 +72,8 @@ export function OpsFilterPanel({
   const showPickupToggle = config.dateRange && config.pickupDate !== false;
   const pickupNote = dateField === 'pickup' && filters.dateRange !== 'all';
   const dateLabel = showPickupToggle ? 'Date' : 'Date (booking)';
+  // Only test staff are sent test orders, so only they get to split them out.
+  const seesTest = useOpsTestAccess().data?.sees_test === true;
 
   return (
     <div className="space-y-5" data-testid="ops-filter-panel">
@@ -180,6 +184,27 @@ export function OpsFilterPanel({
             </p>
           )}
         </div>
+      )}
+
+      {seesTest && (
+        <Group label="Orders">
+          {(
+            [
+              ['all', 'All'],
+              ['real', 'Real'],
+              ['test', 'Test'],
+            ] as const satisfies ReadonlyArray<readonly [OpsTestKindFilter, string]>
+          ).map(([value, label]) => (
+            <Chip
+              key={value}
+              active={filters.testKind === value}
+              onClick={() => setFilters((f) => ({ ...f, testKind: value }))}
+              testId={`ops-filter-test-kind-${value}`}
+            >
+              {label}
+            </Chip>
+          ))}
+        </Group>
       )}
 
       {config.paymentMethod && (

@@ -52,6 +52,8 @@ export type OpsBoardOrder = {
    * has to act; on the order page always, with `open` saying which.
    */
   agent_cancellation?: OpsAgentCancellation | null;
+  /** Booked on a test number: a test AWB, never filed with ITD. */
+  is_test?: boolean;
 };
 
 export type OpsAgentCancellation = {
@@ -106,6 +108,8 @@ export type OpsOrderDetailResponse = {
    * enters it (Enter AWB from ITD portal).
    */
   owner_has_itd_login?: boolean;
+  /** This account may mark the order test or real (server/testOrders.ts). */
+  can_mark_test?: boolean;
 };
 
 export type OpsActionResult = {
@@ -221,6 +225,39 @@ export function useOpsOrderDetail(orderId: string | undefined) {
   });
 }
 
+export const OPS_TEST_ACCESS_KEY = ['/api/ops/test-access'] as const;
+
+/** Whether this account is sent test orders, and may mark orders test or real. */
+export function useOpsTestAccess() {
+  return useQuery({
+    queryKey: OPS_TEST_ACCESS_KEY,
+    queryFn: async () => {
+      const res = await fetch('/api/ops/test-access', { credentials: 'include' });
+      return readJson<{ sees_test: boolean; can_mark: boolean }>(res);
+    },
+    retry: false,
+    staleTime: Infinity,
+  });
+}
+
+/** Mark an order test or real (PUT /api/ops/orders/:id/test). */
+export function useOpsSetTestMark(orderId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (test: boolean) => {
+      if (!orderId) throw new Error('Missing order id');
+      const res = await apiRequest('PUT', `/api/ops/orders/${orderId}/test`, { test });
+      return (await res.json()) as { test: boolean; removed_awb: string | null };
+    },
+    onSettled: () => {
+      if (!orderId) return;
+      void queryClient.invalidateQueries({ queryKey: opsOrderDetailKey(orderId) });
+      void queryClient.invalidateQueries({ queryKey: OPS_ORDERS_KEY });
+      void queryClient.invalidateQueries({ queryKey: OPS_ORDERS_EXPORT_KEY });
+    },
+  });
+}
+
 export function useOpsOrderAction(orderId: string | undefined) {
   const queryClient = useQueryClient();
 
@@ -313,6 +350,7 @@ export type OpsOrdersExportQuery = {
   dateField?: string;
   dateRange?: string;
   paymentMethod?: string;
+  testKind?: string;
   q?: string;
   sort?: string;
 };
@@ -328,6 +366,7 @@ export async function fetchOpsOrdersExport(
   if (params.dateField) qs.set('dateField', params.dateField);
   if (params.dateRange) qs.set('dateRange', params.dateRange);
   if (params.paymentMethod) qs.set('paymentMethod', params.paymentMethod);
+  if (params.testKind) qs.set('testKind', params.testKind);
   if (params.q) qs.set('q', params.q);
   if (params.sort) qs.set('sort', params.sort);
   const res = await fetch(`/api/ops/orders/export?${qs.toString()}`, {
@@ -359,6 +398,7 @@ export function useOpsBoardFiltered(opts: {
         dateField: filters.dateField,
         dateRange: filters.dateRange,
         paymentMethod: filters.paymentMethod,
+        testKind: filters.testKind,
         q: query || undefined,
         sort,
       }),

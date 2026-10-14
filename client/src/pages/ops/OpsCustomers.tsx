@@ -8,6 +8,7 @@ import { OpsDocumentPreviewOverlay, useOpsDocumentPreview } from '@/components/o
 import { OpsMobileField, OpsMobileItem, OpsMobileList } from '@/components/ops/OpsMobileList';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { Input } from '@/components/ui/input';
+import { TestBadge } from '@/components/ops/TestBadge';
 import {
   fetchOpsCustomerDocumentFile,
   fetchOpsCustomerKycFile,
@@ -370,9 +371,12 @@ export default function OpsCustomers() {
                   <OpsMobileItem
                     key={row.id}
                     title={
-                      <Link href={`/ops/customers/${row.id}`} className="hover:underline">
-                        {row.full_name}
-                      </Link>
+                      <>
+                        <Link href={`/ops/customers/${row.id}`} className="hover:underline">
+                          {row.full_name}
+                        </Link>
+                        {row.is_test && <TestBadge className="ml-1.5 align-middle" />}
+                      </>
                     }
                     aside={
                       <Link
@@ -435,6 +439,7 @@ export default function OpsCustomers() {
                           >
                             {row.full_name}
                           </Link>
+                          {row.is_test && <TestBadge className="ml-1.5 align-middle" />}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground tabular-nums whitespace-nowrap">
                           {row.phone ?? '—'}

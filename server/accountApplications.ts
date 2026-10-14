@@ -25,6 +25,7 @@ import { upsertGuestProfile } from "./guestProfileDb.js";
 import { getKycByGuestRef } from "./kycDb.js";
 import { mirrorAadhaarToKyc } from "./kycMirror.js";
 import { sendMail } from "./mailer.js";
+import { isTestPhone } from "./testOrders.js";
 import { applicationAlertEmail, applicationReceivedEmail, changesRequestedEmail, rejectedEmail } from "./accountEmails.js";
 import { getApplicationAlertRecipients } from "./opsSettings.js";
 import { COMPANY_CATEGORY_SPECS, DOC_SLOT_SPECS, isCompanyCategory, isDocSlot } from "../shared/accountSpec.js";
@@ -224,6 +225,9 @@ function accountTypeLabel(app: ApplicationRow): string {
  * way, the queue and the nav pill show it, and a failure is a log line.
  */
 export async function notifyTeamOfApplication(app: ApplicationRow, resent: boolean): Promise<void> {
+  // A test number's application stays off the team's inbox; test staff find
+  // it in the queue (server/testOrders.ts).
+  if (isTestPhone(app.phone)) return;
   try {
     const { emails } = await getApplicationAlertRecipients();
     if (emails.length === 0) return;

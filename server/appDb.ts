@@ -688,7 +688,7 @@ export async function getCustomerForOps(id: string): Promise<OpsCustomerRow | nu
  * a role change or a deactivation takes effect without a new login. `hub_id` is
  * the hub the account was created with; for a branch manager it is their city.
  */
-export type StaffAccess = { role: string; is_active: boolean; hub_id: unknown };
+export type StaffAccess = { role: string; is_active: boolean; hub_id: unknown; phone: string | null };
 
 export async function getStaffAccessById(id: string): Promise<StaffAccess | null> {
   const client = getSupabaseClient();
@@ -696,7 +696,7 @@ export async function getStaffAccessById(id: string): Promise<StaffAccess | null
 
   const { data, error } = await client
     .from("itd_users")
-    .select("role, is_active, metadata")
+    .select("role, is_active, metadata, phone")
     .eq("id", id)
     .maybeSingle();
 
@@ -707,7 +707,12 @@ export async function getStaffAccessById(id: string): Promise<StaffAccess | null
   if (!data) return null;
   const metadata =
     data.metadata && typeof data.metadata === "object" ? (data.metadata as Record<string, unknown>) : {};
-  return { role: String(data.role ?? ""), is_active: data.is_active !== false, hub_id: metadata.hub_id ?? null };
+  return {
+    role: String(data.role ?? ""),
+    is_active: data.is_active !== false,
+    hub_id: metadata.hub_id ?? null,
+    phone: typeof data.phone === "string" ? data.phone : null,
+  };
 }
 
 /**

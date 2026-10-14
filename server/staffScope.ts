@@ -15,6 +15,7 @@ import type { Request } from "express";
 import { hubCity } from "../shared/hubs.js";
 import { pickupCity } from "./assignableAgents.js";
 import { dbClient, logDbError } from "./db/client.js";
+import { isTestOrderMetadata, seesTestOrders, withoutHiddenTestRows } from "./testOrders.js";
 
 const getSupabaseClient = () => dbClient("staffScope");
 
@@ -82,10 +83,15 @@ async function citiesOfOrders(ids: readonly string[]): Promise<Map<string, strin
 }
 
 /**
- * The rows the caller may see. Unscoped callers get them all back unchanged.
- * A branch manager with no city on their account sees nothing.
+ * The rows the caller may see. Unscoped callers get them all back, less test
+ * orders unless they see those (server/testOrders.ts). A branch manager with
+ * no city on their account sees nothing.
  */
-export async function keepCallersOrders<T extends { id: string }>(req: Request, rows: T[]): Promise<T[] | null> {
+export async function keepCallersOrders<T extends { id: string; is_test?: boolean }>(
+  req: Request,
+  all: T[]
+): Promise<T[] | null> {
+  const rows = withoutHiddenTestRows(req, all);
   if (!isScoped(req)) return rows;
   const city = req.staff?.city ?? null;
   if (!city) return [];
@@ -94,8 +100,16 @@ export async function keepCallersOrders<T extends { id: string }>(req: Request, 
   return rows.filter((r) => cities.get(r.id) === city);
 }
 
-/** Whether the caller may see or act on this order. Unscoped callers always may. */
-export async function isCallersOrder(req: Request, order: { items: unknown }): Promise<boolean> {
+/**
+ * Whether the caller may see or act on this order. Unscoped callers may,
+ * unless it is a test order they are not shown (server/testOrders.ts).
+ */
+export async function isCallersOrder(
+  req: Request,
+  order: { items: unknown; is_test?: boolean; metadata?: unknown }
+): Promise<boolean> {
+  const isTest = order.is_test === true || isTestOrderMetadata(order.metadata);
+  if (isTest && !seesTestOrders(req)) return false;
   if (!isScoped(req)) return true;
   const city = req.staff?.city ?? null;
   if (!city) return false;

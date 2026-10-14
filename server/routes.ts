@@ -74,6 +74,7 @@ import {
 } from "./routeGuards.js";
 import { can, isOpsRole } from "../shared/staffAccess.js";
 import { isCallersOrder } from "./staffScope.js";
+import { isTestPhone } from "./testOrders.js";
 import { registerAgentRoutes } from "./routes/agent.js";
 import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerGuestProfileRoutes } from "./routes/guestProfile.js";
@@ -3246,14 +3247,20 @@ export async function registerRoutes(
     // number cut to "91" + its first eight digits; picking that saved address
     // sent BOM-100339 to ITD with it. Put the account's number back on both
     // copies before anything is stored or filed.
+    let accountPhone: string | null = null;
     if (req.session.dbUserId) {
       const account = (await getUserContactsByIds([req.session.dbUserId])).get(req.session.dbUserId);
+      accountPhone = account?.phone ?? null;
       const shipper = repairCutMobile(String(body.items.shipper_contact_no ?? ""), account?.phone);
       if (shipper !== body.items.shipper_contact_no) body.items.shipper_contact_no = shipper;
       body.origin_address.phone = repairCutMobile(body.origin_address.phone, account?.phone);
     }
 
     const guestPhone = bookingAsGuest ? body.origin_address.phone.trim() : null;
+
+    // Booked on a test number: a test order, kept apart from real ones and
+    // given a test AWB instead of a real ITD docket (server/testOrders.ts).
+    const isTestBooking = isTestPhone(bookingAsGuest ? guestPhone : accountPhone);
 
     // A guest has never signed the contract — there was no account creation to
     // sign it at — so the shipment cannot move without it. Checked here as
@@ -3471,6 +3478,7 @@ export async function registerRoutes(
       payment_method: body.payment_method,
       is_cod: body.payment_method === "cod",
       metadata: {
+        ...(isTestBooking ? { test: true } : {}),
         kyc_verified: bookingKyc.verified,
         quote_verified: !!itdQuote,
         ...(itdQuote && body.quoted_amount != null && itdQuote.total !== body.quoted_amount

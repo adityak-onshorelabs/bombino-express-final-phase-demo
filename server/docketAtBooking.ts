@@ -37,6 +37,7 @@ import type { Request } from "express";
 
 import { fileDocket, isRealDocketFilingEnabled } from "./docketFiling.js";
 import type { Order } from "../shared/orderContract.js";
+import { isTestOrderMetadata } from "../shared/testOrders.js";
 
 /** Lives in docketFiling.ts now: it gates every real filing, not only booking's. */
 export { isRealDocketFilingEnabled as isDocketAtBookingEnabled };
@@ -126,10 +127,12 @@ export async function docketAtBooking(
   req: Request,
   order: Order
 ): Promise<BookingDocketOutcome> {
-  if (!isRealDocketFilingEnabled()) return SKIPPED;
+  // A test order gets its test AWB here whoever booked it, on any server
+  // (shared/testOrders.ts).
+  if (!isTestOrderMetadata(order.metadata) && !isRealDocketFilingEnabled()) return SKIPPED;
   // A guest order has no account and therefore no ITD credential. It is also
   // the cohort this whole split exists to keep OUT of ITD at booking.
-  if (!order.user_id) return SKIPPED;
+  if (!order.user_id && !isTestOrderMetadata(order.metadata)) return SKIPPED;
 
   const result = await fileDocket(order, {
     source: "booking",

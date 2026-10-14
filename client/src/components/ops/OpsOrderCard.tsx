@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { todayInIst } from '@shared/istTime';
 import { OpsSenderCell } from '@/components/ops/OpsSenderCell';
+import { TestBadge } from '@/components/ops/TestBadge';
 import { getOrderStatusLabel } from '@/lib/orderStatus';
 import { formatInr } from '@/lib/orderDetail';
 import { cn } from '@/lib/utils';
@@ -237,6 +238,7 @@ export function OpsOrderCard({ order }: { order: OpsBoardOrder }) {
         <span className="text-xs font-semibold text-muted-foreground tabular-nums">
           {order.order_no}
           <span className="font-medium"> · {dropoff ? 'Drop-off' : 'Pickup'}</span>
+          {order.is_test && <TestBadge className="ml-1.5 align-middle" />}
         </span>
         {issue && (
           <span

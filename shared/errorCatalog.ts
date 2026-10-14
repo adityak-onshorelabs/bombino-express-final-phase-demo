@@ -538,6 +538,8 @@ export const UNCATALOGUED_CODES = [
   "INVALID_AGENT",
   // Ops console: a branch manager assigning an agent from another city.
   "AGENT_OUTSIDE_CITY",
+  // Ops console: a test order to a real agent, or a real order to a test agent.
+  "TEST_AGENT_MISMATCH",
   // Ops console: marking an application's document verified by hand.
   "ALREADY_VERIFIED",
   "DOCUMENT_NOT_UPLOADED",

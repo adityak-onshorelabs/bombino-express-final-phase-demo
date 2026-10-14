@@ -6,6 +6,7 @@ import { AlertTriangle, Loader2 } from 'lucide-react';
 import { OpsMobileField, OpsMobileItem, OpsMobileList } from '@/components/ops/OpsMobileList';
 import { OpsShell } from '@/components/ops/OpsShell';
 import { OpsApplicationSettings } from '@/components/ops/OpsApplicationAlerts';
+import { TestBadge } from '@/components/ops/TestBadge';
 import { useOpsApplications, type OpsApplicationFilter, type OpsApplicationRow } from '@/hooks/useOpsApplications';
 import { OPS_STATUS_LABEL, OPS_STATUS_TONE, SLOW_AFTER_MS, waitedFor } from '@/lib/opsApplications';
 import { formatIst } from '@/lib/orderDetail';
@@ -190,7 +191,12 @@ export default function OpsApplications() {
               <OpsMobileItem
                 key={row.id}
                 href={`/ops/applications/${row.id}`}
-                title={row.name ?? row.phone}
+                title={
+                  <>
+                    {row.name ?? row.phone}
+                    {row.is_test && <TestBadge className="ml-1.5 align-middle" />}
+                  </>
+                }
                 aside={<StatusPill status={row.status} />}
                 testId={`ops-application-card-${row.id}`}
               >
@@ -249,6 +255,7 @@ export default function OpsApplications() {
                       <Link href={`/ops/applications/${row.id}`} className="font-extrabold text-foreground hover:underline">
                         {row.name ?? row.phone}
                       </Link>
+                      {row.is_test && <TestBadge className="ml-1.5 align-middle" />}
                       <p className="text-xs text-muted-foreground break-all">{row.email}</p>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground tabular-nums whitespace-nowrap">{row.phone}</td>

@@ -5,6 +5,7 @@
 
 import { RATE_ORIGIN_HUB_CODE } from "../shared/rateOrigin.js";
 import { parseItdJson } from "./itdJson.js";
+import { isTestAwb } from "../shared/testOrders.js";
 
 const ADMIN_BASE = "https://admin.bombinoexp.com";
 const APP_BASE = "https://app.bombinoexp.com";
@@ -403,6 +404,8 @@ class ITDClient {
     token?: string,
     customerCode?: string
   ): Promise<ITDTrackingResult[]> {
+    // A test order's AWB was never filed with ITD: nothing to track.
+    if (isTestAwb(trackingNo)) return [];
     const authToken = token ?? (await this.getToken());
     const params = new URLSearchParams({
       api_company_id: process.env.ITD_API_COMPANY_ID ?? "2",

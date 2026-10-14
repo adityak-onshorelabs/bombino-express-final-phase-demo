@@ -85,6 +85,7 @@ import {
   countOrdersForOpsCustomers,
   countOrdersForOpsGuests,
   getOrderByIdForOps,
+  setOrderTestMark,
   listAllOrdersForOps,
   listOpsOrdersByCustomer,
   listOpsOrdersByGuestRef,
@@ -99,6 +100,7 @@ import { buildPincodeReport } from "../pincodeReport.js";
 import { opsGateFor } from "../routeGuards.js";
 import { boxLabelEligible, boxLabelFor } from "./parcel.js";
 import { isCallersOrder, isScoped, keepCallersOrders } from "../staffScope.js";
+import { isTestPhone, seesTestOrders, withoutHiddenTestRows } from "../testOrders.js";
 import { assignableRoles, can, STAFF_ROLES } from "../../shared/staffAccess.js";
 import { INDIAN_MOBILE_MESSAGE, INDIAN_MOBILE_PATTERN } from "../../shared/contact.js";
 import { sendDocumentFile, wantsDownload } from "../documentResponse.js";
@@ -281,6 +283,7 @@ const ordersExportQuerySchema = z.object({
   paymentMethod: z
     .enum(["all", "pay_now", "pay_at_pickup", "pay_at_dropoff", "cod"])
     .optional(),
+  testKind: z.enum(["all", "real", "test"]).optional(),
   q: z.string().optional(),
   sort: z.enum(["newest", "oldest"]).optional(),
 });
@@ -366,6 +369,53 @@ async function keepCallersStaff<T extends { id: string; role: string }>(
 }
 
 export function registerOpsRoutes(app: Express): void {
+  // GET /api/ops/test-access — what this caller does with test orders
+  // (server/testOrders.ts): whether they are sent them, so the boards show a
+  // real/test filter, and whether they may mark an order test or real.
+  app.get("/api/ops/test-access", ...opsGateFor("orders.view"), (req: Request, res: Response) => {
+    res.json({ sees_test: seesTestOrders(req), can_mark: req.staff?.marksTest === true });
+  });
+
+  // PUT /api/ops/orders/:id/test — mark an order test or real by hand. Only
+  // the accounts in TEST_ORDER_MARKER_PHONES.
+  app.put("/api/ops/orders/:id/test", ...opsGateFor("orders.view"), async (req: Request, res: Response) => {
+    if (req.staff?.marksTest !== true) {
+      res.status(403).json({
+        message: "You do not have permission to perform this action.",
+        code: "FORBIDDEN",
+      });
+      return;
+    }
+    const test = (req.body as { test?: unknown } | null)?.test;
+    if (typeof test !== "boolean") {
+      res.status(400).json({ message: "test must be true or false", code: "INVALID_REQUEST" });
+      return;
+    }
+    const order = await getOrderByIdForOps(req.params.id);
+    if (!order) {
+      res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
+      return;
+    }
+    const result = await setOrderTestMark(order.id, test);
+    if (!result) {
+      res.status(502).json({ message: "Could not change this order. Please try again." });
+      return;
+    }
+    if (result.changed) {
+      const note = test
+        ? "Marked as a test order"
+        : `Marked as a real order${result.removedAwb ? ` · test AWB ${result.removedAwb} removed` : ""}`;
+      void insertOrderEvent({
+        order_id: order.id,
+        status: order.status,
+        note,
+        actor_user_id: req.session.dbUserId ?? null,
+        metadata: { action: "test_mark", test, removed_awb: result.removedAwb },
+      });
+    }
+    res.json({ test, removed_awb: result.removedAwb });
+  });
+
   // GET /api/ops/orders — all orders, newest first (cap 200)
   app.get(
     "/api/ops/orders",
@@ -419,6 +469,7 @@ export function registerOpsRoutes(app: Express): void {
           dateField: q.dateField ?? DEFAULT_OPS_BOARD_FILTERS.dateField,
           dateRange: q.dateRange ?? DEFAULT_OPS_BOARD_FILTERS.dateRange,
           paymentMethod: q.paymentMethod ?? DEFAULT_OPS_BOARD_FILTERS.paymentMethod,
+          testKind: q.testKind ?? DEFAULT_OPS_BOARD_FILTERS.testKind,
         },
         query: q.q ?? "",
         sort: q.sort ?? "newest",
@@ -444,7 +495,7 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
-      const result = await listOpsPayments(range);
+      const result = await listOpsPayments(range, { includeTest: seesTestOrders(req) });
       if (result === null) {
         res.status(502).json({ message: "Could not load payments" });
         return;
@@ -465,7 +516,7 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
-      const result = await listOpsPayments(range, { limit: null });
+      const result = await listOpsPayments(range, { limit: null, includeTest: seesTestOrders(req) });
       if (result === null) {
         res.status(502).json({ message: "Could not export payments" });
         return;
@@ -526,7 +577,14 @@ export function registerOpsRoutes(app: Express): void {
       // portal and entering the number (Enter AWB from ITD portal).
       const ownerHasItdLogin = order.user_id ? await itdUserHasStoredPassword(order.user_id) : false;
 
-      res.json({ order, events, availableActions: actions, handover, owner_has_itd_login: ownerHasItdLogin });
+      res.json({
+        order,
+        events,
+        availableActions: actions,
+        handover,
+        owner_has_itd_login: ownerHasItdLogin,
+        can_mark_test: req.staff?.marksTest === true,
+      });
     }
   );
 
@@ -556,11 +614,13 @@ export function registerOpsRoutes(app: Express): void {
         res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
         return;
       }
-      const [city, agents] = await Promise.all([pickupCity(order.items), loadAgentsWithCities()]);
-      if (!agents) {
+      const [city, allAgents] = await Promise.all([pickupCity(order.items), loadAgentsWithCities()]);
+      if (!allAgents) {
         res.status(502).json({ message: "Could not load agents" });
         return;
       }
+      // A test order goes to test agents only, and a real one never to them.
+      const agents = allAgents.filter((a) => isTestPhone(a.phone) === order.is_test);
       // A branch manager picks from their own city's agents only, never the
       // whole-country fallback.
       if (isScoped(req)) {
@@ -608,10 +668,20 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
+      const target = await getOrderByIdForOps(req.params.id);
+      if (target && target.is_test !== isTestPhone(agent.phone)) {
+        res.status(409).json({
+          message: target.is_test
+            ? "This is a test order. Assign it to a test agent."
+            : "Test agents can only take test orders. Choose a real agent.",
+          code: "TEST_AGENT_MISMATCH",
+        });
+        return;
+      }
+
       // A branch manager assigns their own city's pickups to their own city's
       // agents. Everyone else with orders.act may assign anywhere.
       if (isScoped(req)) {
-        const target = await getOrderByIdForOps(req.params.id);
         if (!target || !(await isCallersOrder(req, target))) {
           res.status(404).json({ message: "Order not found", code: "ORDER_NOT_FOUND" });
           return;
@@ -713,7 +783,7 @@ export function registerOpsRoutes(app: Express): void {
       }
 
       res.json({
-        customers: rows.map((row) => {
+        customers: withoutHiddenTestRows(req, rows.map((row) => ({ ...row, is_test: isTestPhone(row.phone) }))).map((row) => {
           const doc_slots = slotsByUser.get(row.id) ?? [];
           const identity_kinds = kindsByUser.get(row.id) ?? [];
           const shipment_kyc = shipmentByUser.has(row.id);
@@ -729,6 +799,7 @@ export function registerOpsRoutes(app: Express): void {
             doc_slots,
             shipment_kyc,
             identity_kinds,
+            is_test: row.is_test,
           };
         }),
       });
@@ -842,7 +913,7 @@ export function registerOpsRoutes(app: Express): void {
       }
 
       res.json({
-        guests: rows.map((row) => {
+        guests: withoutHiddenTestRows(req, rows.map((row) => ({ ...row, is_test: isTestPhone(row.phone) }))).map((row) => {
           const kyc_on_file = shipmentByRef.has(row.guest_ref);
           return {
             guest_ref: row.guest_ref,
@@ -853,6 +924,7 @@ export function registerOpsRoutes(app: Express): void {
             created_at: row.created_at,
             kyc_on_file,
             order_count: orderCounts.get(row.guest_ref) ?? 0,
+            is_test: row.is_test,
           };
         }),
       });
