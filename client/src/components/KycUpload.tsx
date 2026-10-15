@@ -44,6 +44,12 @@ interface KycUploadProps {
    * account-side caller omits it and is authorised by its session instead.
    */
   guestPhone?: string;
+  /**
+   * Drawn inside a panel that already says what this is (Profile's
+   * "Replace identity document"): no card of its own, no "KYC Details"
+   * heading, and no "Required" pill before a file is chosen.
+   */
+  embedded?: boolean;
 }
 
 type DocConfig = {
@@ -121,6 +127,7 @@ export function KycUpload({
   onValidChange = () => undefined,
   fieldErrors,
   guestPhone,
+  embedded = false,
 }: KycUploadProps): React.JSX.Element {
   const [selectedDocType, setSelectedDocType] = useState(KYC_DOCUMENT_TYPE);
   const [docNoRaw, setDocNoRaw] = useState('');
@@ -393,13 +400,15 @@ export function KycUpload({
     selectedDocType === 'Aadhaar Number' ? AADHAAR_DISPLAY_MAX_LENGTH : docConfig.maxLength;
 
   return (
-    <div className="bg-card rounded-xl border border-border p-4 shadow-card space-y-4">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-semibold">KYC Details</Label>
-        <span className="text-[10px] text-muted-foreground">
-          Required for Indian customs
-        </span>
-      </div>
+    <div className={cn(!embedded && 'bg-card rounded-xl border border-border p-4 shadow-card', 'space-y-4')}>
+      {!embedded && (
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-semibold">KYC Details</Label>
+          <span className="text-[10px] text-muted-foreground">
+            Required for Indian customs
+          </span>
+        </div>
+      )}
 
       <div id="kyc-details-fields" className="space-y-4">
       {/* Document Type */}
@@ -459,7 +468,7 @@ export function KycUpload({
           <Label className="text-xs text-muted-foreground">
             {docConfig.label} Document <span className="text-red-400">*</span>
           </Label>
-          <StatusPill status={uploadStatus} />
+          {!(embedded && uploadStatus === 'idle') && <StatusPill status={uploadStatus} />}
         </div>
 
         <input

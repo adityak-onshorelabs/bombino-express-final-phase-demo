@@ -420,11 +420,17 @@ export const SHADOW_FIELD_SPECS: Record<ShadowProfileFieldKey, ShadowProfileFiel
  * depends on the category. `requiredExtraFields` is the same function signup
  * uses, so the two lists cannot diverge.
  *
- * Before the type is chosen there is exactly one question worth asking, and
- * this returns only that: nothing else can be answered sensibly yet.
+ * Before the type is chosen, the shortest onboarding there is: the personal
+ * one. Returning only the type question here made a fresh guest read "50%
+ * complete, 1 thing left" (type and the verified phone, out of two) when
+ * opening an account still needs a name, an email, an identity document and
+ * the contract. The type stays first, so it is still what the banner and the
+ * tracker ask for next; choosing Company then adds its own rows.
  */
 export function profileFieldKeys(profile: GuestProfile): ShadowProfileFieldKey[] {
-  if (!profile.account_type) return ['account_type', 'phone'];
+  if (!profile.account_type) {
+    return ['account_type', 'phone', 'full_name', 'email', 'documents', 'account'];
+  }
 
   if (profile.account_type === 'personal') {
     return ['account_type', 'phone', 'full_name', 'email', 'documents', 'account'];

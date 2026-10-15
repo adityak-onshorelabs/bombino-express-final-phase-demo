@@ -1,18 +1,20 @@
 ﻿import { useEffect, useState } from 'react';
 import {
+  AlertCircle,
   ArrowLeft,
-  User,
+  AtSign,
+  BadgeCheck,
+  Clock,
+  FileWarning,
   Mail,
   Phone,
-  LogOut,
-  Phone as PhoneIcon,
+  User,
   UserCircle,
-  Shield,
-  Calendar,
 } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useRefreshUserProfile, useUserProfile } from '@/hooks/useUserProfile';
 import { isIndianMobile, toIndianMobile } from '@shared/contact';
+import { formatGuestPhone } from '@/lib/shadowProfile';
 import { useAppStore } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,7 +28,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
-import { BuildVersion } from '@/components/BuildVersion';
 import {
   Dialog,
   DialogContent,
@@ -41,12 +42,9 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { parseApiErrorMessage } from '@/lib/apiError';
-import bombinoLogo from '@/assets/bombino-logo.png';
-import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { SignedOutState } from '@/components/StateBlock';
 import { BottomNav } from '@/components/BottomNav';
-import { KycUpload } from '@/components/KycUpload';
-import { KycOnFileCard } from '@/components/KycOnFileCard';
+import { IdentityDocumentSection } from '@/components/IdentityDocumentSection';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { AccountDocuments } from '@/components/AccountDocuments';
@@ -59,12 +57,21 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import type { CompanyCategory, DocSlot } from '@shared/accountSpec';
 import { AskBiaTopButton } from '@/components/bia/AskBiaTopButton';
+import {
+  ProfileFooter,
+  ProfileHero,
+  ProfileRow,
+  ProfileRows,
+  ProfileSection,
+  ProfileSupportSection,
+  RowAction,
+} from '@/components/profile/ProfileBlocks';
 
 function formatMemberSince(iso: string | undefined | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
 export default function Profile() {
@@ -153,6 +160,10 @@ export default function Profile() {
   const displayUsername = profile?.username ?? user?.username ?? '';
   const displayRole = profile?.role ?? user?.role ?? '';
   const memberSince = profile?.created_at ? formatMemberSince(profile.created_at) : null;
+  // "customer" -> "Customer". Staff never land here (their surface is ops).
+  const roleLabel = displayRole
+    ? displayRole.charAt(0).toUpperCase() + displayRole.slice(1).replace(/_/g, ' ')
+    : '';
 
   const hasLinkedPhone = Boolean(profile?.phone && String(profile.phone).trim());
   // Accounts created in this app carry a synthetic id and have no password
@@ -338,6 +349,7 @@ export default function Profile() {
         <div className="flex items-center h-14 px-4 max-w-md mx-auto">
           <button
             onClick={() => window.history.back()}
+            aria-label="Back"
             className="p-2 -ml-2 rounded-lg hover:bg-muted transition-colors"
             data-testid="button-back-profile"
           >
@@ -348,143 +360,52 @@ export default function Profile() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto w-full px-4 md:px-8 py-6">
-        <div className="md:grid md:grid-cols-12 gap-8 items-start">
-
-          {/* LEFT — avatar + identity */}
-          <div className="md:col-span-5 flex flex-col items-center text-center md:text-left md:items-start mb-6 md:mb-0 md:sticky md:top-6">
-            <div className="w-20 h-20 bg-primary/8 rounded-2xl flex items-center justify-center mb-4 shadow-card">
-              <User className="w-10 h-10 text-foreground" />
-            </div>
-            <h2 className="text-xl font-bold text-foreground leading-tight">
-              {displayName || 'User'}
-            </h2>
-            <p className="text-sm text-muted-foreground mt-1">{displayEmail}</p>
-            {memberSince && (
-              <span className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-medium text-secondary bg-[#2F4468]/8 px-3 py-1 rounded-full">
-                <Calendar className="w-3 h-3" />
-                Member since {memberSince}
-              </span>
-            )}
-            <div className="mt-8 hidden md:block">
-              <img src={bombinoLogo} alt="Bombino" className="h-6 w-auto mb-1 opacity-30" />
-              <BuildVersion />
+      <main className="max-w-md md:max-w-5xl mx-auto w-full px-4 md:px-8 py-5 md:py-6">
+        <div className="md:grid md:grid-cols-12 md:gap-6 md:items-start">
+          {/* LEFT — who you are. Sticky on desktop so it stays beside the
+              section being edited. */}
+          <div className="md:col-span-5 md:sticky md:top-6 space-y-4 mb-4 md:mb-0">
+            <ProfileHero
+              name={displayName || 'Your account'}
+              lines={[
+                ...(hasLinkedPhone
+                  ? [{ icon: Phone, text: formatGuestPhone(toIndianMobile(displayPhone)), verified: true }]
+                  : []),
+                ...(displayEmail ? [{ icon: Mail, text: displayEmail }] : []),
+              ]}
+              stats={[
+                { label: 'Account', value: roleLabel || 'Customer' },
+                ...(memberSince ? [{ label: 'Member since', value: memberSince }] : []),
+                ...(verification
+                  ? [
+                      verification.verified
+                        ? { label: 'Status', value: 'Verified', icon: BadgeCheck, tone: 'good' as const }
+                        : { label: 'Status', value: 'Pending', icon: Clock, tone: 'pending' as const },
+                    ]
+                  : []),
+              ]}
+            />
+            <div className="hidden md:block">
+              <ProfileSupportSection waHref={waHref} telHref={telHref} officeLabel={officeLabel} />
             </div>
           </div>
 
-          {/* RIGHT — details + support + sign out */}
-          <div className="md:col-span-7 space-y-5">
-            {/* Details card */}
-            <div className="bg-white rounded-2xl border border-border divide-y divide-[#E2E8F0] shadow-card">
-              <div className="flex items-center gap-3 p-4">
-                <div className="w-9 h-9 bg-muted rounded-xl flex items-center justify-center shrink-0">
-                  <Mail className="w-4 h-4 text-secondary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Email</p>
-                  <p className="font-medium text-sm truncate text-foreground">{displayEmail}</p>
-                </div>
-              </div>
-              <div id="phone" className="flex items-center gap-3 p-4 scroll-mt-24">
-                <div className="w-9 h-9 bg-muted rounded-xl flex items-center justify-center shrink-0">
-                  <Phone className="w-4 h-4 text-secondary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Phone</p>
-                  <p className="font-medium text-sm truncate text-foreground">{displayPhone}</p>
-                  {hasLinkedPhone && (
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      You sign in with this number.
-                    </p>
-                  )}
-                  {notOnWhatsapp && (
-                    <div className="mt-1.5" data-testid="notice-not-on-whatsapp">
-                      <p className="text-[11px] text-muted-foreground">
-                        This number isn’t on WhatsApp, so we can’t send you updates there.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={openWhatsappDialog}
-                        className="mt-1 text-xs font-semibold text-secondary hover:underline"
-                        data-testid="button-verify-whatsapp"
-                      >
-                        Verify WhatsApp
-                      </button>
-                    </div>
-                  )}
-                </div>
-                {hasLinkedPhone && (
-                  <div className="shrink-0 flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={openChangeDialog}
-                      className="text-xs font-semibold text-secondary hover:underline px-2 py-1 rounded-lg"
-                      data-testid="button-change-phone"
-                    >
-                      Change
-                    </button>
-                    {/* Unlink only where it can be undone. An account created
-                        here has no password anywhere, so removing its number
-                        would shut it permanently — those get Change instead. */}
-                    {canUnlinkPhone && (
-                      <button
-                        type="button"
-                        onClick={() => setUnlinkOpen(true)}
-                        className="text-xs font-semibold text-red-600 hover:text-red-700 hover:underline px-2 py-1 rounded-lg"
-                        data-testid="button-unlink-phone"
-                      >
-                        Unlink
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-3 p-4">
-                <div className="w-9 h-9 bg-muted rounded-xl flex items-center justify-center shrink-0">
-                  <UserCircle className="w-4 h-4 text-secondary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Username</p>
-                  <p className="font-medium text-sm truncate text-foreground">{displayUsername}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={openUsernameDialog}
-                  className="shrink-0 text-xs font-semibold text-secondary hover:underline px-2 py-1 rounded-lg"
-                  data-testid="button-edit-username"
-                >
-                  Edit
-                </button>
-              </div>
-              <div className="flex items-center gap-3 p-4">
-                <div className="w-9 h-9 bg-muted rounded-xl flex items-center justify-center shrink-0">
-                  <Shield className="w-4 h-4 text-secondary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Role</p>
-                  <p className="font-medium text-sm truncate text-foreground">{displayRole}</p>
-                </div>
-              </div>
-            </div>
-
+          {/* RIGHT — what you can look at and change. */}
+          <div className="md:col-span-7 space-y-4">
             {/* Account documents — the completion path for a skipped signup.
                 Rendered only while something is outstanding: a verified account
-                has no business being shown an upload form it does not need. */}
+                has no business being shown an upload form it does not need.
+                First, because it is the one thing here that holds parcels. */}
             {verification && !verification.verified && (
-              <div
+              <ProfileSection
                 id="documents"
-                className="scroll-mt-20 bg-white rounded-2xl border border-amber-200 p-4 shadow-card space-y-3"
-                data-testid="profile-documents-section"
+                icon={FileWarning}
+                tone="attention"
+                title="Finish verifying your account"
+                description="Indian customs needs these before we can dispatch a parcel."
+                bodyClassName="space-y-3 px-4 pb-4"
+                testId="profile-documents-section"
               >
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground">
-                    Finish verifying your account
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Indian customs requires these before we can dispatch a parcel.
-                  </p>
-                </div>
-
                 <AccountDocuments
                   accountType={verification.account_type}
                   category={(verification.company_category as CompanyCategory | null) ?? null}
@@ -497,7 +418,6 @@ export default function Profile() {
                     if (state) publishVerificationState(queryClient, state);
                   }}
                 />
-
                 <p className="text-xs text-muted-foreground">
                   Would rather hand these over in person?{' '}
                   <a
@@ -511,83 +431,96 @@ export default function Profile() {
                   </a>{' '}
                   and we will take them from there.
                 </p>
-              </div>
+              </ProfileSection>
             )}
+
+            {/* Account details */}
+            <ProfileSection
+              icon={UserCircle}
+              title="Account details"
+              description="How you sign in and how we reach you."
+              testId="profile-details-section"
+            >
+              <ProfileRows>
+                <ProfileRow icon={Mail} label="Email" value={displayEmail || 'Not set'} />
+                <ProfileRow
+                  id="phone"
+                  icon={Phone}
+                  label="Mobile number"
+                  value={displayPhone}
+                  note={hasLinkedPhone ? 'You sign in with this number.' : undefined}
+                  actions={
+                    hasLinkedPhone ? (
+                      <>
+                        <RowAction onClick={openChangeDialog} testId="button-change-phone">
+                          Change
+                        </RowAction>
+                        {/* Unlink only where it can be undone. An account created
+                            here has no password anywhere, so removing its number
+                            would shut it permanently — those get Change instead. */}
+                        {canUnlinkPhone && (
+                          <RowAction onClick={() => setUnlinkOpen(true)} destructive testId="button-unlink-phone">
+                            Unlink
+                          </RowAction>
+                        )}
+                      </>
+                    ) : undefined
+                  }
+                >
+                  {notOnWhatsapp && (
+                    <div
+                      className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5"
+                      data-testid="notice-not-on-whatsapp"
+                    >
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs leading-relaxed text-amber-900">
+                          This number isn’t on WhatsApp, so we can’t send you updates there.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={openWhatsappDialog}
+                          className="mt-1 text-xs font-semibold text-amber-900 underline underline-offset-2"
+                          data-testid="button-verify-whatsapp"
+                        >
+                          Verify WhatsApp
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </ProfileRow>
+                <ProfileRow
+                  icon={AtSign}
+                  label="Username"
+                  value={displayUsername || 'Not set'}
+                  actions={
+                    <RowAction onClick={openUsernameDialog} testId="button-edit-username">
+                      Edit
+                    </RowAction>
+                  }
+                />
+              </ProfileRows>
+            </ProfileSection>
 
             {/* Identity document (KYC)
                 Replaces the document already on file. An account that has none
                 has nothing to replace — its path is the checklist above, whose
                 Aadhaar is mirrored into kyc_documents on upload — so the card
                 simply is not drawn. Company accounts never hold one either. */}
-            {kycOnFile && (
-              <div
-                id="kyc"
-                className="bg-white rounded-2xl border border-border p-4 shadow-card space-y-3"
-                data-testid="profile-kyc-section"
-              >
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground">Identity document</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    On file and sent with every shipment for Indian customs. Replace it
-                    below only if your details have changed.
-                  </p>
-                </div>
-                <KycOnFileCard kyc={kycOnFile} />
-                <KycUpload />
-              </div>
-            )}
+            {kycOnFile && <IdentityDocumentSection kyc={kycOnFile} />}
 
             {/* BIA's reminders, each one switchable (BIA 3.0, 5.1). */}
             <NudgePrefs />
 
-            {/* Support card */}
-            <div className="bg-white rounded-2xl border border-border divide-y divide-[#E2E8F0] shadow-card">
-              <a
-                href={waHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 p-4 hover:bg-background transition-colors rounded-t-2xl"
-                data-testid="link-profile-whatsapp"
-              >
-                <div className="w-9 h-9 bg-green-50 rounded-xl flex items-center justify-center shrink-0">
-                  <img src={whatsAppLogo} alt="WhatsApp" className="w-4 h-4 object-contain" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-sm text-foreground">WhatsApp Support</p>
-                  <p className="text-xs text-muted-foreground">Chat with us instantly</p>
-                </div>
-              </a>
-              <a
-                href={telHref}
-                className="flex items-center gap-3 p-4 hover:bg-background transition-colors rounded-b-2xl"
-                data-testid="link-profile-call"
-              >
-                <div className="w-9 h-9 bg-[#2F4468]/8 rounded-xl flex items-center justify-center shrink-0">
-                  <PhoneIcon className="w-4 h-4 text-secondary" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-sm text-foreground">Call Support</p>
-                  <p className="text-xs text-muted-foreground">{officeLabel}</p>
-                </div>
-              </a>
+            <div className="md:hidden">
+              <ProfileSupportSection waHref={waHref} telHref={telHref} officeLabel={officeLabel} />
             </div>
 
-            {/* Sign out */}
-            <Button
-              onClick={() => setSignOutOpen(true)}
-              variant="outline"
-              className="w-full h-10 text-red-600 border-red-200 hover:bg-red-50 text-sm rounded-xl"
-              data-testid="button-profile-logout"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Sign Out
-            </Button>
-
-            {/* Footer (mobile only) */}
-            <div className="mt-4 text-center md:hidden">
-              <img src={bombinoLogo} alt="Bombino" className="h-5 w-auto mx-auto mb-1 opacity-30" />
-              <BuildVersion />
-            </div>
+            <ProfileFooter
+              signOutLabel="Sign out"
+              onSignOut={() => setSignOutOpen(true)}
+              testId="button-profile-logout"
+            />
           </div>
         </div>
       </main>
