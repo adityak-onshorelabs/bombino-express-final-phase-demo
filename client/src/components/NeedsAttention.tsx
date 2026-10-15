@@ -1,4 +1,5 @@
-import { useMemo, type ReactElement, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactElement, type ReactNode } from 'react';
+import { AlertCircle } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { format, isToday, isTomorrow, parseISO, isValid } from 'date-fns';
 import { navigateInApp } from '@/lib/biaNavigate';
@@ -55,6 +56,57 @@ export function NeedsAttention({
   );
 }
 
+/**
+ * Whether rows are drawn inside another card (Home's My parcels) rather than
+ * as cards of their own. A context, not a prop, so the three row kinds below
+ * do not each have to pass it along.
+ */
+const EmbeddedRows = createContext(false);
+
+/**
+ * Needs your attention, drawn inside the My parcels card: an amber block at
+ * its top, rows as plain lines on it. Same items, same rules, same actions as
+ * the standalone section; draws nothing when there is nothing to do.
+ */
+export function AttentionBlock({
+  rows,
+  bell,
+  loading,
+}: {
+  rows: DisplayRow[];
+  bell: CustomerNotification[];
+  loading: boolean;
+}): ReactElement | null {
+  const items = useMemo(() => attentionItems(rows, bell), [rows, bell]);
+  if (loading || items.length === 0) return null;
+
+  return (
+    <section
+      className="border-y border-amber-200 bg-amber-50/60"
+      aria-labelledby="needs-attention-heading"
+      data-testid="zone-needs-attention"
+    >
+      <h3
+        id="needs-attention-heading"
+        className="flex items-center gap-1.5 px-4 pt-3 pb-1 text-xs font-semibold text-amber-900"
+      >
+        <AlertCircle className="h-3.5 w-3.5" aria-hidden />
+        Needs your attention
+        <span className="ml-1 inline-flex min-w-5 h-5 items-center justify-center rounded-full bg-[#F2A123] px-1.5 text-[11px] font-bold text-white tabular-nums">
+          {items.length}
+        </span>
+      </h3>
+      <EmbeddedRows.Provider value={true}>
+        <div className="divide-y divide-amber-200/70">
+          {items.map((item) => (
+            <AttentionRow key={item.key} item={item} />
+          ))}
+        </div>
+      </EmbeddedRows.Provider>
+    </section>
+  );
+}
+
 /** My Shipments' row: card-accent, an id line with a badge, then a muted detail line. */
 function Row({
   onClick,
@@ -73,12 +125,17 @@ function Row({
   detail: ReactNode;
   aside?: ReactNode;
 }): ReactElement {
+  const embedded = useContext(EmbeddedRows);
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={ariaLabel}
-      className="block w-full text-left card-accent hover:border-primary/25 active:scale-[0.99] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2A123]"
+      className={
+        embedded
+          ? 'block w-full text-left px-4 py-3 hover:bg-amber-100/60 active:bg-amber-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#F2A123]'
+          : 'block w-full text-left card-accent hover:border-primary/25 active:scale-[0.99] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F2A123]'
+      }
       data-testid={testId}
     >
       <div className="flex items-center justify-between gap-2 mb-1">

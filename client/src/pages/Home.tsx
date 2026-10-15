@@ -10,13 +10,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useIsMobile } from '@/hooks/use-mobile';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
-import { type DisplayRow } from '@/lib/shipmentRows';
-import { useNotifications, useOrderHistory } from '@/hooks/useCustomerOrders';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { ApplicationStatusCard } from '@/components/ApplicationStatusCard';
 import HomeDesktop from '@/pages/HomeDesktop';
-import { NeedsAttention } from '@/components/NeedsAttention';
 import { ParcelsQuickAccess } from '@/components/ParcelsQuickAccess';
 
 export default function Home() {
@@ -40,15 +37,6 @@ function HomeMobile() {
   // Home is where someone looks for "where is my parcel", so a guest's orders
   // belong here as well as on /orders, rather than only behind the profile link.
   const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
-
-  // Both poll while the tab is in front — home is the screen a customer leaves
-  // open, and it was the worst offender for showing yesterday's state.
-  const { data: historyData, isLoading: historyLoading } = useOrderHistory(isLoggedIn);
-  const { data: notificationsData } = useNotifications(isLoggedIn);
-
-  const shipmentRows: DisplayRow[] = historyData ?? [];
-  const apiNotifications = notificationsData ?? [];
-  const shipmentsLoading = isLoggedIn && historyLoading;
 
   const handleTrack = () => {
     if (trackingNumber.trim()) {
@@ -235,17 +223,6 @@ function HomeMobile() {
           </>
         )}
 
-        {isLoggedIn && (
-          <div className="space-y-7">
-            <div className="space-y-7">
-              {/* Replaces Recent Updates, which repeated My Shipments as
-                  notifications. Only what the customer has to act on; drawn
-                  only when there is something. */}
-              <NeedsAttention rows={shipmentRows} bell={apiNotifications} loading={shipmentsLoading} />
-            </div>
-
-          </div>
-        )}
 
       </main>
 

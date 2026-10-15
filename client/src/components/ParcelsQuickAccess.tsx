@@ -4,6 +4,9 @@ import { format, isValid, parseISO } from 'date-fns';
 import { ChevronRight, MapPin, PackageOpen, Send } from 'lucide-react';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useParcelsOverview } from '@/hooks/useParcelsOverview';
+import { useNotifications } from '@/hooks/useCustomerOrders';
+import { AttentionBlock } from '@/components/NeedsAttention';
+import { useAppStore } from '@/lib/store';
 import type { DisplayRow } from '@/lib/shipmentRows';
 import { cn } from '@/lib/utils';
 
@@ -103,6 +106,11 @@ function PreviewRow({ row }: { row: DisplayRow }) {
 export function ParcelsQuickAccess({ className, embedded = false }: { className?: string; embedded?: boolean }) {
   const overview = useParcelsOverview();
   const [side, setSide] = useState<Side>('sending');
+  // What the customer has to act on (an OTP, a payment, a decision), shown at
+  // the top of this card. Accounts only, as before: it reads the account's
+  // order facts and bell.
+  const isLoggedIn = useAppStore((s) => s.isLoggedIn);
+  const { data: bell } = useNotifications(isLoggedIn);
   if (!overview.hasIdentity) return null;
 
   const rows = side === 'sending' ? overview.sending : overview.receiving;
@@ -133,6 +141,12 @@ export function ParcelsQuickAccess({ className, embedded = false }: { className?
           View all <ChevronRight className="w-3 h-3" />
         </Link>
       </div>
+
+      {isLoggedIn && (
+        <div className="mb-3">
+          <AttentionBlock rows={overview.sending} bell={bell ?? []} loading={overview.loading} />
+        </div>
+      )}
 
       <div className="px-4">
         <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-[#F3F4F6]" role="tablist">

@@ -15,9 +15,8 @@ import { useAppStore } from '@/lib/store';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { type DisplayRow } from '@/lib/shipmentRows';
-import { useNotifications, useOrderHistory } from '@/hooks/useCustomerOrders';
+import { useOrderHistory } from '@/hooks/useCustomerOrders';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
-import { NeedsAttention } from '@/components/NeedsAttention';
 import { ParcelsQuickAccess } from '@/components/ParcelsQuickAccess';
 
 
@@ -521,14 +520,9 @@ export default function HomeDesktop() {
 
   const [trackingNumber, setTrackingNumber] = useState('');
 
-  // Same two hooks the mobile home uses, so both share one cache and one
-  // polling schedule rather than each running their own timers.
-  const { data: historyData, isLoading: historyLoading } = useOrderHistory(isLoggedIn);
-  const { data: notificationsData } = useNotifications(isLoggedIn);
-
+  // The same list My parcels reads, so the two share one cache.
+  const { data: historyData } = useOrderHistory(isLoggedIn);
   const shipmentRows: DisplayRow[] = historyData ?? [];
-  const apiNotifications = notificationsData ?? [];
-  const shipmentsLoading = isLoggedIn && historyLoading;
 
   const handleTrack = (awb?: string) => {
     const value = (awb ?? trackingNumber).trim();
@@ -565,11 +559,7 @@ export default function HomeDesktop() {
 
         {/* RIGHT — sidebar */}
         <aside className="col-span-12 lg:col-span-4 space-y-5">
-          {/* First in the rail: what the customer has to do. Absent when
-              nothing is due, so the rail falls back to support and tips. */}
-          {isLoggedIn && (
-            <NeedsAttention rows={shipmentRows} bell={apiNotifications} loading={shipmentsLoading} />
-          )}
+          {/* Needs your attention lives at the top of My parcels now. */}
           <SupportWidget />
           {isLoggedIn ? (
             <KycHomeTip />
