@@ -601,6 +601,11 @@ export async function deleteGuestProfilesFor(
  * the other kind: a number verified once, a name half typed, and nothing
  * since.
  *
+ * A receiver who has never booked (routes.ts, /api/auth/phone/continue) has a
+ * profile with no orders too, and is swept with the rest. That costs nothing:
+ * their parcels are found by phone, not by this ref, and their next sign-in
+ * writes the row again.
+ *
  * Returns the count and collects errors rather than throwing, matching the
  * rest of the sweep.
  */

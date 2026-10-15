@@ -20,6 +20,7 @@ import Track from "@/pages/Track";
 import Receive from "@/pages/Receive";
 import ShipmentDetails from "@/pages/ShipmentDetails";
 import OrderDetails from "@/pages/OrderDetails";
+import IncomingParcel from "@/pages/IncomingParcel";
 import Rates from "@/pages/Rates";
 import CreateShipment from "@/pages/CreateShipment";
 import Orders from "@/pages/Orders";
@@ -72,6 +73,7 @@ function CustomerRouter() {
       {/* Pre-docket orders. A shipment has an AWB and lives at /shipment;
           an order has only BOM-xxxxxx until ops generates one. */}
       <Route path="/order/:orderNo" component={OrderDetails} />
+      <Route path="/incoming/:orderNo" component={IncomingParcel} />
       <Route path="/rates" component={Rates} />
       <Route path="/create" component={CreateShipment} />
       <Route path="/orders" component={Orders} />

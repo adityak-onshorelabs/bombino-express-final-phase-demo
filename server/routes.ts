@@ -97,6 +97,9 @@ import { boxLabelEligible, registerParcelRoutes } from "./routes/parcel.js";
 import { listPublicSettings } from "./settingsDb.js";
 import { registerBiaRoutes } from "./routes/bia.js";
 import { registerAccountApplicationRoutes } from "./routes/accountApplications.js";
+import { registerReceivingRoutes } from "./routes/receiving.js";
+import { countReceivingParcels } from "./receivingDb.js";
+import { normalizeReceiverAppPhone } from "../shared/receiving.js";
 import { getLatestApplicationByPhone, isOpenApplicationRef, toCustomerView } from "./accountApplicationsDb.js";
 import {
   handleMarkDispatched,
@@ -324,6 +327,8 @@ export async function registerRoutes(
   registerBiaRoutes(app);
   // Account review: the customer's application status and the ops queue.
   registerAccountApplicationRoutes(app);
+  // Parcels coming TO the signed-in number: the receiver's read-only view.
+  registerReceivingRoutes(app);
   // Guest box labels (QR), the public parcel page behind the QR, and the
   // agent/ops scan lookup.
   registerParcelRoutes(app);
@@ -2012,12 +2017,37 @@ export async function registerRoutes(
         // An applicant waiting on the Bombino team signs in as exactly this: a
         // guest. Their application rides along so the app can say where it is.
         const application = await getLatestApplicationByPhone(phone);
+        // A guest who books can be a receiver too; the count lets the app open
+        // on the parcels coming to them.
+        const receiving = await countReceivingParcels({ phone, userId: null });
         req.session.save((err) => {
           if (err) console.error("[phone/continue] guest session save error:", err);
           res.json({
             status: "guest" as const,
             application: application ? toCustomerView(application) : null,
+            receiving,
           });
+        });
+        return;
+      }
+
+      // A receiver: no account and no bookings, but parcels on their way to
+      // this number. They are a guest like any other number we know, so they
+      // get a guest ref of their own and a profile row that holds it, which is
+      // what lets getLatestGuestRefForPhone find them again next time. The
+      // parcels themselves are read by phone (server/receivingDb.ts), not by
+      // this ref.
+      const receiving = await countReceivingParcels({ phone, userId: null });
+      if (receiving > 0) {
+        const ref = await signupRefForPhone(req, phone);
+        req.session.signupRef = ref;
+        req.session.signupPhone = phone;
+        req.session.guestRef = ref;
+        req.session.guestPhone = phone;
+        await upsertGuestProfile({ guest_ref: ref, phone });
+        req.session.save((err) => {
+          if (err) console.error("[phone/continue] receiver session save error:", err);
+          res.json({ status: "guest" as const, application: null, receiving });
         });
         return;
       }
@@ -3257,6 +3287,13 @@ export async function registerRoutes(
     }
 
     const guestPhone = bookingAsGuest ? body.origin_address.phone.trim() : null;
+
+    // The receiver's app number: what lets them sign in and watch this parcel
+    // (shared/receiving.ts). Optional, Indian mobiles only, and stored as ten
+    // bare digits or not at all, so a typo cannot match somebody else.
+    const receiverAppPhone = normalizeReceiverAppPhone(body.consignee.app_phone);
+    if (receiverAppPhone) body.consignee.app_phone = receiverAppPhone;
+    else delete body.consignee.app_phone;
 
     // Booked on a test number: a test order, kept apart from real ones and
     // given a test AWB instead of a real ITD docket (server/testOrders.ts).

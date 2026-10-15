@@ -64,7 +64,11 @@ type ContinueResponse =
    * put this session back on their `guest_ref`. They are already who they came
    * here to be, so there is nothing left to ask.
    */
-  | { status: 'guest' }
+  | {
+      status: 'guest';
+      /** Parcels on their way TO this number (server/receivingDb.ts). */
+      receiving?: number;
+    }
   | { status: 'needs_account' };
 
 const STEP_META: Record<Step, { title: string; subtitle: string; index: number }> = {
@@ -116,6 +120,8 @@ export default function Login() {
   const [cooldown, setCooldown] = useState(0);
   /** Inline confirmation for a resend, where nothing else on screen changes. */
   const [justSent, setJustSent] = useState(false);
+  /** How many parcels are coming to the number just verified. */
+  const [receiving, setReceiving] = useState(0);
 
   const phoneRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
@@ -223,6 +229,7 @@ export default function Login() {
         // sign-out on this tab would still be fresh and the next screen would
         // render as though nobody had verified anything.
         invalidateGuestProfile(queryClient);
+        setReceiving(data.receiving ?? 0);
         // Offered, not assumed. The number is theirs either way, but whether
         // they want to carry on as a guest or turn it into an account is a
         // decision they came to this screen to make.
@@ -460,9 +467,23 @@ export default function Login() {
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               {guestProfile?.orders.length
                 ? `${guestProfile.orders.length === 1 ? '1 booking is' : `${guestProfile.orders.length} bookings are`} filed against this number.`
-                : 'This number has shipped with us before.'}
+                : receiving > 0
+                  ? 'Parcels are on their way to this number.'
+                  : 'This number has shipped with us before.'}
             </p>
           </div>
+
+          {/* A receiver came to see what is coming to them, so that is the
+              first door. */}
+          {receiving > 0 && (
+            <Button
+              onClick={() => setLocation('/orders?view=receiving')}
+              className="h-12 w-full rounded-xl bg-[lab(34.0831_-9.57756_-27.7093)] text-base font-semibold text-white hover:bg-[#2F4468]"
+              data-testid="button-see-receiving"
+            >
+              {receiving === 1 ? 'See the parcel coming to me' : `See ${receiving} parcels coming to me`}
+            </Button>
+          )}
 
           {/* An applicant waiting on the Bombino team is a guest until then;
               this says where their account stands. */}

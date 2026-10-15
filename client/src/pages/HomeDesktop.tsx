@@ -13,12 +13,12 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { useKycOnFile } from '@/hooks/useKycOnFile';
-import { StatusBadge } from '@/components/StatusBadge';
 import whatsAppLogo from '@/assets/WhatsApp.svg.png';
 import { type DisplayRow } from '@/lib/shipmentRows';
 import { useNotifications, useOrderHistory } from '@/hooks/useCustomerOrders';
 import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { NeedsAttention } from '@/components/NeedsAttention';
+import { ParcelsQuickAccess } from '@/components/ParcelsQuickAccess';
 
 
 // ─── Popular routes (static seed; ready to swap for an /api/popular-routes endpoint) ───
@@ -514,91 +514,6 @@ function TipsWidget() {
 }
 
 // ─── My Shipments table (logged-in main column) ───
-function MyShipmentsTable({
-  rows,
-  loading,
-}: {
-  rows: DisplayRow[];
-  loading: boolean;
-}) {
-  return (
-    <section className="rounded-2xl bg-white border border-[#E2E8F0] shadow-card overflow-hidden">
-      <div className="px-6 py-4 flex items-center justify-between border-b border-[#E2E8F0]">
-        <div>
-          <h3 className="text-sm font-bold tracking-tight text-foreground">My shipments</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Your most recent orders.</p>
-        </div>
-        <Link
-          href="/orders"
-          className="text-xs font-semibold text-[#F2A123] inline-flex items-center gap-1 hover:underline"
-        >
-          View all <ChevronRight className="w-3 h-3" />
-        </Link>
-      </div>
-      <div className="grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-2.5 text-[10px] font-bold tracking-[0.12em] uppercase text-muted-foreground border-b border-[#E2E8F0] bg-[#F8F9FA]">
-        <span>AWB / Order number</span>
-        <span>Destination</span>
-        <span className="text-right">Amount</span>
-        <span>Status</span>
-      </div>
-      <div className="divide-y divide-[#E2E8F0]">
-        {loading && (
-          <>
-            <div className="grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-3.5 animate-pulse items-center">
-              <div className="h-3.5 w-32 bg-[#F3F4F6] rounded" />
-              <div className="h-3 w-24 bg-[#F3F4F6] rounded" />
-              <div className="h-3 w-16 bg-[#F3F4F6] rounded justify-self-end" />
-              <div className="h-5 w-16 bg-[#F3F4F6] rounded-full" />
-            </div>
-            <div className="grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-3.5 animate-pulse items-center">
-              <div className="h-3.5 w-32 bg-[#F3F4F6] rounded" />
-              <div className="h-3 w-24 bg-[#F3F4F6] rounded" />
-              <div className="h-3 w-16 bg-[#F3F4F6] rounded justify-self-end" />
-              <div className="h-5 w-16 bg-[#F3F4F6] rounded-full" />
-            </div>
-          </>
-        )}
-        {!loading && rows.length === 0 && (
-          <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-            No shipments yet. <Link href="/create" className="text-[#F2A123] font-semibold hover:underline">Create your first →</Link>
-          </div>
-        )}
-        {!loading &&
-          rows.slice(0, 4).map((row) => {
-            const dest = [row.city, row.country].filter(Boolean).join(', ') || '—';
-            const rowClassName =
-              'grid grid-cols-[2fr_1.5fr_auto_auto] gap-4 px-6 py-3.5 items-center hover:bg-[#F8F9FA] transition-colors';
-            const content = (
-              <>
-                <span className="text-sm font-semibold tabular-nums tracking-[0.02em] text-foreground">
-                  {row.isOrder && (
-                    <span className="mr-1.5 text-[9px] font-bold uppercase tracking-[0.08em] text-muted-foreground bg-muted px-1.5 py-0.5 rounded align-middle">
-                      Order
-                    </span>
-                  )}
-                  {row.displayId}
-                </span>
-                <span className="text-sm text-muted-foreground truncate">{dest}</span>
-                <span className="text-sm font-medium tabular-nums text-right">{row.amountStr ?? '—'}</span>
-                <StatusBadge status={row.statusLabel} tone={row.statusTone} className="shrink-0" />
-              </>
-            );
-            return (
-              <Link
-                key={row.key}
-                href={`${row.isOrder ? '/order' : '/shipment'}/${encodeURIComponent(row.displayId)}`}
-                className={rowClassName}
-                data-testid={`shipment-row-${row.displayId}`}
-              >
-                {content}
-              </Link>
-            );
-          })}
-      </div>
-    </section>
-  );
-}
-
 // ─── Desktop page ───
 export default function HomeDesktop() {
   const [, setLocation] = useLocation();
@@ -640,9 +555,8 @@ export default function HomeDesktop() {
         <div className="col-span-12 lg:col-span-8 space-y-6">
           <ActionCards />
 
-          {isLoggedIn && (
-            <MyShipmentsTable rows={shipmentRows} loading={shipmentsLoading} />
-          )}
+          {/* Sending | Receiving with the newest few of each. */}
+          <ParcelsQuickAccess />
 
           <PopularRoutes />
 
