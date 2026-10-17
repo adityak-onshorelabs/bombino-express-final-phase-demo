@@ -227,16 +227,46 @@ export function useOpsOrderDetail(orderId: string | undefined) {
 
 export const OPS_TEST_ACCESS_KEY = ['/api/ops/test-access'] as const;
 
-/** Whether this account is sent test orders, and may mark orders test or real. */
+export type OpsTestAccess = {
+  /** Signed in on a test number: gets the test/live data switch. */
+  test_staff: boolean;
+  /** On test data now (test records only); false = live records only. */
+  sees_test: boolean;
+  can_mark: boolean;
+};
+
+/** Whether this account is on test data, and may mark orders test or real. */
 export function useOpsTestAccess() {
   return useQuery({
     queryKey: OPS_TEST_ACCESS_KEY,
     queryFn: async () => {
       const res = await fetch('/api/ops/test-access', { credentials: 'include' });
-      return readJson<{ sees_test: boolean; can_mark: boolean }>(res);
+      return readJson<OpsTestAccess>(res);
     },
     retry: false,
     staleTime: Infinity,
+  });
+}
+
+/**
+ * Switch a test number's console between test data and live data
+ * (PUT /api/ops/data-mode). Every ops list changes, so everything refetches.
+ */
+export function useOpsSetDataMode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (mode: 'test' | 'live') => {
+      const res = await apiRequest('PUT', '/api/ops/data-mode', { mode });
+      return (await res.json()) as { mode: 'test' | 'live' };
+    },
+    onSuccess: ({ mode }) => {
+      queryClient.setQueryData<OpsTestAccess>(OPS_TEST_ACCESS_KEY, (prev) =>
+        prev ? { ...prev, sees_test: mode === 'test' } : prev
+      );
+      void queryClient.invalidateQueries({
+        predicate: (q) => q.queryKey[0] !== OPS_TEST_ACCESS_KEY[0],
+      });
+    },
   });
 }
 
@@ -350,7 +380,6 @@ export type OpsOrdersExportQuery = {
   dateField?: string;
   dateRange?: string;
   paymentMethod?: string;
-  testKind?: string;
   q?: string;
   sort?: string;
 };
@@ -366,7 +395,6 @@ export async function fetchOpsOrdersExport(
   if (params.dateField) qs.set('dateField', params.dateField);
   if (params.dateRange) qs.set('dateRange', params.dateRange);
   if (params.paymentMethod) qs.set('paymentMethod', params.paymentMethod);
-  if (params.testKind) qs.set('testKind', params.testKind);
   if (params.q) qs.set('q', params.q);
   if (params.sort) qs.set('sort', params.sort);
   const res = await fetch(`/api/ops/orders/export?${qs.toString()}`, {
@@ -398,7 +426,6 @@ export function useOpsBoardFiltered(opts: {
         dateField: filters.dateField,
         dateRange: filters.dateRange,
         paymentMethod: filters.paymentMethod,
-        testKind: filters.testKind,
         q: query || undefined,
         sort,
       }),

@@ -218,7 +218,6 @@ export function OpsSectionBoard({
         dateField: filters.dateField,
         dateRange: filters.dateRange,
         paymentMethod: filters.paymentMethod,
-        testKind: filters.testKind,
         q: query.trim() || undefined,
         sort,
       });

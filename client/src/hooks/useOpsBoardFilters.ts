@@ -18,7 +18,6 @@ import {
   type OpsFilterConfig,
   type OpsPaymentMethodFilter,
   type OpsStageFilter,
-  type OpsTestKindFilter,
 } from '@shared/opsBoardQuery';
 import type { OpsBoardOrder } from '@/hooks/useOpsOrders';
 
@@ -32,7 +31,6 @@ export type {
   OpsFilterConfig,
   OpsPaymentMethodFilter,
   OpsStageFilter,
-  OpsTestKindFilter,
 };
 
 export {

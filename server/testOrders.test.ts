@@ -5,7 +5,6 @@ import type { Request } from "express";
 import { canMarkTestOrders, isTestPhone, seesTestOrders, withoutHiddenTestRows } from "./testOrders.js";
 import { isTestAwb, isTestOrderMetadata, testAwbFor } from "../shared/testOrders.js";
 import { isTestOtpNumber } from "./otp.js";
-import { applyOpsBoardQuery, DEFAULT_OPS_BOARD_FILTERS } from "../shared/opsBoardQuery.js";
 
 test("fixed-OTP test numbers and the team's real test phone make test orders", () => {
   assert.equal(isTestPhone("9000000090"), true);
@@ -39,7 +38,7 @@ test("only the test super admin's number may mark orders test or real", () => {
 });
 
 test("only metadata.test === true marks a test order", () => {
-  assert.equal(isTestOrderMetadata({ test: true, marksTest: false }), true);
+  assert.equal(isTestOrderMetadata({ test: true, liveView: false, marksTest: false }), true);
   assert.equal(isTestOrderMetadata({ test: "true" }), false);
   assert.equal(isTestOrderMetadata({}), false);
   assert.equal(isTestOrderMetadata(null), false);
@@ -60,51 +59,25 @@ function req(staff: Request["staff"]): Request {
 const rows = [{ id: "a", is_test: false }, { id: "b", is_test: true }];
 
 test("real staff never see test rows", () => {
-  const admin = req({ role: "admin", scoped: false, city: null, test: false, marksTest: false });
+  const admin = req({ role: "admin", scoped: false, city: null, test: false, liveView: false, marksTest: false });
   assert.equal(seesTestOrders(admin), false);
   assert.deepEqual(withoutHiddenTestRows(admin, rows).map((r) => r.id), ["a"]);
 });
 
-test("test staff always see them", () => {
-  const testBranch = req({ role: "branch_manager", scoped: true, city: "Mumbai", test: true, marksTest: false });
-  assert.deepEqual(withoutHiddenTestRows(testBranch, rows).map((r) => r.id), ["a", "b"]);
+test("test staff on test data see only test rows", () => {
+  const testBranch = req({ role: "branch_manager", scoped: true, city: "Mumbai", test: true, liveView: false, marksTest: false });
+  assert.equal(seesTestOrders(testBranch), true);
+  assert.deepEqual(withoutHiddenTestRows(testBranch, rows).map((r) => r.id), ["b"]);
 });
 
-test("the real/test filter: real hides test orders, test shows only them", () => {
-  const orders = [
-    { order_no: "BOM-1", is_test: false },
-    { order_no: "BOM-2", is_test: true },
-  ].map((o) => ({
-    ...o,
-    status: "pickup_requested",
-    created_at: "2026-10-14T00:00:00Z",
-    pickup_request: 1,
-    pickup_date: null,
-    payment_method: "pay_now",
-    is_cod: false,
-    agent_id: null,
-    consignee_name: null,
-    consignee_city: null,
-    awb_no: null,
-    guest_name: null,
-    guest_phone: null,
-    customer_name: null,
-    customer_phone: null,
-  }));
-  const only = (testKind: "all" | "real" | "test") =>
-    applyOpsBoardQuery(orders, {
-      filters: { ...DEFAULT_OPS_BOARD_FILTERS, testKind },
-      config: {},
-      query: "",
-      sort: "newest",
-    }).map((o) => o.order_no);
-  assert.deepEqual(only("all").sort(), ["BOM-1", "BOM-2"]);
-  assert.deepEqual(only("real"), ["BOM-1"]);
-  assert.deepEqual(only("test"), ["BOM-2"]);
+test("test staff switched to live data see exactly what real staff see", () => {
+  const testAdmin = req({ role: "super_admin", scoped: false, city: null, test: true, liveView: true, marksTest: true });
+  assert.equal(seesTestOrders(testAdmin), false);
+  assert.deepEqual(withoutHiddenTestRows(testAdmin, rows).map((r) => r.id), ["a"]);
 });
 
 test("a super admin does not see them either", () => {
-  const superAdmin = req({ role: "super_admin", scoped: false, city: null, test: false, marksTest: false });
+  const superAdmin = req({ role: "super_admin", scoped: false, city: null, test: false, liveView: false, marksTest: false });
   assert.equal(seesTestOrders(superAdmin), false);
   assert.deepEqual(withoutHiddenTestRows(superAdmin, rows).map((r) => r.id), ["a"]);
 });

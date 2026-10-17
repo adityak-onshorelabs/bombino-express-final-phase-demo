@@ -9,6 +9,7 @@ import { useAppStore } from '@/lib/store';
 import { TopBar } from '@/components/TopBar';
 import { OpsNav } from './OpsNav';
 import { OpsDesktopSidebar } from './OpsDesktopSidebar';
+import { OpsDataModeSwitch } from './OpsDataModeSwitch';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { ScanParcelButton } from '@/components/ScanParcelSheet';
@@ -52,6 +53,7 @@ export function OpsShell({
 
   const heading = (
     <div className="mb-4">
+      <OpsDataModeSwitch />
       {eyebrow && <div className="mb-2">{eyebrow}</div>}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

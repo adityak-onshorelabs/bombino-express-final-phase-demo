@@ -199,14 +199,6 @@ function ActivePills({
     });
   }
 
-  if (filters.testKind !== 'all') {
-    pills.push({
-      key: 'test-kind',
-      label: filters.testKind === 'test' ? 'Test orders' : 'Real orders',
-      onRemove: () => setFilters((f) => ({ ...f, testKind: 'all' })),
-    });
-  }
-
   if (pills.length === 0) return null;
 
   return (

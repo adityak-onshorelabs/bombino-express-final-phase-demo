@@ -893,7 +893,7 @@ function threeWayTotals(payments: OpsPaymentRow[]): OpsPaymentTotals {
  */
 export async function listOpsPayments(
   range: OpsPaymentRange,
-  opts?: { limit?: number | null; includeTest?: boolean }
+  opts?: { limit?: number | null; testOnly?: boolean }
 ): Promise<{ payments: OpsPaymentRow[]; totals: OpsPaymentTotals } | null> {
   const client = getSupabaseClient();
   if (!client) return null;
@@ -953,8 +953,9 @@ export async function listOpsPayments(
     };
   });
 
-  // Test orders' money stays out of the totals unless the caller sees them.
-  const shown = opts?.includeTest ? payments : payments.filter((p) => !p.is_test);
+  // Test orders' money and live orders' money never share a total.
+  const testOnly = opts?.testOnly === true;
+  const shown = payments.filter((p) => p.is_test === testOnly);
   return { payments: shown, totals: threeWayTotals(shown) };
 }
 

@@ -283,7 +283,6 @@ const ordersExportQuerySchema = z.object({
   paymentMethod: z
     .enum(["all", "pay_now", "pay_at_pickup", "pay_at_dropoff", "cod"])
     .optional(),
-  testKind: z.enum(["all", "real", "test"]).optional(),
   q: z.string().optional(),
   sort: z.enum(["newest", "oldest"]).optional(),
 });
@@ -370,10 +369,34 @@ async function keepCallersStaff<T extends { id: string; role: string }>(
 
 export function registerOpsRoutes(app: Express): void {
   // GET /api/ops/test-access — what this caller does with test orders
-  // (server/testOrders.ts): whether they are sent them, so the boards show a
-  // real/test filter, and whether they may mark an order test or real.
+  // (server/testOrders.ts): whether they are on a test number and so get the
+  // test/live data switch, which data they are on now, and whether they may
+  // mark an order test or real.
   app.get("/api/ops/test-access", ...opsGateFor("orders.view"), (req: Request, res: Response) => {
-    res.json({ sees_test: seesTestOrders(req), can_mark: req.staff?.marksTest === true });
+    res.json({
+      test_staff: req.staff?.test === true,
+      sees_test: seesTestOrders(req),
+      can_mark: req.staff?.marksTest === true,
+    });
+  });
+
+  // PUT /api/ops/data-mode — a test number switches its console between test
+  // data and live data. Held in the session, so it lasts until sign-out.
+  app.put("/api/ops/data-mode", ...opsGateFor("orders.view"), (req: Request, res: Response) => {
+    if (req.staff?.test !== true) {
+      res.status(403).json({
+        message: "You do not have permission to perform this action.",
+        code: "FORBIDDEN",
+      });
+      return;
+    }
+    const mode = (req.body as { mode?: unknown } | null)?.mode;
+    if (mode !== "test" && mode !== "live") {
+      res.status(400).json({ message: "mode must be test or live", code: "INVALID_REQUEST" });
+      return;
+    }
+    req.session.opsDataMode = mode;
+    res.json({ mode });
   });
 
   // PUT /api/ops/orders/:id/test — mark an order test or real by hand. Only
@@ -469,7 +492,6 @@ export function registerOpsRoutes(app: Express): void {
           dateField: q.dateField ?? DEFAULT_OPS_BOARD_FILTERS.dateField,
           dateRange: q.dateRange ?? DEFAULT_OPS_BOARD_FILTERS.dateRange,
           paymentMethod: q.paymentMethod ?? DEFAULT_OPS_BOARD_FILTERS.paymentMethod,
-          testKind: q.testKind ?? DEFAULT_OPS_BOARD_FILTERS.testKind,
         },
         query: q.q ?? "",
         sort: q.sort ?? "newest",
@@ -495,7 +517,7 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
-      const result = await listOpsPayments(range, { includeTest: seesTestOrders(req) });
+      const result = await listOpsPayments(range, { testOnly: seesTestOrders(req) });
       if (result === null) {
         res.status(502).json({ message: "Could not load payments" });
         return;
@@ -516,7 +538,7 @@ export function registerOpsRoutes(app: Express): void {
         return;
       }
 
-      const result = await listOpsPayments(range, { limit: null, includeTest: seesTestOrders(req) });
+      const result = await listOpsPayments(range, { limit: null, testOnly: seesTestOrders(req) });
       if (result === null) {
         res.status(502).json({ message: "Could not export payments" });
         return;

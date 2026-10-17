@@ -153,19 +153,12 @@ export type OpsDateField = 'booking' | 'pickup';
 export type OpsDateRange = 'all' | 'today' | '7d' | '30d' | 'tomorrow' | 'week';
 export type OpsPaymentMethodFilter = 'all' | PaymentMethod;
 export type OpsBoardSort = 'newest' | 'oldest';
-/**
- * Real orders, test orders, or both. Only test staff are sent test orders, so
- * only they are shown this filter; for everyone else it stays 'all'.
- */
-export type OpsTestKindFilter = 'all' | 'real' | 'test';
-
 export type OpsBoardFilters = {
   assignment: OpsAssignmentFilter;
   stage: OpsStageFilter;
   dateField: OpsDateField;
   dateRange: OpsDateRange;
   paymentMethod: OpsPaymentMethodFilter;
-  testKind: OpsTestKindFilter;
 };
 
 export const DEFAULT_OPS_BOARD_FILTERS: OpsBoardFilters = {
@@ -174,7 +167,6 @@ export const DEFAULT_OPS_BOARD_FILTERS: OpsBoardFilters = {
   dateField: 'booking',
   dateRange: 'all',
   paymentMethod: 'all',
-  testKind: 'all',
 };
 
 export const PAYMENT_METHODS: readonly PaymentMethod[] = [
@@ -301,10 +293,6 @@ export function matchesFilters(
     }
   }
 
-  // Not in the section config: every board has it, shown to test staff only.
-  if (filters.testKind === 'real' && order.is_test) return false;
-  if (filters.testKind === 'test' && !order.is_test) return false;
-
   return true;
 }
 
@@ -317,7 +305,6 @@ export function countActiveFilters(
   if (config.stage && filters.stage !== 'all') n += 1;
   if (config.dateRange && filters.dateRange !== 'all') n += 1;
   if (config.paymentMethod && filters.paymentMethod !== 'all') n += 1;
-  if (filters.testKind !== 'all') n += 1;
   return n;
 }
 

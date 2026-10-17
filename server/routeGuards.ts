@@ -170,11 +170,13 @@ export async function loadOpsStaff(req: Request, res: Response, next: NextFuncti
     req.session.user.role = access.role;
   }
   const scoped = isCityScoped(access.role);
+  const test = isTestPhone(access.phone);
   req.staff = {
     role: access.role,
     scoped,
     city: scoped ? hubCityForId(access.hub_id) : null,
-    test: isTestPhone(access.phone),
+    test,
+    liveView: test && req.session.opsDataMode === "live",
     marksTest: canMarkTestOrders(access.phone),
   };
   next();

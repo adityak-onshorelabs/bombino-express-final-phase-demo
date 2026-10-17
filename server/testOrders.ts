@@ -67,16 +67,19 @@ export function canMarkTestOrders(phone: string | null | undefined): boolean {
 }
 
 /**
- * Whether this ops caller sees test orders: only staff signed in on a test
- * phone. No role sees them otherwise, super admin included.
+ * Whether this ops caller is on test data: staff signed in on a test phone,
+ * unless they switched their console to live data. On test data they see
+ * test records only; everyone else sees live records only. No role sees test
+ * records otherwise, super admin included.
  */
 export function seesTestOrders(req: Request): boolean {
-  return req.staff?.test === true;
+  return req.staff?.test === true && req.staff.liveView !== true;
 }
 
-/** The rows this caller may see, as far as test orders and test accounts go. */
+/** The rows this caller may see: test rows on test data, live rows otherwise. */
 export function withoutHiddenTestRows<T extends { is_test?: boolean }>(req: Request, rows: T[]): T[] {
-  return seesTestOrders(req) ? rows : rows.filter((row) => !row.is_test);
+  const test = seesTestOrders(req);
+  return rows.filter((row) => (row.is_test === true) === test);
 }
 
 export { isTestOrderMetadata };

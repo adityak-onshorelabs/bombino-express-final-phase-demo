@@ -83,8 +83,8 @@ async function citiesOfOrders(ids: readonly string[]): Promise<Map<string, strin
 }
 
 /**
- * The rows the caller may see. Unscoped callers get them all back, less test
- * orders unless they see those (server/testOrders.ts). A branch manager with
+ * The rows the caller may see. Unscoped callers get them all back, less the
+ * other side of their test/live data (server/testOrders.ts). A branch manager with
  * no city on their account sees nothing.
  */
 export async function keepCallersOrders<T extends { id: string; is_test?: boolean }>(
@@ -102,14 +102,14 @@ export async function keepCallersOrders<T extends { id: string; is_test?: boolea
 
 /**
  * Whether the caller may see or act on this order. Unscoped callers may,
- * unless it is a test order they are not shown (server/testOrders.ts).
+ * unless it is on the other side of their test/live data (server/testOrders.ts).
  */
 export async function isCallersOrder(
   req: Request,
   order: { items: unknown; is_test?: boolean; metadata?: unknown }
 ): Promise<boolean> {
   const isTest = order.is_test === true || isTestOrderMetadata(order.metadata);
-  if (isTest && !seesTestOrders(req)) return false;
+  if (isTest !== seesTestOrders(req)) return false;
   if (!isScoped(req)) return true;
   const city = req.staff?.city ?? null;
   if (!city) return false;
