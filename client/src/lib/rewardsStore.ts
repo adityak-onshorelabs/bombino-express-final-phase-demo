@@ -41,7 +41,8 @@ interface RewardsState {
 
   setScenario: (id: ScenarioId) => void;
   simulateShipment: () => void;
-  redeem: (points: number) => void;
+  /** Spend points on a payment. `ref` is the order they went against. */
+  redeem: (points: number, ref?: string) => void;
   dismissTierUp: () => void;
 }
 
@@ -83,16 +84,17 @@ export const useRewardsStore = create<RewardsState>()(
           };
         }),
 
-      redeem: (points) =>
+      redeem: (points, ref) =>
         set((state) => ({
           member: {
             ...state.member,
-            points: state.member.points - points,
+            points: Math.max(state.member.points - points, 0),
             history: [
               {
                 id: `red-${Date.now()}`,
                 kind: 'redeem',
-                label: 'Redeemed on next booking',
+                label: 'Used on a payment',
+                ref,
                 date: today(),
                 points: -points,
               },

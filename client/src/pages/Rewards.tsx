@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Link } from 'wouter';
 import { AnimatePresence, motion } from 'framer-motion';
 import { format, parseISO, isValid } from 'date-fns';
 import { ArrowLeft, Check, Gift, Lock, Package, Plus, Scale, Sparkles, TrendingUp, Wallet } from 'lucide-react';
@@ -11,6 +11,7 @@ import {
   formatInrShort,
   formatKg,
   formatPoints,
+  pointsDiscount,
   progressFor,
   rewardsYear,
   type PointsEntry,
@@ -22,7 +23,7 @@ import { useCountUp } from '@/hooks/useCountUp';
 import { useToast } from '@/hooks/use-toast';
 import { TierEmblem } from '@/components/rewards/TierEmblem';
 import { PathBar, ProgressRing } from '@/components/rewards/ProgressRing';
-import { RedeemSheet } from '@/components/rewards/RedeemSheet';
+import { formatInr } from '@/lib/itdRates';
 import { TierUpCelebration } from '@/components/rewards/TierUpCelebration';
 
 const NAVY = 'text-[lab(34.0831_-9.57756_-27.7093)]';
@@ -42,9 +43,7 @@ const NAVY = 'text-[lab(34.0831_-9.57756_-27.7093)]';
 export default function Rewards() {
   const member = useRewardsStore((s) => s.member);
   const tierUp = useRewardsStore((s) => s.tierUp);
-  const redeem = useRewardsStore((s) => s.redeem);
   const dismissTierUp = useRewardsStore((s) => s.dismissTierUp);
-  const [redeemOpen, setRedeemOpen] = useState(false);
 
   const progress = progressFor(member.billing, member.weightKg);
 
@@ -70,19 +69,13 @@ export default function Rewards() {
           <MilestoneRoad progress={progress} className="order-3" />
         </div>
         <div className="contents md:col-span-5 md:flex md:flex-col md:gap-6">
-          <PointsWallet points={member.points} onRedeem={() => setRedeemOpen(true)} className="order-2" />
+          <PointsWallet points={member.points} className="order-2" />
           <Activity history={member.history} className="order-4" />
           <HowItWorks className="order-5" />
           <DemoControls className="order-6" />
         </div>
       </main>
 
-      <RedeemSheet
-        open={redeemOpen}
-        balance={member.points}
-        onOpenChange={setRedeemOpen}
-        onRedeem={redeem}
-      />
       <TierUpCelebration tierId={tierUp} onClose={dismissTierUp} />
     </div>
   );
@@ -209,7 +202,7 @@ function HexPattern() {
 
 // ─── Points wallet ──────────────────────────────────────────────────────────
 
-function PointsWallet({ points, onRedeem, className }: { points: number; onRedeem: () => void; className?: string }) {
+function PointsWallet({ points, className }: { points: number; className?: string }) {
   const lastEarn = useRewardsStore((s) => s.lastEarn);
   const shown = useCountUp(points);
   const canRedeem = points >= REDEEM_MIN_POINTS;
@@ -247,19 +240,27 @@ function PointsWallet({ points, onRedeem, className }: { points: number; onRedee
       </div>
 
       {canRedeem ? (
-        <button
-          type="button"
-          onClick={onRedeem}
-          className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#F2A123] text-sm font-bold text-[#1B2A44] shadow-[0_8px_24px_rgba(242,161,35,0.3)] transition-transform hover:bg-[#F7B03F] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#F2A123]/40"
-          data-testid="button-redeem"
-        >
-          <Gift className="h-4 w-4" />
-          Redeem points
-        </button>
+        <>
+          <p className="mt-1 text-xs text-[#64748B]">
+            Worth up to <span className="font-semibold text-emerald-700">{formatInr(pointsDiscount(points))}</span> off
+            your payments.
+          </p>
+          {/* Points are spent where money is: the Review & Pay step and an
+              order's Payment due. This sends the customer to the first. */}
+          <Link
+            href="/create"
+            className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#F2A123] text-sm font-bold text-[#1B2A44] shadow-[0_8px_24px_rgba(242,161,35,0.3)] transition-transform hover:bg-[#F7B03F] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#F2A123]/40"
+            data-testid="button-use-points"
+          >
+            <Gift className="h-4 w-4" />
+            Use on a booking
+          </Link>
+          <p className="mt-2 text-center text-[11px] text-[#64748B]">Choose how many at Review &amp; Pay.</p>
+        </>
       ) : (
         <div className="mt-5">
           <div className="mb-1.5 flex justify-between text-xs">
-            <span className={cn('font-semibold', NAVY)}>{toUnlock} more to unlock redeem</span>
+            <span className={cn('font-semibold', NAVY)}>{toUnlock} more until you can use them</span>
             <span className="tabular-nums text-[#64748B]">
               {points}/{REDEEM_MIN_POINTS}
             </span>
@@ -276,7 +277,7 @@ function PointsWallet({ points, onRedeem, className }: { points: number; onRedee
             className="mt-4 inline-flex h-12 w-full cursor-not-allowed items-center justify-center gap-2 rounded-md bg-[#F3F4F6] text-sm font-semibold text-[#64748B]"
           >
             <Lock className="h-4 w-4" />
-            Redeem from {REDEEM_MIN_POINTS} points
+            Use from {REDEEM_MIN_POINTS} points
           </button>
         </div>
       )}
@@ -418,7 +419,7 @@ function Activity({ history, className }: { history: PointsEntry[]; className?: 
 const STEPS = [
   { icon: Package, title: 'Ship', body: `Every ₹${RUPEES_PER_POINT} you're billed earns 1 point. GST isn't counted.` },
   { icon: TrendingUp, title: 'Climb', body: "Hit a tier's yearly billing or weight target, whichever comes first." },
-  { icon: Gift, title: 'Redeem', body: `From ${REDEEM_MIN_POINTS} points, use them on a booking.` },
+  { icon: Gift, title: 'Use', body: `From ${REDEEM_MIN_POINTS} points, take them off any payment at Review & Pay.` },
 ] as const;
 
 function HowItWorks({ className }: { className?: string }) {

@@ -68,12 +68,18 @@ Both bars should be visible, with the leading one highlighted. That makes
 - **Earning: ₹100 billed (excl. GST) = 1 point.**
   `points = floor(billingExGst / 100)` per order.
 - **Redemption: allowed only once the balance is at least 100 points.**
-- **Value of a point when redeemed:** stated as "₹100 = 1 point" both ways.
-  ⚠️ **Needs Bombino confirmation.** If a point is earned per ₹100 and also
-  redeems for ₹100, the customer gets back 100% of what they spent: a ₹10,000
-  shipment would earn 100 points worth ₹10,000. That is almost certainly not
-  intended. Until this is confirmed, the UI shows a points balance only, never
-  a rupee value.
+- **Value of a point when used: ₹100 off per point**, because the user said
+  "₹100 = 1 point" applies both ways. This is one constant,
+  `RUPEES_PER_REDEEMED_POINT` in `lib/rewards.ts`.
+  ⚠️ **Needs Bombino confirmation.** At this value the customer gets back
+  100% of what they spent: a ₹10,000 shipment earns 100 points, worth ₹10,000.
+  It also means points can only be used on payments of ₹10,000 or more, since
+  the minimum spend is 100 points. If the value changes (for example to ₹1),
+  edit the constant and every rupee figure at checkout follows.
+- **Using points on a payment:**
+  - The most a payment can take is `min(balance, floor(amount due / value))`.
+  - Points are earned on what is actually paid: amount due minus the points
+    discount, excl. GST.
 
 ## 5. Out of scope for now
 
@@ -93,22 +99,32 @@ The demo state lives in `client/src/lib/rewardsStore.ts` (zustand, persisted as 
 | Discover | Home: rewards card (mobile, below the actions; desktop, top of the right rail). Plus the sidebar and side menu "Rewards" link | Shows the tier badge, % to the next tier along the closest route, and the points balance. Tapping it opens `/rewards` |
 | Status | `/rewards`: tier hero | Badge, progress ring, separate billing and weight bars (the closer one is amber and tagged "Closest"), and "₹X more or Y kg more unlocks…". The top tier shows this year's totals instead |
 | Journey | `/rewards`: milestone road | Standard → T5 on a rail that fills as the member progresses. Each tier shows unlocked, "You're here", or locked. The next tier shows "% there". T5 is tagged "Provisional" |
-| Points | `/rewards`: wallet and activity | Count-up balance and "+N earned" after a shipment. Under 100 points: a meter toward 100 and a locked button. At 100 or more: Redeem |
-| Redeem | Bottom sheet | Pick an amount from a slider or the presets 100 / 500 / 1,000 / All (minimum 100), confirm, then a done state. The copy says the points come "off your next booking" (assumption, Q7) |
+| Points | `/rewards`: wallet and activity | Count-up balance, "Worth up to ₹X off", and "+N earned" after a shipment. Under 100 points: a meter toward 100 and a locked button. At 100 or more: "Use on a booking" (→ `/create`) |
+| Use at booking | Create Shipment → **Review & Pay** | "Use reward points" card under the total. Off by default; switching it on takes the most the payment allows. Adjust with −/+ (10s), a slider, or "Use max". The summary shows Total (struck through) → Reward points −₹ → **To pay**, and the button reads "Confirm Booking · ₹X". Below it: "You'll earn N points once this order settles". The success screen shows points used and points coming |
+| Use on a due payment | Order → **Payment due** task | Same card. The hint shows the old amount struck through and the new amount to pay. Points come off the balance once the payment is paid or pending |
+| Can't use points | Same card, switch disabled | Under 100 points: a meter and "N more points and you can use them on a payment". Payment under 100 points' worth: "Points can be used on payments of ₹10,000 or more" |
 | Tier up | Full-screen celebration | Badge springs in, confetti in amber and navy, "Next up" shows the following tier. Respects reduced motion |
 | Demo only | Dashed "Demo controls" panel | Switch between scenarios (New member, Close to Tier 1, Tier 2 by weight, Top tier) and "Simulate a shipment". Remove this panel when the API lands |
 
-The customer is shown points only, never a rupee value (Q1).
+**Backend gap (must close before this is real):** the UI deducts points from
+the demo balance, but neither `POST /api/orders` nor the pay-now endpoint
+carries a points field. Razorpay is still charged the full quote. The API
+needs three things:
+1. `points_to_redeem` on the booking and on pay-now.
+2. Validation against the balance, the 100-point minimum and the amount due.
+3. The points discount taken off the gateway amount, and the redemption
+   reversed if the order is cancelled.
 
 ## 7. Open questions
 
 | # | Question | Assumed for the demo |
 |---|---|---|
-| 1 | What is a point worth when redeemed? (§4) | Show the balance only, no rupee value |
+| 1 | What is a point worth when redeemed? (§4) | ₹100 per point, as stated; one constant |
 | 2 | T5 targets | Placeholder ₹50 L / 7,000 kg, kept in one constant |
 | 3 | What "yearly" means: financial year (Apr–Mar), calendar year, or rolling 12 months? | Financial year, Apr–Mar |
 | 4 | Does the tier drop or reset when the year ends? Do points expire? | Not shown |
 | 5 | Do refunds, cancellations and RTO reduce billing and take points back? | Not modelled |
 | 6 | Does weight mean chargeable (volumetric) or actual weight? | Chargeable |
-| 7 | What does redeeming do: a discount on a booking, a credit, or something else? | Shown as a "Redeem" action with no outcome |
+| 7 | What does redeeming do: a discount on a booking, a credit, or something else? | A discount on a payment, chosen at Review & Pay or Payment due |
+| 9 | Can points pay the whole amount, or must some be paid in money? | Points can cover everything (To pay ₹0) |
 | 8 | Does a higher tier earn points faster? | No, the same rate at every tier |

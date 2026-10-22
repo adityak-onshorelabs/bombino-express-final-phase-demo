@@ -109,6 +109,35 @@ export function pointsFor(billingExGst: number): number {
   return Math.floor(billingExGst / RUPEES_PER_POINT);
 }
 
+// ─── Using points on a transaction ─────────────────────────────────────────
+
+/**
+ * ₹ taken off a payment per point used. Set to ₹100, because the user said
+ * "₹100 = 1 point" applies both ways (22 Oct 2026). Bombino still has to
+ * confirm it (open question 1). Every rupee figure at checkout comes from
+ * this one constant, so changing the value is a one-line edit.
+ */
+export const RUPEES_PER_REDEEMED_POINT = 100;
+
+/** The most points this payment can take: the balance, capped at the amount due. */
+export function maxPointsFor(balance: number, payable: number): number {
+  return Math.max(Math.min(balance, Math.floor(payable / RUPEES_PER_REDEEMED_POINT)), 0);
+}
+
+export function pointsDiscount(points: number): number {
+  return points * RUPEES_PER_REDEEMED_POINT;
+}
+
+/**
+ * The pre-GST share of an amount. Pass the quote's pre-tax figure when there
+ * is one. Otherwise this assumes 18% GST, the rate on every service the rate
+ * API returns today.
+ */
+export function withoutGst(amount: number, quote?: { total: number; subTotal: number }): number {
+  if (quote && quote.total > 0) return amount * (quote.subTotal / quote.total);
+  return amount / 1.18;
+}
+
 /**
  * The year that tiers are counted over. Assumed to be the Indian financial
  * year, Apr–Mar (open question 3).

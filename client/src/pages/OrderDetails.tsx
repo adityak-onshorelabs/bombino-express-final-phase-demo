@@ -52,6 +52,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { apiRequest } from '@/lib/queryClient';
 import { payForOrder } from '@/lib/razorpay';
 import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
+import { PointsAtCheckout, PointsEarnNote } from '@/components/rewards/PointsAtCheckout';
+import { pointsDiscount, pointsFor, withoutGst } from '@/lib/rewards';
+import { useRewardsStore } from '@/lib/rewardsStore';
 import { DropoffBranches } from '@/components/DropoffBranches';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -435,6 +438,10 @@ export default function OrderDetails() {
    * Same server endpoints: a fresh gateway order against the same order id.
    */
   const [paying, setPaying] = useState(false);
+  // Reward points on this payment. UI only, as at booking: the gateway is
+  // still charged the full amount until the API takes points.
+  const [pointsToUse, setPointsToUse] = useState(0);
+  const redeemPoints = useRewardsStore((s) => s.redeem);
 
   const handlePayNow = async (orderId: string): Promise<void> => {
     setPaying(true);
@@ -442,6 +449,11 @@ export default function OrderDetails() {
     setPaying(false);
 
     if (outcome.status === 'dismissed') return;
+
+    if ((outcome.status === 'paid' || outcome.status === 'pending') && pointsToUse > 0) {
+      redeemPoints(pointsToUse, orderNo);
+      setPointsToUse(0);
+    }
 
     if (outcome.status === 'paid') {
       toast({ title: 'Payment successful', description: 'This order is now paid.' });
@@ -560,6 +572,8 @@ export default function OrderDetails() {
     !isCancelled &&
     !weighedHeavier;
   const amountLabel = formatInr(order.final_amount ?? order.quoted_amount);
+  const amountDue = order.final_amount ?? order.quoted_amount ?? 0;
+  const amountAfterPoints = Math.max(amountDue - pointsDiscount(pointsToUse), 0);
 
   const originLine = [origin?.city, origin?.state].filter(Boolean).join(', ');
   const destLine = [consignee?.city, consignee?.country_name].filter(Boolean).join(', ');
@@ -714,7 +728,16 @@ export default function OrderDetails() {
           <Task
             id="pay"
             title="Payment due"
-            hint={`${amountLabel ?? 'Amount'} to pay online`}
+            hint={
+              pointsToUse > 0 ? (
+                <>
+                  <span className="line-through">{amountLabel}</span>{' '}
+                  <span className="font-semibold text-foreground">{formatInr(amountAfterPoints)}</span> to pay online
+                </>
+              ) : (
+                `${amountLabel ?? 'Amount'} to pay online`
+              )
+            }
             action={
               <Button
                 className="h-10 px-5 rounded-lg"
@@ -726,6 +749,10 @@ export default function OrderDetails() {
               </Button>
             }
           >
+            <div className="space-y-2.5">
+              <PointsAtCheckout payable={amountDue} points={pointsToUse} onPointsChange={setPointsToUse} />
+              <PointsEarnNote points={pointsFor(withoutGst(amountAfterPoints))} className="px-1" />
+            </div>
             {/* TEMPORARY: only renders when the server has PAYMENTS_TEST_MODE. */}
             <PaymentTestModeSwitch />
           </Task>

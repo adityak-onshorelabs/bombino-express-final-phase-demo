@@ -34,7 +34,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { useLocation } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { BottomNav } from '@/components/BottomNav';
 import { CorridorRouteInfo } from '@/components/CorridorRouteInfo';
@@ -77,6 +77,9 @@ import type { BiaScreen } from '@shared/biaScreen';
 import { DOX_CONTENT_WARNING, PRODUCT_TYPE_INFO, isDocumentsContent, isProductType } from '@shared/bookingTerms';
 import { payForOrder } from '@/lib/razorpay';
 import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
+import { PointsAtCheckout, PointsEarnNote } from '@/components/rewards/PointsAtCheckout';
+import { formatPoints, pointsDiscount, pointsFor, withoutGst } from '@/lib/rewards';
+import { useRewardsStore } from '@/lib/rewardsStore';
 import { cn } from '@/lib/utils';
 import { getHsnCode } from '@shared/hsn';
 import { US_STATES, US_STATE_ERROR, US_ZIP_ERROR, isUsZip, usStateName } from '@shared/usAddress';
@@ -703,6 +706,19 @@ export default function CreateShipment() {
 
   const [rateResults, setRateResults] = useState<ITDRateRow[] | null>(null);
   const [selectedService, setSelectedService] = useState<ITDRateRow | null>(null);
+
+  // Reward points on this booking. UI only: the points leave the demo balance
+  // when the booking succeeds, but the payload does not carry them yet, so the
+  // gateway still charges the full quote (docs/rewards/rewards-logic.md).
+  const [pointsToUse, setPointsToUse] = useState(0);
+  const [bookedPoints, setBookedPoints] = useState<{ used: number; earn: number } | null>(null);
+  const redeemPoints = useRewardsStore((s) => s.redeem);
+  const quoteTotal = selectedService?.total ?? 0;
+  const pointsOff = pointsDiscount(pointsToUse);
+  const amountToPay = Math.max(quoteTotal - pointsOff, 0);
+  const pointsToEarn = selectedService
+    ? pointsFor(withoutGst(amountToPay, { total: selectedService.total, subTotal: selectedService.sub_total }))
+    : 0;
   const [ratesError, setRatesError] = useState('');
   const [serviceSelectionError, setServiceSelectionError] = useState('');
   const [expandedById, setExpandedById] = useState<Record<string, boolean>>({});
@@ -1075,6 +1091,9 @@ export default function CreateShipment() {
       setNewAwbNo(data.docket?.status === 'issued' ? data.docket.awb_no ?? '' : '');
       setNewBoxLabel(data.boxLabel === true);
       setDocketMessage(data.docket?.status === 'failed' ? data.docket.message ?? '' : '');
+
+      if (pointsToUse > 0) redeemPoints(pointsToUse, data.order.order_no);
+      setBookedPoints({ used: pointsToUse, earn: pointsToEarn });
 
       // POST /api/orders wrote the profile row and the order against this
       // guest's ref, so there is nothing to save here — only a stale cache to
@@ -1571,6 +1590,32 @@ export default function CreateShipment() {
             )}
           </div>
 
+          {/* Rewards on this booking: what was spent, what is coming. */}
+          {bookedPoints && (bookedPoints.used > 0 || bookedPoints.earn > 0) && (
+            <Link
+              href="/rewards"
+              className="mb-4 flex w-full items-center gap-3 rounded-lg bg-gradient-to-br from-[#2F4468] to-[#16243A] p-4 text-left text-white"
+              data-testid="card-success-points"
+            >
+              <Sparkles className="h-5 w-5 shrink-0 text-[#F7C35C]" />
+              <div className="min-w-0 flex-1 text-sm leading-snug">
+                {bookedPoints.used > 0 && (
+                  <p>
+                    <span className="font-semibold">{formatPoints(bookedPoints.used)} points</span> used ·{' '}
+                    {formatInr(pointsDiscount(bookedPoints.used))} off
+                  </p>
+                )}
+                {bookedPoints.earn > 0 && (
+                  <p className={bookedPoints.used > 0 ? 'text-white/70' : ''}>
+                    <span className="font-semibold text-[#F7C35C]">+{formatPoints(bookedPoints.earn)} points</span>{' '}
+                    once this order settles
+                  </p>
+                )}
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-white/60" />
+            </Link>
+          )}
+
           {/* Pay-now only. Four states, because "we don't know yet" is a real
               one and rendering it as unpaid invites a duplicate payment. */}
           {payStatus !== 'none' && (
@@ -2044,6 +2089,7 @@ export default function CreateShipment() {
     };
 
     setPaymentError('');
+    setPointsToUse(0);
     setShowConfirmModal(true);
   };
 
@@ -4459,12 +4505,38 @@ export default function CreateShipment() {
               </div>
               <div className="flex justify-between gap-3 pt-2 border-t border-border">
                 <span className="text-muted-foreground font-medium">Total</span>
-                <span className="font-mono text-base font-semibold text-[#2F4468]">
+                <span
+                  className={cn(
+                    'font-mono font-semibold',
+                    pointsToUse > 0 ? 'text-sm text-muted-foreground line-through' : 'text-base text-[#2F4468]'
+                  )}
+                >
                   {selectedService ? formatInr(selectedService.total) : '—'}
                 </span>
               </div>
+              {pointsToUse > 0 && (
+                <>
+                  <div className="flex justify-between gap-3" data-testid="row-points-discount">
+                    <span className="text-muted-foreground">Reward points ({formatPoints(pointsToUse)})</span>
+                    <span className="font-mono font-semibold text-emerald-700">− {formatInr(pointsOff)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-foreground font-semibold">To pay</span>
+                    <span className="font-mono text-base font-semibold text-[#2F4468]" data-testid="text-amount-to-pay">
+                      {formatInr(amountToPay)}
+                    </span>
+                  </div>
+                </>
+              )}
               <p className="text-[10px] text-muted-foreground">incl. GST · estimated, settled after weighing</p>
             </div>
+
+            {selectedService && (
+              <div className="mb-5 space-y-2.5">
+                <PointsAtCheckout payable={quoteTotal} points={pointsToUse} onPointsChange={setPointsToUse} />
+                <PointsEarnNote points={pointsToEarn} className="px-1" />
+              </div>
+            )}
 
             <Label className="text-xs text-muted-foreground mb-2 block">Pay with</Label>
             <div className="space-y-2 mb-5">
@@ -4518,7 +4590,13 @@ export default function CreateShipment() {
               className="w-full h-12 bg-[#F2A123] hover:bg-[#F2A123]/90 text-[lab(34.0831_-9.57756_-27.7093)] text-sm font-semibold rounded-xl shadow-card-hover disabled:opacity-70"
               data-testid="button-confirm-booking"
             >
-              {createMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Confirm Booking'}
+              {createMutation.isPending ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : pointsToUse > 0 ? (
+                `Confirm Booking · ${formatInr(amountToPay)}`
+              ) : (
+                'Confirm Booking'
+              )}
             </Button>
           </div>
         </div>
