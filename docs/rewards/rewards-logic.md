@@ -1,0 +1,114 @@
+# Rewards & Membership: Logic (working draft)
+
+Status: **draft, 22 Oct 2026.** This page records what has been agreed so far. Nothing here is built yet.
+The first build is **UI only** (mock data, no API) in this demo repo. The UI design is still to be discussed.
+
+Source: Bombino mail thread "Membership Rate", Ghanshyam Mishra / Pakshan Latiwala,
+31 Jul 2026, forwarded by Arbaaz on 20 Oct 2026, plus clarifications from Aditya on 22 Oct 2026.
+
+---
+
+## 1. Who it applies to
+
+- **Direct clients only.** Mail: "This Chart will be applicable for direct Client."
+  The scheme does not cover agents, franchisees or channel partners.
+- **Everyone starts at Standard.** Standard has no target to meet. It still shows
+  the first milestone (₹5 L or 700 kg) as a goal, so a new customer can see
+  what they are working towards.
+
+## 2. Tier ladder
+
+A customer moves **up** a tier when, within one year, their billing **or** their
+shipped weight reaches that tier's target, whichever happens first.
+
+| Tier | Unlocks at (yearly billing, excl. GST) | or (yearly weight) | Notes |
+|---|---|---|---|
+| Standard | none (starting tier) | none | Everyone starts here |
+| T1 | ₹5,00,000 | 700 kg | |
+| T2 | ₹10,00,000 | 1,400 kg | |
+| T3 | ₹20,00,000 | 2,800 kg | |
+| T4 | ₹30,00,000 | 4,400 kg | |
+| T5 | **TBD** | **TBD** | Top tier, cannot go higher. Bombino has not sent the targets yet, so the targets are an assumption for now (see §6) |
+
+A customer's tier is the **highest** tier whose value target **or** weight target they have met.
+
+```
+tier(billing, weight) = highest tier t where billing >= t.value OR weight >= t.weight
+```
+
+Example: ₹8.4 L billed and 1,620 kg shipped.
+- By value, the customer only qualifies for T1 (₹5 L ≤ 8.4 L < ₹10 L).
+- By weight, they qualify for **T2** (1,620 kg ≥ 1,400 kg).
+- The result is **T2**, because weight reached its target first.
+
+### Progress to the next tier
+
+Value and weight are two separate paths, and either one completes the milestone.
+Progress is shown as the further-along of the two:
+
+```
+valuePct  = billing / next.value
+weightPct = weight  / next.weight
+progress  = max(valuePct, weightPct)      // capped at 100%
+```
+
+Both bars should be visible, with the leading one highlighted. That makes
+"whichever comes first" obvious without having to explain it.
+
+## 3. What counts as billing
+
+- **Billing = the final amount the customer paid**, after every adjustment. That
+  includes weight corrections at the hub and any extra charges.
+- **GST is excluded.** Mail: "Yearly Billing Value without Tax." Strip the tax
+  before counting toward tiers or points.
+- **Weight:** chargeable or actual weight is not confirmed (see §6).
+
+## 4. Points
+
+- **Earning: ₹100 billed (excl. GST) = 1 point.**
+  `points = floor(billingExGst / 100)` per order.
+- **Redemption: allowed only once the balance is at least 100 points.**
+- **Value of a point when redeemed:** stated as "₹100 = 1 point" both ways.
+  ⚠️ **Needs Bombino confirmation.** If a point is earned per ₹100 and also
+  redeems for ₹100, the customer gets back 100% of what they spent: a ₹10,000
+  shipment would earn 100 points worth ₹10,000. That is almost certainly not
+  intended. Until this is confirmed, the UI shows a points balance only, never
+  a rupee value.
+
+## 5. Out of scope for now
+
+- **Profit margin per tier.** The mail lists Non Member 28%, Standard 25%,
+  T1 23%, T2 20%, T3 17% and T4 15%. These are ignored for now: tiers do not
+  change pricing in this phase.
+- **"Non Member" (28%).** The column exists in the mail, but we start everyone
+  at Standard. Whether guests count as Non Member is undecided.
+
+## 6. UI (demo build, 22 Oct 2026)
+
+The UI runs on mock data only. Every rule above lives in `client/src/lib/rewards.ts`.
+The demo state lives in `client/src/lib/rewardsStore.ts` (zustand, persisted as `bombino-rewards-demo`).
+
+| Flow | Where | What it does |
+|---|---|---|
+| Discover | Home: rewards card (mobile, below the actions; desktop, top of the right rail). Plus the sidebar and side menu "Rewards" link | Shows the tier badge, % to the next tier along the closest route, and the points balance. Tapping it opens `/rewards` |
+| Status | `/rewards`: tier hero | Badge, progress ring, separate billing and weight bars (the closer one is amber and tagged "Closest"), and "₹X more or Y kg more unlocks…". The top tier shows this year's totals instead |
+| Journey | `/rewards`: milestone road | Standard → T5 on a rail that fills as the member progresses. Each tier shows unlocked, "You're here", or locked. The next tier shows "% there". T5 is tagged "Provisional" |
+| Points | `/rewards`: wallet and activity | Count-up balance and "+N earned" after a shipment. Under 100 points: a meter toward 100 and a locked button. At 100 or more: Redeem |
+| Redeem | Bottom sheet | Pick an amount from a slider or the presets 100 / 500 / 1,000 / All (minimum 100), confirm, then a done state. The copy says the points come "off your next booking" (assumption, Q7) |
+| Tier up | Full-screen celebration | Badge springs in, confetti in amber and navy, "Next up" shows the following tier. Respects reduced motion |
+| Demo only | Dashed "Demo controls" panel | Switch between scenarios (New member, Close to Tier 1, Tier 2 by weight, Top tier) and "Simulate a shipment". Remove this panel when the API lands |
+
+The customer is shown points only, never a rupee value (Q1).
+
+## 7. Open questions
+
+| # | Question | Assumed for the demo |
+|---|---|---|
+| 1 | What is a point worth when redeemed? (§4) | Show the balance only, no rupee value |
+| 2 | T5 targets | Placeholder ₹50 L / 7,000 kg, kept in one constant |
+| 3 | What "yearly" means: financial year (Apr–Mar), calendar year, or rolling 12 months? | Financial year, Apr–Mar |
+| 4 | Does the tier drop or reset when the year ends? Do points expire? | Not shown |
+| 5 | Do refunds, cancellations and RTO reduce billing and take points back? | Not modelled |
+| 6 | Does weight mean chargeable (volumetric) or actual weight? | Chargeable |
+| 7 | What does redeeming do: a discount on a booking, a credit, or something else? | Shown as a "Redeem" action with no outcome |
+| 8 | Does a higher tier earn points faster? | No, the same rate at every tier |

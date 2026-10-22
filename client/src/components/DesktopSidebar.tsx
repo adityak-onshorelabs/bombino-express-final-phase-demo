@@ -10,6 +10,7 @@ import {
   Bell,
   LogOut,
   LogIn,
+  Trophy,
 } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import bombinoLogo from '@/assets/bombino-logo.png';
@@ -38,6 +39,7 @@ const SIGN_OUT_BUTTON =
   'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-red-400 hover:bg-red-500/[0.12] hover:text-red-300 transition-all duration-150 text-left';
 
 const ACCOUNT_NAV = [
+  { label: 'Rewards', icon: Trophy, path: '/rewards' },
   { label: 'My Profile', icon: User, path: '/profile', authRequired: true as const },
   { label: 'Ask BIA', icon: Bot, path: '/help' },
 ] as const;

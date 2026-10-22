@@ -15,6 +15,7 @@ import { useSupportContacts } from '@/hooks/useSupportContacts';
 import { ApplicationStatusCard } from '@/components/ApplicationStatusCard';
 import HomeDesktop from '@/pages/HomeDesktop';
 import { ParcelsQuickAccess } from '@/components/ParcelsQuickAccess';
+import { RewardsTeaser } from '@/components/rewards/RewardsTeaser';
 
 export default function Home() {
   const isMobile = useIsMobile();
@@ -140,6 +141,8 @@ function HomeMobile() {
               bookings list. Absent for a visitor we do not recognise. */}
           <ParcelsQuickAccess />
         </section>
+
+        <RewardsTeaser />
 
         {/* ZONE 3: Auth (visitors we do not recognise).
             Was a bare row: a sentence wrapping to two lines beside two small

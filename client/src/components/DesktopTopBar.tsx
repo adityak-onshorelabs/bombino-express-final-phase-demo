@@ -11,6 +11,7 @@ function getPageMeta(path: string): PageMeta | null {
     '/track': { title: 'Track Shipment', subtitle: 'Real-time shipment status' },
     '/profile': { title: 'My Profile', subtitle: 'Account settings' },
     '/notifications': { title: 'Notifications', subtitle: '' },
+    '/rewards': { title: 'Rewards', subtitle: 'Tiers, points and your journey' },
   };
   if (path === '/help') return null;
   return map[path] ?? null;
