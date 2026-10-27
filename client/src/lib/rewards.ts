@@ -112,12 +112,13 @@ export function pointsFor(billingExGst: number): number {
 // ─── Using points on a transaction ─────────────────────────────────────────
 
 /**
- * ₹ taken off a payment per point used. Set to ₹100, because the user said
- * "₹100 = 1 point" applies both ways (22 Oct 2026). Bombino still has to
- * confirm it (open question 1). Every rupee figure at checkout comes from
- * this one constant, so changing the value is a one-line edit.
+ * ₹ taken off a payment per point used. ₹1, set by Aditya on 27 Oct 2026
+ * (it was ₹100, which gave back 100% of spend). With earning at ₹100 billed
+ * per point, a member gets back about 1%. Bombino still has to confirm it
+ * (open question 1). Every rupee figure at checkout comes from this one
+ * constant, so changing the value is a one-line edit.
  */
-export const RUPEES_PER_REDEEMED_POINT = 100;
+export const RUPEES_PER_REDEEMED_POINT = 1;
 
 /** The most points this payment can take: the balance, capped at the amount due. */
 export function maxPointsFor(balance: number, payable: number): number {

@@ -92,7 +92,7 @@ export const TOUR_RATES: readonly ITDRateRow[] = [
 ];
 
 /** Points the demo settles on: fewer than the payment allows, to show adjusting. */
-const TOUR_POINTS = 250;
+const TOUR_POINTS = 1_000;
 
 // ─── What the booking screen gives the tour ─────────────────────────────────
 
@@ -200,37 +200,33 @@ const STEPS: TourStep[] = [
       navigate('/create');
     },
     path: '/create',
-    element: '[data-tour="booking-step"]',
+    element: '[data-tour="booking-sender"]',
     title: 'Step 1 · Sender',
     body: `A dummy shipment is filled in for the demo: ${TOUR_SHIPMENT.weightKg} kg from Mumbai to New Jersey.`,
-    side: 'top',
     dwell: 4_000,
   },
   {
     before: () => bridge().goToStep(2),
     path: '/create',
-    element: '[data-tour="booking-step"]',
+    element: '[data-tour="booking-receiver"]',
     title: 'Step 2 · Receiver',
     body: 'Who it goes to in the USA.',
-    side: 'top',
     dwell: 3_200,
   },
   {
     before: () => bridge().goToStep(3),
     path: '/create',
-    element: '[data-tour="booking-step"]',
+    element: '[data-tour="booking-package"]',
     title: 'Step 3 · Package',
     body: `${TOUR_SHIPMENT.weightKg} kg, one box, ${TOUR_SHIPMENT.dimsCm.l} × ${TOUR_SHIPMENT.dimsCm.w} × ${TOUR_SHIPMENT.dimsCm.h} cm.`,
-    side: 'top',
     dwell: 3_200,
   },
   {
     before: () => bridge().goToStep(4),
     path: '/create',
-    element: '[data-tour="booking-step"]',
+    element: '[data-tour="booking-invoice"]',
     title: 'Step 4 · Invoice',
     body: "What's inside and what it's worth, for customs.",
-    side: 'top',
     dwell: 3_200,
   },
   {
@@ -259,7 +255,7 @@ const STEPS: TourStep[] = [
     element: '[data-testid="card-points-at-checkout"]',
     title: 'Use reward points',
     body: () =>
-      `${formatPoints(member().points)} points available, each worth ₹${RUPEES_PER_REDEEMED_POINT}. Points stay off until the customer switches them on.`,
+      `${formatPoints(member().points)} points available, each worth ₹${RUPEES_PER_REDEEMED_POINT} off. Points stay off until the customer switches them on.`,
     after: () => click('[data-testid="switch-use-points"]'),
   },
   {
@@ -267,7 +263,7 @@ const STEPS: TourStep[] = [
     element: '[data-testid="card-points-at-checkout"]',
     title: 'Switched on: the most it can take',
     body: () =>
-      `Switching on uses as many points as this payment allows: ${formatPoints(maxForDemo())}, the lower of the balance and the amount due ÷ ₹${RUPEES_PER_REDEEMED_POINT}.`,
+      `Switching on uses as many points as this payment allows: ${formatPoints(maxForDemo())}, worth ${formatInr(pointsDiscount(maxForDemo()))}. It never takes more than the balance or the amount due.`,
     after: () => animatePoints(maxForDemo(), Math.min(TOUR_POINTS, maxForDemo())),
   },
   {
@@ -520,7 +516,8 @@ export function startRewardsTour(): void {
   useRewardsTour.setState({ running: true, paused: false, bookingDemo: false });
   driverObj = driver({
     animate: !reducedMotion(),
-    smoothScroll: !reducedMotion(),
+    // The runner scrolls each element into place itself before showing it.
+    smoothScroll: false,
     allowClose: true,
     allowKeyboardControl: false,
     overlayClickBehavior: 'none',
@@ -545,7 +542,11 @@ async function run(id: number): Promise<void> {
     for (let i = 0; i < STEPS.length; i++) {
       guard(id);
       const step = STEPS[i];
-      if (step.before) await step.before();
+      if (step.before) {
+        await step.before();
+        // Each booking step slides in; measure it once it has landed.
+        await wait(500);
+      }
       guard(id);
       if (step.path && window.location.pathname !== step.path) navigate(step.path);
       // The booking screen registers its controls once it has mounted.
@@ -561,13 +562,20 @@ async function run(id: number): Promise<void> {
       // Centred, so a fixed bar (the phone's bottom nav) never sits over it.
       // Taller than the screen: its top, where the reading starts.
       if (el) {
-        const tall = el.getBoundingClientRect().height > window.innerHeight * 0.7;
-        el.scrollIntoView({ block: tall ? 'start' : 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
+        const rect = el.getBoundingClientRect();
+        const tall = rect.height > window.innerHeight * 0.7;
+        const behavior = reducedMotion() ? 'auto' : 'smooth';
+        // A tall one lands just under the sticky header rather than beneath it.
+        if (tall) window.scrollBy({ top: rect.top - 96, behavior });
+        else el.scrollIntoView({ block: 'center', behavior });
         await wait(450);
         guard(id);
       }
       const ms = step.dwell ?? DEFAULT_DWELL;
       show(step, el, i, ms);
+      // Anything still settling (a sheet opening, fonts, a late image) would
+      // leave the cutout off the element; measure again once it has.
+      window.setTimeout(() => driverObj?.refresh(), 400);
       await dwell(ms, id);
       guard(id);
       if (step.after) await step.after();

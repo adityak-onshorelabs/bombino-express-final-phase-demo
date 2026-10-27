@@ -74,14 +74,13 @@ Both bars should be visible, with the leading one highlighted. That makes
 - **Earning: ₹100 billed (excl. GST) = 1 point.**
   `points = floor(billingExGst / 100)` per order.
 - **Redemption: allowed only once the balance is at least 100 points.**
-- **Value of a point when used: ₹100 off per point**, because the user said
-  "₹100 = 1 point" applies both ways. This is one constant,
-  `RUPEES_PER_REDEEMED_POINT` in `lib/rewards.ts`.
-  ⚠️ **Needs Bombino confirmation.** At this value the customer gets back
-  100% of what they spent: a ₹10,000 shipment earns 100 points, worth ₹10,000.
-  It also means points can only be used on payments of ₹10,000 or more, since
-  the minimum spend is 100 points. If the value changes (for example to ₹1),
-  edit the constant and every rupee figure at checkout follows.
+- **Value of a point when used: ₹1 off per point** (set 27 Oct 2026; it was
+  ₹100). One constant, `RUPEES_PER_REDEEMED_POINT` in `lib/rewards.ts`; every
+  rupee figure at checkout follows it.
+  At ₹1 a member gets back about 1% of what they spend: a ₹10,000 shipment
+  earns 100 points, worth ₹100 off. The 100-point minimum means points can be
+  used on payments of ₹100 or more.
+  ⚠️ **Still needs Bombino confirmation** (§7, question 1).
 - **Using points on a payment:**
   - The most a payment can take is `min(balance, floor(amount due / value))`.
   - Points are earned on what is actually paid: amount due minus the points
@@ -127,7 +126,7 @@ The demo state lives in `client/src/lib/rewardsStore.ts` (zustand, persisted as 
 | Use on a due payment | Order → **Payment due** task | Same card. The hint shows the old amount struck through and the new amount to pay. Points come off the balance once the payment is paid or pending |
 | Can't use points | Same card, switch disabled | Under 100 points: a meter and "N more points and you can use them on a payment". Payment under 100 points' worth: "Points can be used on payments of ₹10,000 or more" |
 | Tier up | Full-screen celebration | Badge springs in, confetti in amber and navy, "Next up" shows the following tier. Respects reduced motion |
-| Demo walkthrough | **"Rewards demo" in the sidebar / side menu** (shown to everyone, signed in or not), Demo controls → **Play the rewards demo**, or any customer URL with `?tour=rewards`. Runs as **Demo Member**, a linked account that exists only in the browser (no sign-in, no server), so its booking gets an AWB at once. The visitor's own session is put back at the end | Hands-free driver.js tour (`client/src/lib/rewardsTour.ts`), about 2 minutes: tier → wallet → journey → books a **dummy shipment** (25 kg Mumbai → New Jersey, 4 steps, fixed quote ₹31,860) → Review & Pay → switches points on (318, the max) → steps down to 250 → To pay ₹6,860 → earn note (58 pts) → Confirm → success card → wallet 1,620 → 1,370 with +58 on the way → order settles, +58 lands → rules. Pause, Next, Esc/close at any time. **Nothing is booked or charged**: the booking screen runs in demo mode and never calls the API. The member's figures are saved first and put back when the tour ends, however it ends. Guests get a sign-in hint instead |
+| Demo walkthrough | **"Rewards demo" in the sidebar / side menu** (shown to everyone, signed in or not), Demo controls → **Play the rewards demo**, or any customer URL with `?tour=rewards`. Runs as **Demo Member**, a linked account that exists only in the browser (no sign-in, no server), so its booking gets an AWB at once. The visitor's own session is put back at the end | Hands-free driver.js tour (`client/src/lib/rewardsTour.ts`), about 2 minutes: tier → wallet → journey → books a **dummy shipment** (25 kg Mumbai → New Jersey, 4 steps, fixed quote ₹31,860) → Review & Pay → switches points on (1,620, the whole balance) → steps down to 1,000 → To pay ₹30,860 → earn note (261 pts) → Confirm → success card with order no. and AWB → wallet 1,620 → 620 with +261 on the way → order settles, +261 lands (881) → rules. Pause, Next, Esc/close at any time. **Nothing is booked or charged**: the booking screen runs in demo mode and never calls the API. The member's figures are saved first and put back when the tour ends, however it ends |
 | Demo only | Dashed "Demo controls" panel | Switch between scenarios (New member, Close to Tier 1, Tier 2 by weight, Top tier) and "Simulate a shipment". Remove this panel when the API lands |
 
 **Backend gap (must close before this is real):** the UI deducts points from
@@ -143,15 +142,16 @@ needs three things:
 
 | # | Question | Assumed for the demo |
 |---|---|---|
-| 1 | What is a point worth when redeemed? (§4) | ₹100 per point, as stated; one constant |
+| 1 | What is a point worth when redeemed? (§4) **Note, 27 Oct 2026:** changed from ₹100 to **₹1** on Aditya's call. ₹100 gave back 100% of spend (a ₹31,860 booking could drop to ₹60); ₹1 gives about 1% back. Bombino to confirm the value, and whether ~1% back is what they intend | ₹1 per point; one constant (`RUPEES_PER_REDEEMED_POINT`) |
 | 2 | T5 targets | Placeholder ₹50 L / 7,000 kg, kept in one constant |
 | 3 | What "yearly" means: financial year (Apr–Mar), calendar year, or rolling 12 months? | Financial year, Apr–Mar |
 | 4 | Does the tier drop or reset when the year ends? Do points expire? | Not shown |
-| 5 | Do refunds, cancellations and RTO reduce billing and take points back? | Not modelled |
+| 5 | Do refunds, cancellations and RTO reduce billing and take points back? | A cancelled order gives back the points used on it and drops its pending points. Refunds after settling and RTO: not modelled |
 | 6 | Does weight mean chargeable (volumetric) or actual weight? | Chargeable |
 | 7 | What does redeeming do: a discount on a booking, a credit, or something else? | A discount on a payment, chosen at Review & Pay or Payment due |
-| 9 | Can points pay the whole amount, or must some be paid in money? | Points can cover everything (To pay ₹0) |
 | 8 | Does a higher tier earn points faster? | No, the same rate at every tier |
+| 9 | Can points pay the whole amount, or must some be paid in money? | Points can cover everything (To pay ₹0) |
 | 10 | When does an order "settle" so its points land: delivered, paid, or both? | Paid **and** dispatched |
 | 11 | Points with Pay at Pickup / Drop-off / COD: taken at booking, or when the money is collected? | Taken at booking, like Pay Now |
 | 12 | Do guest bookings count once the guest makes an account? | No; points start from the account |
+| 13 | When points reduce a payment, is GST charged on the reduced amount or the full one, and what amount goes on the invoice and to ITD? (Added 27 Oct 2026) | Not decided; the demo only shows the discount |

@@ -2355,7 +2355,7 @@ export default function CreateShipment() {
       <main className="max-w-6xl mx-auto w-full px-4 md:px-6 py-4 md:py-6 lg:grid lg:grid-cols-12 lg:gap-8 lg:items-start">
         <div className="lg:col-span-7 min-w-0">
         {currentStep === 1 && (
-          <div className="space-y-4 animate-fade-in" data-tour="booking-step">
+          <div className="space-y-4 animate-fade-in">
             {/* First on the step. Nothing else a guest does can be saved until
                 this passes — the endpoints that take their documents are
                 authorised by this OTP, not by a session — and the number proved
@@ -2468,7 +2468,7 @@ export default function CreateShipment() {
 
             <SectionLabel>Sender details</SectionLabel>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-card">
+            <div data-tour="booking-sender" className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-card">
               <div>
                 <Label className="text-xs text-muted-foreground">Full Name <span className="text-red-400">*</span></Label>
                 <Input
@@ -2906,7 +2906,7 @@ export default function CreateShipment() {
         )}
 
         {currentStep === 2 && (
-          <div className="space-y-4 animate-fade-in" data-tour="booking-step">
+          <div className="space-y-4 animate-fade-in">
             {destinationCountry && (
               <CorridorRouteInfo
                 destinationCode={destinationCountry}
@@ -2973,7 +2973,7 @@ export default function CreateShipment() {
               }}
             />
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-card">
+            <div data-tour="booking-receiver" className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-card">
               <div>
                 <Label className="text-xs text-muted-foreground">Receiver Name</Label>
                 <Input
@@ -3182,7 +3182,7 @@ export default function CreateShipment() {
         )}
 
         {currentStep === 3 && (
-          <div className="space-y-4 animate-fade-in" data-tour="booking-step">
+          <div className="space-y-4 animate-fade-in">
             <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <ShipmentContentSearch
                 value={shipmentContent}
@@ -3231,7 +3231,7 @@ export default function CreateShipment() {
               </button>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
+            <div data-tour="booking-package" className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <div className="flex items-center justify-between mb-3">
                 <Label className="text-sm font-semibold">Weight</Label>
                 <div className="flex bg-muted rounded-lg p-0.5">
@@ -3567,7 +3567,7 @@ export default function CreateShipment() {
         )}
 
         {currentStep === 4 && (
-          <div className="space-y-4 animate-fade-in" data-tour="booking-step">
+          <div className="space-y-4 animate-fade-in">
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
               Required for Indian customs clearance. These details appear on the commercial invoice.
             </div>
@@ -3982,7 +3982,7 @@ export default function CreateShipment() {
               </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-card">
+            <div data-tour="booking-invoice" className="bg-white rounded-xl border border-[#E2E8F0] p-4 space-y-3 shadow-card">
               <div>
                 <Label className="text-sm font-semibold">Invoice Item</Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
