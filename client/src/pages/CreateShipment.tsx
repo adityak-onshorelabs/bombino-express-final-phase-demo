@@ -80,6 +80,8 @@ import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { PointsAtCheckout, PointsEarnNote } from '@/components/rewards/PointsAtCheckout';
 import { formatPoints, pointsDiscount, pointsFor, withoutGst } from '@/lib/rewards';
 import { useRewardsStore } from '@/lib/rewardsStore';
+import { useRewardsAccess } from '@/lib/rewardsAccess';
+import { TOUR_ORDER_NO, TOUR_RATES, TOUR_SHIPMENT, useRewardsTour } from '@/lib/rewardsTour';
 import { cn } from '@/lib/utils';
 import { getHsnCode } from '@shared/hsn';
 import { US_STATES, US_STATE_ERROR, US_ZIP_ERROR, isUsZip, usStateName } from '@shared/usAddress';
@@ -710,13 +712,23 @@ export default function CreateShipment() {
   // Reward points on this booking. UI only: the points leave the demo balance
   // when the booking succeeds, but the payload does not carry them yet, so the
   // gateway still charges the full quote (docs/rewards/rewards-logic.md).
+  // Account holders only: a guest sees nothing about rewards.
+  const rewardsOn = useRewardsAccess();
   const [pointsToUse, setPointsToUse] = useState(0);
   const [bookedPoints, setBookedPoints] = useState<{ used: number; earn: number } | null>(null);
   const redeemPoints = useRewardsStore((s) => s.redeem);
+  const addPendingPoints = useRewardsStore((s) => s.addPending);
+  // The rewards demo (lib/rewardsTour) books a dummy shipment on this screen.
+  const tourBooking = useRewardsTour((s) => s.bookingDemo);
+  const setTourBridge = useRewardsTour((s) => s.setBridge);
   const quoteTotal = selectedService?.total ?? 0;
   const pointsOff = pointsDiscount(pointsToUse);
   const amountToPay = Math.max(quoteTotal - pointsOff, 0);
-  const pointsToEarn = selectedService
+  // Signed out mid-booking (a session that lapsed): the points go with it.
+  useEffect(() => {
+    if (!rewardsOn) setPointsToUse(0);
+  }, [rewardsOn]);
+  const pointsToEarn = rewardsOn && selectedService
     ? pointsFor(withoutGst(amountToPay, { total: selectedService.total, subTotal: selectedService.sub_total }))
     : 0;
   const [ratesError, setRatesError] = useState('');
@@ -1081,6 +1093,28 @@ export default function CreateShipment() {
     setPayMessage(outcome.status === 'failed' ? outcome.message : '');
   };
 
+  /**
+   * The booking's side of rewards: points used come off now, points earned
+   * wait until the order settles. Earned on what is paid, excl. GST, and on
+   * the quote's chargeable weight.
+   */
+  const recordBookingPoints = (orderNo: string): void => {
+    if (!rewardsOn) {
+      setBookedPoints(null);
+      return;
+    }
+    if (pointsToUse > 0) redeemPoints(pointsToUse, orderNo);
+    if (selectedService) {
+      addPendingPoints({
+        ref: orderNo,
+        points: pointsToEarn,
+        billing: withoutGst(amountToPay, { total: selectedService.total, subTotal: selectedService.sub_total }),
+        weightKg: Number(selectedService.weight) || 0,
+      });
+    }
+    setBookedPoints({ used: pointsToUse, earn: pointsToEarn });
+  };
+
   const createMutation = useMutation({
     mutationFn: (payload: OrderCreatePayload) =>
       apiRequest('POST', '/api/orders', payload).then((r) => r.json() as Promise<OrderCreateResponse>),
@@ -1092,8 +1126,7 @@ export default function CreateShipment() {
       setNewBoxLabel(data.boxLabel === true);
       setDocketMessage(data.docket?.status === 'failed' ? data.docket.message ?? '' : '');
 
-      if (pointsToUse > 0) redeemPoints(pointsToUse, data.order.order_no);
-      setBookedPoints({ used: pointsToUse, earn: pointsToEarn });
+      recordBookingPoints(data.order.order_no);
 
       // POST /api/orders wrote the profile row and the order against this
       // guest's ref, so there is nothing to save here — only a stale cache to
@@ -1158,6 +1191,73 @@ export default function CreateShipment() {
     if (!rateResults?.length) return [];
     return dedupeAndSort(rateResults);
   }, [rateResults]);
+
+  // ── Rewards demo ───────────────────────────────────────────────────────
+  // While the tour runs, this screen is a stage: filled with a dummy shipment,
+  // quoted from fixed rates, and driven step by step through the bridge. The
+  // booking itself is faked in handleConfirmBooking, so nothing reaches the API.
+  const tourSeeded = useRef(false);
+  useEffect(() => {
+    if (!tourBooking || tourSeeded.current) return;
+    tourSeeded.current = true;
+    const d = TOUR_SHIPMENT;
+    setSenderName((v) => v || 'Demo Sender');
+    setSenderPhone(d.senderPhone);
+    setSenderCity(d.senderCity);
+    setSenderState(d.senderState);
+    setSenderZip(d.senderZip);
+    setSenderAddress(d.senderAddress);
+    setPickupRequest('2');
+    setPickupDate('');
+    setReceiverName(d.receiverName);
+    setReceiverPhone(d.receiverPhone);
+    setReceiverEmail(d.receiverEmail);
+    setReceiverCity(d.receiverCity);
+    setReceiverState(d.receiverState);
+    setReceiverZip(d.receiverZip);
+    setReceiverAddress(d.receiverAddress);
+    setDestinationCountry(d.destinationCountry);
+    setWeightUnit('kg');
+    setWeight(String(d.weightKg));
+    setPieces('1');
+    setDimUnit('cm');
+    setDimL(d.dimsCm.l);
+    setDimW(d.dimsCm.w);
+    setDimH(d.dimsCm.h);
+    setShipmentValue(d.shipmentValue);
+    setShipmentContent(d.shipmentContent);
+    applyProductType(isCompanyAccount ? 'COMMERCIAL' : 'SPX');
+    setInvoiceQty('1');
+    setInvoiceUnitWeight(String(d.weightKg));
+    setInvoiceUnitRate(d.shipmentValue);
+  }, [tourBooking, isCompanyAccount, applyProductType]);
+
+  useEffect(() => {
+    if (!tourBooking) return;
+    setTourBridge({
+      goToStep: (step) => {
+        setFieldErrors({});
+        setStepError('');
+        setCurrentStep(step);
+        window.scrollTo({ top: 0 });
+      },
+      showRates: () => {
+        setRateResults([...TOUR_RATES]);
+        setPendingService(null);
+        setShowServiceModal(true);
+      },
+      openReview: () => {
+        setSelectedService((current) => current ?? TOUR_RATES[0]);
+        setShowServiceModal(false);
+        setPaymentMethod('pay_now');
+        setPaymentError('');
+        setPointsToUse(0);
+        setShowConfirmModal(true);
+      },
+      setPoints: setPointsToUse,
+    });
+    return () => setTourBridge(null);
+  }, [tourBooking, setTourBridge]);
 
   useLayoutEffect(() => {
     if (displayRates.length === 0) return;
@@ -1591,7 +1691,7 @@ export default function CreateShipment() {
           </div>
 
           {/* Rewards on this booking: what was spent, what is coming. */}
-          {bookedPoints && (bookedPoints.used > 0 || bookedPoints.earn > 0) && (
+          {rewardsOn && bookedPoints && (bookedPoints.used > 0 || bookedPoints.earn > 0) && (
             <Link
               href="/rewards"
               className="mb-4 flex w-full items-center gap-3 rounded-lg bg-gradient-to-br from-[#2F4468] to-[#16243A] p-4 text-left text-white"
@@ -2098,6 +2198,19 @@ export default function CreateShipment() {
       setPaymentError('Please select a payment method');
       return;
     }
+    // The rewards demo: the same screens a real booking reaches, with no
+    // order filed and no money taken.
+    if (tourBooking) {
+      setShowConfirmModal(false);
+      setNewOrderNo(TOUR_ORDER_NO);
+      setNewOrderId('');
+      setNewAwbNo('');
+      setNewBoxLabel(false);
+      setDocketMessage('');
+      recordBookingPoints(TOUR_ORDER_NO);
+      setPayStatus('paid');
+      return;
+    }
     if (!pendingOrderRef.current) return;
 
     createMutation.mutate({
@@ -2242,7 +2355,7 @@ export default function CreateShipment() {
       <main className="max-w-6xl mx-auto w-full px-4 md:px-6 py-4 md:py-6 lg:grid lg:grid-cols-12 lg:gap-8 lg:items-start">
         <div className="lg:col-span-7 min-w-0">
         {currentStep === 1 && (
-          <div className="space-y-4 animate-fade-in">
+          <div className="space-y-4 animate-fade-in" data-tour="booking-step">
             {/* First on the step. Nothing else a guest does can be saved until
                 this passes — the endpoints that take their documents are
                 authorised by this OTP, not by a session — and the number proved
@@ -2793,7 +2906,7 @@ export default function CreateShipment() {
         )}
 
         {currentStep === 2 && (
-          <div className="space-y-4 animate-fade-in">
+          <div className="space-y-4 animate-fade-in" data-tour="booking-step">
             {destinationCountry && (
               <CorridorRouteInfo
                 destinationCode={destinationCountry}
@@ -3069,7 +3182,7 @@ export default function CreateShipment() {
         )}
 
         {currentStep === 3 && (
-          <div className="space-y-4 animate-fade-in">
+          <div className="space-y-4 animate-fade-in" data-tour="booking-step">
             <div className="bg-white rounded-xl border border-[#E2E8F0] p-4 shadow-card">
               <ShipmentContentSearch
                 value={shipmentContent}
@@ -3454,7 +3567,7 @@ export default function CreateShipment() {
         )}
 
         {currentStep === 4 && (
-          <div className="space-y-4 animate-fade-in">
+          <div className="space-y-4 animate-fade-in" data-tour="booking-step">
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
               Required for Indian customs clearance. These details appear on the commercial invoice.
             </div>
@@ -4464,7 +4577,10 @@ export default function CreateShipment() {
               </button>
             </div>
 
-            <div className="bg-muted/30 rounded-xl border border-border p-4 space-y-2 text-sm mb-5">
+            <div
+              className="bg-muted/30 rounded-xl border border-border p-4 space-y-2 text-sm mb-5"
+              data-tour="review-summary"
+            >
               <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground">Service</span>
                 <span className="font-medium text-foreground text-right text-xs break-words">
@@ -4531,7 +4647,7 @@ export default function CreateShipment() {
               <p className="text-[10px] text-muted-foreground">incl. GST · estimated, settled after weighing</p>
             </div>
 
-            {selectedService && (
+            {selectedService && rewardsOn && (
               <div className="mb-5 space-y-2.5">
                 <PointsAtCheckout payable={quoteTotal} points={pointsToUse} onPointsChange={setPointsToUse} />
                 <PointsEarnNote points={pointsToEarn} className="px-1" />

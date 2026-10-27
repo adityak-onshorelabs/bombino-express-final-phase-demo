@@ -17,6 +17,7 @@ import bombinoLogo from '@/assets/bombino-logo.png';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
+import { useRewardsAccess } from '@/lib/rewardsAccess';
 import { useUnreadNotificationCount } from '@/hooks/useCustomerOrders';
 import { GuestSignOutDialog } from '@/components/GuestSignOutDialog';
 import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
@@ -39,7 +40,8 @@ const SIGN_OUT_BUTTON =
   'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-red-400 hover:bg-red-500/[0.12] hover:text-red-300 transition-all duration-150 text-left';
 
 const ACCOUNT_NAV = [
-  { label: 'Rewards', icon: Trophy, path: '/rewards' },
+  // Account holders only, not a verified guest: see lib/rewardsAccess.
+  { label: 'Rewards', icon: Trophy, path: '/rewards', accountOnly: true as const },
   { label: 'My Profile', icon: User, path: '/profile', authRequired: true as const },
   { label: 'Ask BIA', icon: Bot, path: '/help' },
 ] as const;
@@ -95,6 +97,7 @@ export function DesktopSidebar() {
   // A verified guest has a profile screen of their own — see SideMenu for why
   // hiding it left their details unreachable once the banner cleared.
   const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
+  const rewardsOn = useRewardsAccess();
   const [signOutOpen, setSignOutOpen] = useState(false);
   // Shares the polled notification list with the mobile header — see the note
   // on `useUnreadNotificationCount`. One query, two badges, always in step.
@@ -128,7 +131,7 @@ export function DesktopSidebar() {
 
   const visibleAccountNav = ACCOUNT_NAV.filter(
     (item) => !('authRequired' in item && item.authRequired) || isLoggedIn || !!guestProfile
-  ).map((item) =>
+  ).filter((item) => !('accountOnly' in item && item.accountOnly) || rewardsOn).map((item) =>
     // Same row, same label, different destination: /profile is the account
     // screen and turns a guest away, /guest-profile is theirs.
     item.path === '/profile' && !isLoggedIn && guestProfile

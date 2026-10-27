@@ -36,6 +36,8 @@ import { useGuestProfile } from "@/hooks/useGuestProfile";
 import { useAppStore } from "@/lib/store";
 import Support from "@/pages/Support";
 import Rewards from "@/pages/Rewards";
+import { RewardsTourHost } from "@/components/rewards/RewardsTourHost";
+import { useRewardsAccess } from "@/lib/rewardsAccess";
 import Locations from "@/pages/Locations";
 import NotFound from "@/pages/not-found";
 
@@ -60,6 +62,16 @@ function ProfileRoute() {
   if (!isLoggedIn && isLoading) return null;
   if (!isLoggedIn && guestProfile) return <GuestProfileDashboard />;
   return <Profile />;
+}
+
+/**
+ * `/rewards` for account holders only. Anyone else is sent to sign in, and
+ * comes back here after: a guest sees nothing about rewards (lib/rewardsAccess).
+ */
+function RewardsRoute() {
+  const rewardsOn = useRewardsAccess();
+  if (!rewardsOn) return <Redirect to="/login?redirect=%2Frewards" replace />;
+  return <Rewards />;
 }
 
 function CustomerRouter() {
@@ -96,7 +108,7 @@ function CustomerRouter() {
           asked about, no new code, no contract to sign again. */}
       <Route path="/application/fix" component={ApplicationFix} />
       <Route path="/help" component={Support} />
-      <Route path="/rewards" component={Rewards} />
+      <Route path="/rewards" component={RewardsRoute} />
       {/* Every drop-off counter. Reached from the booking form and the order
           screen with `?near=<state>`, which floats that state to the top. */}
       <Route path="/locations" component={Locations} />
@@ -164,6 +176,7 @@ function Surfaces() {
     <AppLayout>
       <CustomerRouter />
       <BiaSheet />
+      <RewardsTourHost />
     </AppLayout>
   );
 }

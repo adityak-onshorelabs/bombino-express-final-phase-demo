@@ -23,7 +23,7 @@
  */
 
 import { useAppStore } from '@/lib/store';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRoute, useLocation, Link } from 'wouter';
 import {
   AlertTriangle,
@@ -53,8 +53,9 @@ import { apiRequest } from '@/lib/queryClient';
 import { payForOrder } from '@/lib/razorpay';
 import { PaymentTestModeSwitch } from '@/components/PaymentTestModeSwitch';
 import { PointsAtCheckout, PointsEarnNote } from '@/components/rewards/PointsAtCheckout';
-import { pointsDiscount, pointsFor, withoutGst } from '@/lib/rewards';
+import { formatPoints, pointsDiscount, pointsFor, pointsUsedOn, withoutGst } from '@/lib/rewards';
 import { useRewardsStore } from '@/lib/rewardsStore';
+import { useRewardsAccess } from '@/lib/rewardsAccess';
 import { DropoffBranches } from '@/components/DropoffBranches';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -442,6 +443,33 @@ export default function OrderDetails() {
   // still charged the full amount until the API takes points.
   const [pointsToUse, setPointsToUse] = useState(0);
   const redeemPoints = useRewardsStore((s) => s.redeem);
+  const settlePoints = useRewardsStore((s) => s.settle);
+  const repricePending = useRewardsStore((s) => s.repricePending);
+  const refundPoints = useRewardsStore((s) => s.refund);
+  // Account holders only. A guest can open an order but sees nothing about
+  // rewards, and points never move for one.
+  const rewardsOn = useRewardsAccess();
+  useEffect(() => {
+    if (!rewardsOn) setPointsToUse(0);
+  }, [rewardsOn]);
+  // Points already taken off this order at booking. The server still asks for
+  // the full quote (it does not know about points yet), so they are taken off
+  // here too, or a customer who left the gateway at booking would pay in full
+  // after spending the points, or spend them twice.
+  const history = useRewardsStore((s) => s.member.history);
+  const usedAtBooking = rewardsOn && orderNo ? pointsUsedOn(history, orderNo) : 0;
+
+  // The order's points follow the order. Cancelled: the points used on it come
+  // back and its pending earn is dropped. Settled (paid and handed to the
+  // carrier, assumed for now): the pending earn lands. Both are no-ops for an
+  // order that has nothing in the store, and safe to repeat on every poll.
+  const orderStatus = data?.order.status;
+  const orderPaid = data?.order.payment_status === 'paid';
+  useEffect(() => {
+    if (!rewardsOn || !orderNo) return;
+    if (orderStatus === 'cancelled') refundPoints(orderNo);
+    else if (orderStatus === 'dispatched' && orderPaid) settlePoints(orderNo);
+  }, [rewardsOn, orderNo, orderStatus, orderPaid, refundPoints, settlePoints]);
 
   const handlePayNow = async (orderId: string): Promise<void> => {
     setPaying(true);
@@ -450,8 +478,9 @@ export default function OrderDetails() {
 
     if (outcome.status === 'dismissed') return;
 
-    if ((outcome.status === 'paid' || outcome.status === 'pending') && pointsToUse > 0) {
+    if ((outcome.status === 'paid' || outcome.status === 'pending') && rewardsOn && pointsToUse > 0) {
       redeemPoints(pointsToUse, orderNo);
+      repricePending(orderNo, withoutGst(amountAfterPoints));
       setPointsToUse(0);
     }
 
@@ -572,7 +601,11 @@ export default function OrderDetails() {
     !isCancelled &&
     !weighedHeavier;
   const amountLabel = formatInr(order.final_amount ?? order.quoted_amount);
-  const amountDue = order.final_amount ?? order.quoted_amount ?? 0;
+  const amountDue = Math.max(
+    (order.final_amount ?? order.quoted_amount ?? 0) - pointsDiscount(usedAtBooking),
+    0
+  );
+  const dueLabel = usedAtBooking > 0 ? formatInr(amountDue) : amountLabel;
   const amountAfterPoints = Math.max(amountDue - pointsDiscount(pointsToUse), 0);
 
   const originLine = [origin?.city, origin?.state].filter(Boolean).join(', ');
@@ -731,11 +764,13 @@ export default function OrderDetails() {
             hint={
               pointsToUse > 0 ? (
                 <>
-                  <span className="line-through">{amountLabel}</span>{' '}
+                  <span className="line-through">{dueLabel}</span>{' '}
                   <span className="font-semibold text-foreground">{formatInr(amountAfterPoints)}</span> to pay online
                 </>
               ) : (
-                `${amountLabel ?? 'Amount'} to pay online`
+                `${dueLabel ?? 'Amount'} to pay online${
+                  usedAtBooking > 0 ? ` · ${formatPoints(usedAtBooking)} points already used` : ''
+                }`
               )
             }
             action={
@@ -749,10 +784,12 @@ export default function OrderDetails() {
               </Button>
             }
           >
-            <div className="space-y-2.5">
-              <PointsAtCheckout payable={amountDue} points={pointsToUse} onPointsChange={setPointsToUse} />
-              <PointsEarnNote points={pointsFor(withoutGst(amountAfterPoints))} className="px-1" />
-            </div>
+            {rewardsOn && (
+              <div className="space-y-2.5">
+                <PointsAtCheckout payable={amountDue} points={pointsToUse} onPointsChange={setPointsToUse} />
+                <PointsEarnNote points={pointsFor(withoutGst(amountAfterPoints))} className="px-1" />
+              </div>
+            )}
             {/* TEMPORARY: only renders when the server has PAYMENTS_TEST_MODE. */}
             <PaymentTestModeSwitch />
           </Task>

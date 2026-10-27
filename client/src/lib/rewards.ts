@@ -128,6 +128,13 @@ export function pointsDiscount(points: number): number {
   return points * RUPEES_PER_REDEEMED_POINT;
 }
 
+/** Points used on one order and not given back. */
+export function pointsUsedOn(history: readonly PointsEntry[], ref: string): number {
+  return history
+    .filter((h) => h.ref === ref && (h.kind === 'redeem' || h.kind === 'refund'))
+    .reduce((sum, h) => sum - h.points, 0);
+}
+
 /**
  * The pre-GST share of an amount. Pass the quote's pre-tax figure when there
  * is one. Otherwise this assumes 18% GST, the rate on every service the rate
@@ -175,12 +182,26 @@ export function formatPoints(points: number): string {
 
 export interface PointsEntry {
   id: string;
-  kind: 'earn' | 'redeem';
+  /** `refund`: points given back after the order they were used on was cancelled. */
+  kind: 'earn' | 'redeem' | 'refund';
   label: string;
-  /** Order number for an earn row. */
+  /** The order the row belongs to. */
   ref?: string;
   date: string;
   points: number;
+}
+
+/**
+ * Points a booking will earn once it settles. Not spendable yet and not yet
+ * counted towards the tier: an order can still be reweighed or cancelled.
+ */
+export interface PendingEarn {
+  ref: string;
+  points: number;
+  /** What was actually paid, excl. GST. Counts towards the tier on settling. */
+  billing: number;
+  weightKg: number;
+  date: string;
 }
 
 export interface RewardsMember {
@@ -191,6 +212,7 @@ export interface RewardsMember {
   /** Spendable balance. */
   points: number;
   history: PointsEntry[];
+  pending: PendingEarn[];
 }
 
 export type ScenarioId = 'new' | 'close' | 'weight' | 'top';
@@ -214,6 +236,7 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
       weightKg: 9,
       points: 64,
       history: [earn('n1', 'BOM-104233', '2026-10-18', 6_480)],
+      pending: [],
     },
   },
   {
@@ -230,6 +253,7 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
         earn('c4', 'BOM-103877', '2026-09-21', 27_650),
         earn('c5', 'BOM-103650', '2026-09-02', 61_300),
       ],
+      pending: [],
     },
   },
   {
@@ -246,6 +270,7 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
         earn('w3', 'BOM-104015', '2026-10-01', 39_900),
         { id: 'w4', kind: 'redeem', label: 'Redeemed on a booking', date: '2026-09-15', points: -6_000 },
       ],
+      pending: [],
     },
   },
   {
@@ -260,6 +285,7 @@ export const DEMO_SCENARIOS: readonly DemoScenario[] = [
         earn('t2', 'BOM-104230', '2026-10-16', 2_12_500),
         earn('t3', 'BOM-104199', '2026-10-11', 96_400),
       ],
+      pending: [],
     },
   },
 ];

@@ -3,6 +3,7 @@ import { ChevronRight, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatInrShort, formatKg, formatPoints, progressFor } from '@/lib/rewards';
 import { useRewardsStore } from '@/lib/rewardsStore';
+import { useRewardsAccess } from '@/lib/rewardsAccess';
 import { TierEmblem } from './TierEmblem';
 
 /**
@@ -12,6 +13,8 @@ import { TierEmblem } from './TierEmblem';
  */
 export function RewardsTeaser({ className }: { className?: string }) {
   const member = useRewardsStore((s) => s.member);
+  const rewardsOn = useRewardsAccess();
+  if (!rewardsOn) return null;
   const p = progressFor(member.billing, member.weightKg);
   const pct = Math.round(p.pct * 100);
   const closest =

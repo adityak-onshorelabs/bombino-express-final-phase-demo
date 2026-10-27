@@ -4,6 +4,7 @@ import { X, User, LogOut, LogIn, Bot, Phone, ShieldCheck, Trophy } from 'lucide-
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
+import { useRewardsAccess } from '@/lib/rewardsAccess';
 import { formatGuestPhone } from '@/lib/shadowProfile';
 import { GuestSignOutDialog } from '@/components/GuestSignOutDialog';
 import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
@@ -35,6 +36,7 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
    * is most likely to come looking for what they filled in.
    */
   const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
+  const rewardsOn = useRewardsAccess();
   const { waHref, telHref } = useSupportContacts();
   // The menu stays open behind the confirmation, so "Stay signed in" lands
   // back where they were rather than on a closed menu.
@@ -238,17 +240,19 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
                   </>
                 )}
 
-                <Link
-                  href="/rewards"
-                  onClick={onClose}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
-                  data-testid="link-rewards"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
-                    <Trophy className="w-5 h-5 text-amber-600" />
-                  </div>
-                  <span className="font-medium">Rewards</span>
-                </Link>
+                {rewardsOn && (
+                  <Link
+                    href="/rewards"
+                    onClick={onClose}
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all"
+                    data-testid="link-rewards"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
+                      <Trophy className="w-5 h-5 text-amber-600" />
+                    </div>
+                    <span className="font-medium">Rewards</span>
+                  </Link>
+                )}
 
                 <div className="border-t border-border my-4" />
 

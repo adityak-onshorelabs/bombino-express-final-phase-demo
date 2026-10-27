@@ -12,6 +12,12 @@ Source: Bombino mail thread "Membership Rate", Ghanshyam Mishra / Pakshan Latiwa
 
 - **Direct clients only.** Mail: "This Chart will be applicable for direct Client."
   The scheme does not cover agents, franchisees or channel partners.
+- **Account holders only. Guests see nothing about rewards** (27 Oct 2026):
+  no Home card, no menu or sidebar link, no points at Review & Pay or on a
+  Payment due, no points line on the success screen. `/rewards` sends a guest
+  to sign in (`/login?redirect=/rewards`). Verified guests with a profile count
+  as guests. One check decides it: `useRewardsAccess()` in
+  `client/src/lib/rewardsAccess.ts` (signed in, customer role).
 - **Everyone starts at Standard.** Standard has no target to meet. It still shows
   the first milestone (₹5 L or 700 kg) as a goal, so a new customer can see
   what they are working towards.
@@ -81,6 +87,23 @@ Both bars should be visible, with the leading one highlighted. That makes
   - Points are earned on what is actually paid: amount due minus the points
     discount, excl. GST.
 
+### Lifecycle of a booking's points (27 Oct 2026)
+
+| Event | Points used | Points earned |
+|---|---|---|
+| Booking confirmed (or a due payment paid/pending) | Leave the balance now | Held as **pending** ("on the way"); not spendable, not counted to the tier |
+| Points used on a due payment for an order that already has a pending earn | Leave the balance | The pending earn shrinks to what is actually paid |
+| Order settles: paid and dispatched (**assumed**; see §7) | | Pending points land in the balance; the paid amount (excl. GST) and the chargeable weight count towards the tier |
+| Order cancelled | **Given back** (one refund row, never twice) | Pending earn dropped |
+| Session ends mid-checkout | Selection cleared, nothing taken | |
+
+Points already used on an order at booking are taken off its Payment due too,
+so a customer who closed the gateway at booking neither pays in full after
+spending points nor spends points twice on the same order.
+
+The demo figures belong to one account per device: signing in as a different
+account starts that account at the default member, never someone else's balance.
+
 ## 5. Out of scope for now
 
 - **Profit margin per tier.** The mail lists Non Member 28%, Standard 25%,
@@ -104,6 +127,7 @@ The demo state lives in `client/src/lib/rewardsStore.ts` (zustand, persisted as 
 | Use on a due payment | Order → **Payment due** task | Same card. The hint shows the old amount struck through and the new amount to pay. Points come off the balance once the payment is paid or pending |
 | Can't use points | Same card, switch disabled | Under 100 points: a meter and "N more points and you can use them on a payment". Payment under 100 points' worth: "Points can be used on payments of ₹10,000 or more" |
 | Tier up | Full-screen celebration | Badge springs in, confetti in amber and navy, "Next up" shows the following tier. Respects reduced motion |
+| Demo walkthrough | Demo controls → **Play the rewards demo**, or any customer URL with `?tour=rewards` | Hands-free driver.js tour (`client/src/lib/rewardsTour.ts`), about 2 minutes: tier → wallet → journey → books a **dummy shipment** (25 kg Mumbai → New Jersey, 4 steps, fixed quote ₹31,860) → Review & Pay → switches points on (318, the max) → steps down to 250 → To pay ₹6,860 → earn note (58 pts) → Confirm → success card → wallet 1,620 → 1,370 with +58 on the way → order settles, +58 lands → rules. Pause, Next, Esc/close at any time. **Nothing is booked or charged**: the booking screen runs in demo mode and never calls the API. The member's figures are saved first and put back when the tour ends, however it ends. Guests get a sign-in hint instead |
 | Demo only | Dashed "Demo controls" panel | Switch between scenarios (New member, Close to Tier 1, Tier 2 by weight, Top tier) and "Simulate a shipment". Remove this panel when the API lands |
 
 **Backend gap (must close before this is real):** the UI deducts points from
@@ -128,3 +152,6 @@ needs three things:
 | 7 | What does redeeming do: a discount on a booking, a credit, or something else? | A discount on a payment, chosen at Review & Pay or Payment due |
 | 9 | Can points pay the whole amount, or must some be paid in money? | Points can cover everything (To pay ₹0) |
 | 8 | Does a higher tier earn points faster? | No, the same rate at every tier |
+| 10 | When does an order "settle" so its points land: delivered, paid, or both? | Paid **and** dispatched |
+| 11 | Points with Pay at Pickup / Drop-off / COD: taken at booking, or when the money is collected? | Taken at booking, like Pay Now |
+| 12 | Do guest bookings count once the guest makes an account? | No; points start from the account |

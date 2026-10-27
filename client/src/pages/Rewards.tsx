@@ -1,7 +1,21 @@
 import { Link } from 'wouter';
 import { AnimatePresence, motion } from 'framer-motion';
 import { format, parseISO, isValid } from 'date-fns';
-import { ArrowLeft, Check, Gift, Lock, Package, Plus, Scale, Sparkles, TrendingUp, Wallet } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  Clock,
+  Gift,
+  Lock,
+  Package,
+  PlayCircle,
+  Plus,
+  RotateCcw,
+  Scale,
+  Sparkles,
+  TrendingUp,
+  Wallet,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   DEMO_SCENARIOS,
@@ -14,11 +28,13 @@ import {
   pointsDiscount,
   progressFor,
   rewardsYear,
+  type PendingEarn,
   type PointsEntry,
   type RewardsMember,
   type TierProgress,
 } from '@/lib/rewards';
 import { useRewardsStore } from '@/lib/rewardsStore';
+import { startRewardsTour, useRewardsTour } from '@/lib/rewardsTour';
 import { useCountUp } from '@/hooks/useCountUp';
 import { useToast } from '@/hooks/use-toast';
 import { TierEmblem } from '@/components/rewards/TierEmblem';
@@ -69,8 +85,8 @@ export default function Rewards() {
           <MilestoneRoad progress={progress} className="order-3" />
         </div>
         <div className="contents md:col-span-5 md:flex md:flex-col md:gap-6">
-          <PointsWallet points={member.points} className="order-2" />
-          <Activity history={member.history} className="order-4" />
+          <PointsWallet points={member.points} pending={member.pending} className="order-2" />
+          <Activity history={member.history} pending={member.pending} className="order-4" />
           <HowItWorks className="order-5" />
           <DemoControls className="order-6" />
         </div>
@@ -202,8 +218,17 @@ function HexPattern() {
 
 // ─── Points wallet ──────────────────────────────────────────────────────────
 
-function PointsWallet({ points, className }: { points: number; className?: string }) {
+function PointsWallet({
+  points,
+  pending,
+  className,
+}: {
+  points: number;
+  pending: PendingEarn[];
+  className?: string;
+}) {
   const lastEarn = useRewardsStore((s) => s.lastEarn);
+  const onTheWay = pending.reduce((sum, p) => sum + p.points, 0);
   const shown = useCountUp(points);
   const canRedeem = points >= REDEEM_MIN_POINTS;
   const toUnlock = REDEEM_MIN_POINTS - points;
@@ -238,6 +263,15 @@ function PointsWallet({ points, className }: { points: number; className?: strin
           )}
         </AnimatePresence>
       </div>
+      {onTheWay > 0 && (
+        <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-[#64748B]" data-testid="text-points-on-the-way">
+          <Clock className="h-3.5 w-3.5 text-[#F2A123]" />
+          <span>
+            <span className="font-semibold text-[#B76E00]">+{formatPoints(onTheWay)}</span> on the way, once{' '}
+            {pending.length === 1 ? 'your order settles' : `${pending.length} orders settle`}
+          </span>
+        </p>
+      )}
 
       {canRedeem ? (
         <>
@@ -363,16 +397,45 @@ function formatDay(iso: string): string {
   return isValid(d) ? format(d, 'd MMM') : '';
 }
 
-function Activity({ history, className }: { history: PointsEntry[]; className?: string }) {
+function Activity({
+  history,
+  pending,
+  className,
+}: {
+  history: PointsEntry[];
+  pending: PendingEarn[];
+  className?: string;
+}) {
   const rows = history.slice(0, 6);
   return (
     <section className={cn('rounded-lg border border-[#E2E8F0] bg-white p-5 shadow-[0_2px_12px_oklch(17%_0.048_248/0.06)]', className)} data-testid="rewards-activity">
       <h2 className={cn('text-sm font-semibold', NAVY)}>Points activity</h2>
-      {rows.length === 0 ? (
+      {rows.length === 0 && pending.length === 0 ? (
         <p className="py-6 text-center text-sm text-[#64748B]">Your first shipment earns your first points.</p>
       ) : (
         <ul className="mt-2 divide-y divide-[#F1F5F9]">
           <AnimatePresence initial={false}>
+            {/* Earned on a booking, not yet spendable: the order can still be
+                reweighed or cancelled. */}
+            {pending.map((row) => (
+              <motion.li
+                key={`pending-${row.ref}`}
+                className="flex items-center gap-3 py-3"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0 }}
+                data-testid="row-points-pending"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-dashed border-[#F2A123]/60 text-[#B76E00]">
+                  <Clock className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className={cn('truncate text-sm font-medium', NAVY)}>On the way</p>
+                  <p className="text-xs text-[#64748B]">{row.ref} · once the order settles</p>
+                </div>
+                <span className="text-sm font-bold tabular-nums text-[#B76E00]">+{formatPoints(row.points)}</span>
+              </motion.li>
+            ))}
             {rows.map((row) => (
               <motion.li
                 key={row.id}
@@ -384,10 +447,16 @@ function Activity({ history, className }: { history: PointsEntry[]; className?: 
                 <span
                   className={cn(
                     'flex h-9 w-9 shrink-0 items-center justify-center rounded-md',
-                    row.kind === 'earn' ? 'bg-[#F2A123]/12 text-[#B76E00]' : 'bg-[#2F4468]/10 text-[#2F4468]',
+                    row.kind === 'redeem' ? 'bg-[#2F4468]/10 text-[#2F4468]' : 'bg-[#F2A123]/12 text-[#B76E00]',
                   )}
                 >
-                  {row.kind === 'earn' ? <Package className="h-4 w-4" /> : <Gift className="h-4 w-4" />}
+                  {row.kind === 'earn' ? (
+                    <Package className="h-4 w-4" />
+                  ) : row.kind === 'refund' ? (
+                    <RotateCcw className="h-4 w-4" />
+                  ) : (
+                    <Gift className="h-4 w-4" />
+                  )}
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className={cn('truncate text-sm font-medium', NAVY)}>{row.label}</p>
@@ -456,6 +525,7 @@ function DemoControls({ className }: { className?: string }) {
   const scenarioId = useRewardsStore((s) => s.scenarioId);
   const setScenario = useRewardsStore((s) => s.setScenario);
   const simulateShipment = useRewardsStore((s) => s.simulateShipment);
+  const tourRunning = useRewardsTour((s) => s.running);
   const { toast } = useToast();
 
   // On a phone the wallet is a long scroll above this panel, so the earn is
@@ -478,6 +548,22 @@ function DemoControls({ className }: { className?: string }) {
         Demo controls
       </p>
       <p className="mt-1 text-xs text-[#64748B]">For walkthroughs only. Customers won't see this.</p>
+
+      {/* The whole story, hands-free: books a dummy shipment, spends points on
+          it and puts the figures back after (lib/rewardsTour). */}
+      <button
+        type="button"
+        onClick={startRewardsTour}
+        disabled={tourRunning}
+        className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#2F4468] text-sm font-bold text-white transition-colors hover:bg-[#24375A] disabled:opacity-60"
+        data-testid="button-play-rewards-demo"
+      >
+        <PlayCircle className="h-4 w-4 text-[#F7C35C]" />
+        Play the rewards demo
+      </button>
+      <p className="mt-1.5 text-center text-[11px] text-[#64748B]">
+        About 2 minutes. Books a dummy shipment and uses points on it.
+      </p>
 
       <div className="mt-4 flex flex-wrap gap-2" role="radiogroup" aria-label="Member preview">
         {DEMO_SCENARIOS.map((s) => (
