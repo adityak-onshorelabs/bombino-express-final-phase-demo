@@ -1278,6 +1278,90 @@ input[type="date"] {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
 }
+/* The presenter can scroll every screen while the demo runs: the page, the
+   desktop content area and the sheets. driver.js locks the highlighted
+   element's scroller and turns pointer events off everywhere else, which
+   leaves the wheel and touch nothing to scroll. Scroll containers take
+   pointer events back (their contents stay untouchable); the lock is undone. */
+.bombino-tour-on .driver-active-element-parent-no-scroll {
+  overflow-y: auto !important;
+}
+.bombino-tour-on .app-content-desktop,
+.bombino-tour-on .overflow-y-auto,
+.bombino-tour-on .overflow-auto {
+  pointer-events: auto;
+}
+/* The dimmed overlay would catch the wheel and send it to the window, which
+   on desktop does not scroll. Its clicks are off in the demo anyway
+   (overlayClickBehavior: 'none'). */
+.bombino-tour-on .driver-overlay,
+.bombino-tour-on .driver-overlay * {
+  pointer-events: none !important;
+}
+
+/* Paused: the demo steps aside. No dimming and no card, so the whole screen
+   can be seen and scrolled; the paused bar brings it back. */
+.bombino-tour-paused .driver-overlay,
+.bombino-tour-paused .driver-popover {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
+.bombino-tour-paused-bar {
+  display: none;
+}
+.bombino-tour-paused .bombino-tour-paused-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(88px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 8px 8px 16px;
+  border-radius: 999px;
+  background: #1b2a44;
+  color: #fff;
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: 0 12px 32px rgb(15 26 43 / 0.35);
+  pointer-events: auto;
+}
+.bombino-tour-paused-bar,
+.bombino-tour-paused-bar * {
+  pointer-events: auto !important;
+}
+.bombino-tour-paused-label {
+  white-space: nowrap;
+  color: rgb(255 255 255 / 0.8);
+}
+.bombino-tour-paused-resume,
+.bombino-tour-paused-exit {
+  font: inherit;
+  font-weight: 600;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bombino-tour-paused-resume {
+  background: #f2a123;
+  color: #1b2a44;
+}
+.bombino-tour-paused-exit {
+  background: transparent;
+  color: rgb(255 255 255 / 0.7);
+  padding-left: 4px;
+}
+@media (min-width: 768px) {
+  .bombino-tour-paused .bombino-tour-paused-bar {
+    bottom: 28px;
+  }
+}
+
 /* While the screen changes between steps, nothing is highlighted. */
 .bombino-tour-switching .driver-overlay,
 .bombino-tour-switching .driver-popover {

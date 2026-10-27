@@ -139,10 +139,7 @@ interface TourStep {
   align?: Alignment;
   /** How long the step stays up, in ms. */
   dwell?: number;
-  /**
-   * The presenter can use what is highlighted. Touching it pauses the timer,
-   * so the step waits for "Next" or "Resume".
-   */
+  /** The presenter can use what is highlighted. The step waits for Next. */
   interactive?: boolean;
   /** Runs before the element is looked for: open a sheet, change a step. */
   before?: () => Promise<void> | void;
@@ -296,7 +293,6 @@ const STEPS: TourStep[] = [
     body:
       'Try it: switch points off and on, use − / +, drag the slider or tap "Use max". The total and To pay above change as you go. The shipment stays the same. Press Next when you are done.',
     interactive: true,
-    dwell: 20_000,
   },
   {
     path: '/create',
@@ -563,12 +559,58 @@ function onKey(event: KeyboardEvent): void {
   }
 }
 
+/** The step on screen, for the paused bar and for scrolling. */
+let currentIndex = 0;
+let currentInteractive = false;
+let pausedBar: HTMLElement | null = null;
+
+/**
+ * Paused, the demo steps aside: no dimming, no card, the whole screen to look
+ * at and scroll. A small bar at the bottom says where it stopped and brings
+ * it back.
+ */
+function mountPausedBar(): void {
+  pausedBar = document.createElement('div');
+  pausedBar.className = 'bombino-tour-paused-bar';
+  pausedBar.setAttribute('role', 'status');
+  const label = document.createElement('span');
+  label.className = 'bombino-tour-paused-label';
+  const resume = document.createElement('button');
+  resume.type = 'button';
+  resume.className = 'bombino-tour-paused-resume';
+  resume.textContent = 'Resume demo';
+  resume.addEventListener('click', togglePause);
+  const exit = document.createElement('button');
+  exit.type = 'button';
+  exit.className = 'bombino-tour-paused-exit';
+  exit.textContent = 'Exit';
+  exit.addEventListener('click', () => stopRewardsTour());
+  pausedBar.append(label, resume, exit);
+  document.body.appendChild(pausedBar);
+}
+
 function togglePause(): void {
   const paused = !useRewardsTour.getState().paused;
   useRewardsTour.setState({ paused });
   document.documentElement.classList.toggle('bombino-tour-paused', paused);
-  const btn = document.querySelector<HTMLButtonElement>('.bombino-tour-pause');
-  if (btn) btn.textContent = paused ? 'Resume' : 'Pause';
+  const label = pausedBar?.querySelector('.bombino-tour-paused-label');
+  if (label) label.textContent = `Demo paused · step ${currentIndex + 1} of ${STEPS.length}`;
+  // Back from looking around: bring the step back into view.
+  if (!paused) {
+    driverObj?.getActiveElement()?.scrollIntoView({ block: 'center', behavior: 'auto' });
+    driverObj?.refresh();
+  }
+}
+
+/**
+ * The presenter scrolled to look around the screen: pause, so the demo waits
+ * for "Resume demo". Wheel and touch only, so the tour's own scrolling never
+ * counts. Not on a hands-on step, which has no timer to stop and whose
+ * controls may sit in a sheet that scrolls.
+ */
+function onUserScroll(): void {
+  const { running, paused } = useRewardsTour.getState();
+  if (running && !paused && !currentInteractive) togglePause();
 }
 
 function show(step: TourStep, el: HTMLElement | null, index: number, ms: number): void {
@@ -588,10 +630,13 @@ function show(step: TourStep, el: HTMLElement | null, index: number, ms: number)
         popover.progress.style.display = 'block';
         popover.progress.textContent = `${index + 1} of ${STEPS.length}`;
 
+        // A hands-on step waits for Next, so it has nothing to pause or count.
+        if (step.interactive) return;
+
         const pause = document.createElement('button');
         pause.type = 'button';
         pause.className = 'bombino-tour-pause';
-        pause.textContent = useRewardsTour.getState().paused ? 'Resume' : 'Pause';
+        pause.textContent = 'Pause';
         pause.addEventListener('click', togglePause);
         popover.footerButtons.prepend(pause);
 
@@ -646,6 +691,10 @@ export function startRewardsTour(): void {
     onDestroyStarted: () => stopRewardsTour(),
   });
   window.addEventListener('keydown', onKey);
+  window.addEventListener('wheel', onUserScroll, { passive: true });
+  window.addEventListener('touchmove', onUserScroll, { passive: true });
+  document.documentElement.classList.add('bombino-tour-on');
+  mountPausedBar();
 
   void run(id);
 }
@@ -673,16 +722,13 @@ async function run(id: number): Promise<void> {
         continue;
       }
       const target = el ? await placeInView(el, id, step.interactive) : null;
-      const ms = step.dwell ?? DEFAULT_DWELL;
+      // A hands-on step stays until Next.
+      const ms = step.interactive ? Number.POSITIVE_INFINITY : step.dwell ?? DEFAULT_DWELL;
+      currentIndex = i;
+      currentInteractive = !!step.interactive;
       show(step, target, i, ms);
       setSwitching(false);
-      const pauseOnTouch = (): void => {
-        if (!useRewardsTour.getState().paused) togglePause();
-      };
-      // On the element itself: a stand-in box lets touches through to it.
-      if (step.interactive) el?.addEventListener('pointerdown', pauseOnTouch);
       await dwell(ms, id);
-      el?.removeEventListener('pointerdown', pauseOnTouch);
       guard(id);
       if (step.after) await step.after();
       await wait(350);
@@ -702,9 +748,13 @@ export function stopRewardsTour(): void {
   runId++;
   skipWait?.();
   window.removeEventListener('keydown', onKey);
-  document.documentElement.classList.remove('bombino-tour-paused');
+  window.removeEventListener('wheel', onUserScroll);
+  window.removeEventListener('touchmove', onUserScroll);
+  document.documentElement.classList.remove('bombino-tour-paused', 'bombino-tour-on');
   setSwitching(false);
   clearProxy();
+  pausedBar?.remove();
+  pausedBar = null;
 
   const d = driverObj;
   driverObj = null;
