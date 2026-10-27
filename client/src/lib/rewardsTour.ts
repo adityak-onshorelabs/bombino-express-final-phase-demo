@@ -19,13 +19,13 @@ import { useAppStore, type AuthUser } from './store';
 import { DEMO_MEMBER } from './rewardsAccess';
 
 /**
- * The rewards demo: a hands-off walkthrough that books a dummy shipment and
- * spends points on it, end to end, while the presenter watches.
+ * The rewards demo: a walkthrough that books a dummy shipment and spends
+ * points on it, end to end, one step per press of Next.
  *
  * driver.js only draws the highlight and the popover. The script below owns
- * the timing: each step goes to its screen, waits for its element, shows for
- * a few seconds and then does its action (a click, a step change), so nothing
- * needs a human hand. The presenter can still pause, skip ahead or leave.
+ * the steps: each goes to its screen, waits for its element, stays up until
+ * the presenter presses Next and then does its action (a click, a step
+ * change). The presenter can also step aside to look around, or leave.
  *
  * Nothing in the demo is real, and none of it needs a server or a sign-in.
  * For the length of the tour the app is signed in as DEMO_MEMBER, a linked
@@ -137,17 +137,13 @@ interface TourStep {
   body: string | (() => string);
   side?: Side;
   align?: Alignment;
-  /** How long the step stays up, in ms. */
-  dwell?: number;
-  /** The presenter can use what is highlighted. The step waits for Next. */
+  /** The presenter can use what is highlighted. */
   interactive?: boolean;
   /** Runs before the element is looked for: open a sheet, change a step. */
   before?: () => Promise<void> | void;
   /** Runs once the step has been read: usually the click it was describing. */
   after?: () => Promise<void> | void;
 }
-
-const DEFAULT_DWELL = 5_000;
 
 function member() {
   return useRewardsStore.getState().member;
@@ -180,8 +176,7 @@ const STEPS: TourStep[] = [
     path: '/rewards',
     title: 'Bombino Rewards, start to finish',
     body:
-      "Watch a member book a shipment and pay part of it with reward points. It runs by itself: pause or skip any time. It's a dummy booking, so nothing reaches Bombino and your figures are put back at the end.",
-    dwell: 6_500,
+      "Watch a member book a shipment and pay part of it with reward points. Press Next to move through it, one step at a time. It's a dummy booking, so nothing reaches Bombino and your figures are put back at the end.",
   },
   {
     path: '/rewards',
@@ -215,7 +210,6 @@ const STEPS: TourStep[] = [
     element: '[data-tour="booking-sender"]',
     title: 'Step 1 · Sender',
     body: `A dummy shipment is filled in for the demo: ${TOUR_SHIPMENT.weightKg} kg from Mumbai to New Jersey.`,
-    dwell: 4_000,
   },
   {
     before: () => bridge().goToStep(2),
@@ -223,7 +217,6 @@ const STEPS: TourStep[] = [
     element: '[data-tour="booking-receiver"]',
     title: 'Step 2 · Receiver',
     body: 'Who it goes to in the USA.',
-    dwell: 3_200,
   },
   {
     before: () => bridge().goToStep(3),
@@ -231,7 +224,6 @@ const STEPS: TourStep[] = [
     element: '[data-tour="booking-package"]',
     title: 'Step 3 · Package',
     body: `${TOUR_SHIPMENT.weightKg} kg, one box, ${TOUR_SHIPMENT.dimsCm.l} × ${TOUR_SHIPMENT.dimsCm.w} × ${TOUR_SHIPMENT.dimsCm.h} cm.`,
-    dwell: 3_200,
   },
   {
     before: () => bridge().goToStep(4),
@@ -239,7 +231,6 @@ const STEPS: TourStep[] = [
     element: '[data-tour="booking-invoice"]',
     title: 'Step 4 · Invoice',
     body: "What's inside and what it's worth, for customs.",
-    dwell: 3_200,
   },
   {
     before: () => bridge().showRates(),
@@ -260,7 +251,6 @@ const STEPS: TourStep[] = [
     title: 'Review & Pay',
     body: `The total for this booking is ${formatInr(reviewTotal)}. Now for the points.`,
     side: 'bottom',
-    dwell: 4_000,
   },
   {
     path: '/create',
@@ -284,7 +274,6 @@ const STEPS: TourStep[] = [
     title: 'Choose how many',
     body: () =>
       `Step down with −/+, drag the slider or tap "Use max". This member keeps some back and uses ${formatPoints(Math.min(TOUR_POINTS, maxForDemo()))}.`,
-    dwell: 4_000,
   },
   {
     path: '/create',
@@ -319,7 +308,6 @@ const STEPS: TourStep[] = [
     title: 'Confirm',
     body: 'The button carries the new amount. In the demo, confirming books nothing and charges nothing.',
     side: 'top',
-    dwell: 4_000,
     after: async () => {
       bookedWith = bridge().getPoints();
       await click('[data-testid="button-confirm-booking"]');
@@ -374,7 +362,6 @@ const STEPS: TourStep[] = [
     path: '/rewards',
     title: "That's the flow",
     body: 'Everything is back to where it started. Run it again from "Rewards demo" in the menu.',
-    dwell: 5_000,
   },
 ];
 
@@ -527,47 +514,34 @@ async function animatePoints(from: number, to: number): Promise<void> {
   }
 }
 
-/**
- * Hold the step for `ms`, counting only while not paused. Resolves early on
- * "Next".
- */
-function dwell(ms: number, id: number): Promise<void> {
+/** Hold the step until "Next" (or the tour stopping). */
+function waitForNext(): Promise<void> {
   return new Promise((resolve) => {
-    let left = ms;
-    let last = performance.now();
-    const timer = window.setInterval(() => {
-      const now = performance.now();
-      if (!useRewardsTour.getState().paused) left -= now - last;
-      last = now;
-      if (left <= 0 || id !== runId) done();
-    }, 100);
-    function done(): void {
-      window.clearInterval(timer);
+    skipWait = () => {
       skipWait = null;
       resolve();
-    }
-    skipWait = done;
+    };
   });
 }
 
 function onKey(event: KeyboardEvent): void {
   if (event.key === 'Escape') stopRewardsTour();
-  else if (event.key === 'ArrowRight') skipWait?.();
+  // Not while looking around: the next step would come up hidden.
+  else if (event.key === 'ArrowRight' && !useRewardsTour.getState().paused) skipWait?.();
   else if (event.key === ' ') {
     event.preventDefault();
     togglePause();
   }
 }
 
-/** The step on screen, for the paused bar and for scrolling. */
+/** The step on screen, for the paused bar. */
 let currentIndex = 0;
-let currentInteractive = false;
 let pausedBar: HTMLElement | null = null;
 
 /**
- * Paused, the demo steps aside: no dimming, no card, the whole screen to look
- * at and scroll. A small bar at the bottom says where it stopped and brings
- * it back.
+ * "Look around": the demo steps aside, no dimming, no card, the whole screen
+ * to look at and scroll. A small bar at the bottom says where it stopped and
+ * brings it back.
  */
 function mountPausedBar(): void {
   pausedBar = document.createElement('div');
@@ -578,7 +552,7 @@ function mountPausedBar(): void {
   const resume = document.createElement('button');
   resume.type = 'button';
   resume.className = 'bombino-tour-paused-resume';
-  resume.textContent = 'Resume demo';
+  resume.textContent = 'Back to demo';
   resume.addEventListener('click', togglePause);
   const exit = document.createElement('button');
   exit.type = 'button';
@@ -594,7 +568,7 @@ function togglePause(): void {
   useRewardsTour.setState({ paused });
   document.documentElement.classList.toggle('bombino-tour-paused', paused);
   const label = pausedBar?.querySelector('.bombino-tour-paused-label');
-  if (label) label.textContent = `Demo paused · step ${currentIndex + 1} of ${STEPS.length}`;
+  if (label) label.textContent = `Looking around · step ${currentIndex + 1} of ${STEPS.length}`;
   // Back from looking around: bring the step back into view.
   if (!paused) {
     driverObj?.getActiveElement()?.scrollIntoView({ block: 'center', behavior: 'auto' });
@@ -602,18 +576,7 @@ function togglePause(): void {
   }
 }
 
-/**
- * The presenter scrolled to look around the screen: pause, so the demo waits
- * for "Resume demo". Wheel and touch only, so the tour's own scrolling never
- * counts. Not on a hands-on step, which has no timer to stop and whose
- * controls may sit in a sheet that scrolls.
- */
-function onUserScroll(): void {
-  const { running, paused } = useRewardsTour.getState();
-  if (running && !paused && !currentInteractive) togglePause();
-}
-
-function show(step: TourStep, el: HTMLElement | null, index: number, ms: number): void {
+function show(step: TourStep, el: HTMLElement | null, index: number): void {
   if (!driverObj) return;
   const body = typeof step.body === 'function' ? step.body() : step.body;
   driverObj.highlight({
@@ -630,23 +593,12 @@ function show(step: TourStep, el: HTMLElement | null, index: number, ms: number)
         popover.progress.style.display = 'block';
         popover.progress.textContent = `${index + 1} of ${STEPS.length}`;
 
-        // A hands-on step waits for Next, so it has nothing to pause or count.
-        if (step.interactive) return;
-
-        const pause = document.createElement('button');
-        pause.type = 'button';
-        pause.className = 'bombino-tour-pause';
-        pause.textContent = 'Pause';
-        pause.addEventListener('click', togglePause);
-        popover.footerButtons.prepend(pause);
-
-        // The step's time running out, as a bar along the top of the card.
-        const bar = document.createElement('div');
-        bar.className = 'bombino-tour-timer';
-        const fill = document.createElement('span');
-        fill.style.animationDuration = `${ms}ms`;
-        bar.appendChild(fill);
-        popover.wrapper.prepend(bar);
+        const look = document.createElement('button');
+        look.type = 'button';
+        look.className = 'bombino-tour-pause';
+        look.textContent = 'Look around';
+        look.addEventListener('click', togglePause);
+        popover.footerButtons.prepend(look);
       },
     },
   });
@@ -691,8 +643,6 @@ export function startRewardsTour(): void {
     onDestroyStarted: () => stopRewardsTour(),
   });
   window.addEventListener('keydown', onKey);
-  window.addEventListener('wheel', onUserScroll, { passive: true });
-  window.addEventListener('touchmove', onUserScroll, { passive: true });
   document.documentElement.classList.add('bombino-tour-on');
   mountPausedBar();
 
@@ -722,13 +672,10 @@ async function run(id: number): Promise<void> {
         continue;
       }
       const target = el ? await placeInView(el, id, step.interactive) : null;
-      // A hands-on step stays until Next.
-      const ms = step.interactive ? Number.POSITIVE_INFINITY : step.dwell ?? DEFAULT_DWELL;
       currentIndex = i;
-      currentInteractive = !!step.interactive;
-      show(step, target, i, ms);
+      show(step, target, i);
       setSwitching(false);
-      await dwell(ms, id);
+      await waitForNext();
       guard(id);
       if (step.after) await step.after();
       await wait(350);
@@ -748,8 +695,6 @@ export function stopRewardsTour(): void {
   runId++;
   skipWait?.();
   window.removeEventListener('keydown', onKey);
-  window.removeEventListener('wheel', onUserScroll);
-  window.removeEventListener('touchmove', onUserScroll);
   document.documentElement.classList.remove('bombino-tour-paused', 'bombino-tour-on');
   setSwitching(false);
   clearProxy();

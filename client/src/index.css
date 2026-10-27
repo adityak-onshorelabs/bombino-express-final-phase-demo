@@ -1299,7 +1299,7 @@ input[type="date"] {
   pointer-events: none !important;
 }
 
-/* Paused: the demo steps aside. No dimming and no card, so the whole screen
+/* "Look around": the demo steps aside. No dimming and no card, so the whole screen
    can be seen and scrolled; the paused bar brings it back. */
 .bombino-tour-paused .driver-overlay,
 .bombino-tour-paused .driver-popover {
@@ -1372,32 +1372,4 @@ input[type="date"] {
 }
 @media (prefers-reduced-motion: reduce) {
   .driver-popover.bombino-tour { animation: none; }
-}
-
-/* Time left on the step. Pausing the demo freezes it. */
-.bombino-tour-timer {
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: #f1f5f9;
-}
-.bombino-tour-timer > span {
-  display: block;
-  height: 100%;
-  width: 100%;
-  background: linear-gradient(90deg, #f7c35c, #f2a123);
-  transform-origin: left;
-  animation-name: bombino-tour-countdown;
-  animation-timing-function: linear;
-  animation-fill-mode: forwards;
-}
-.bombino-tour-paused .bombino-tour-timer > span {
-  animation-play-state: paused;
-}
-@keyframes bombino-tour-countdown {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .bombino-tour-timer > span { animation: none; transform: scaleX(1); opacity: 0.5; }
 }

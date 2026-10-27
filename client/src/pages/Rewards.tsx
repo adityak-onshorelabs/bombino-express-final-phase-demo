@@ -549,7 +549,7 @@ function DemoControls({ className }: { className?: string }) {
       </p>
       <p className="mt-1 text-xs text-[#64748B]">For walkthroughs only. Customers won't see this.</p>
 
-      {/* The whole story, hands-free: books a dummy shipment, spends points on
+      {/* The whole story, a step per Next: books a dummy shipment, spends points on
           it and puts the figures back after (lib/rewardsTour). */}
       <button
         type="button"
@@ -562,7 +562,7 @@ function DemoControls({ className }: { className?: string }) {
         Play the rewards demo
       </button>
       <p className="mt-1.5 text-center text-[11px] text-[#64748B]">
-        About 2 minutes. Books a dummy shipment and uses points on it.
+        Step through at your own pace. Books a dummy shipment and uses points on it.
       </p>
 
       <div className="mt-4 flex flex-wrap gap-2" role="radiogroup" aria-label="Member preview">
