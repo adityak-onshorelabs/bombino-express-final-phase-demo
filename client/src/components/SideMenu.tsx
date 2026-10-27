@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { X, User, LogOut, LogIn, Bot, Phone, ShieldCheck, Trophy } from 'lucide-react';
+import { X, User, LogOut, LogIn, Bot, Phone, ShieldCheck, Trophy, PlayCircle } from 'lucide-react';
 import { Link } from 'wouter';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { useRewardsAccess } from '@/lib/rewardsAccess';
+import { startRewardsTour } from '@/lib/rewardsTour';
 import { formatGuestPhone } from '@/lib/shadowProfile';
 import { GuestSignOutDialog } from '@/components/GuestSignOutDialog';
 import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
@@ -253,6 +254,23 @@ export function SideMenu({ isOpen, onClose }: SideMenuProps) {
                     <span className="font-medium">Rewards</span>
                   </Link>
                 )}
+
+                {/* For presenting rewards: plays the whole flow as a demo
+                    account, signed in or not, with no server involved. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    startRewardsTour();
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-muted active:scale-[0.98] transition-all text-left"
+                  data-testid="button-rewards-demo-menu"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-[#2F4468]/10 flex items-center justify-center">
+                    <PlayCircle className="w-5 h-5 text-[#2F4468]" />
+                  </div>
+                  <span className="font-medium">Rewards demo</span>
+                </button>
 
                 <div className="border-t border-border my-4" />
 

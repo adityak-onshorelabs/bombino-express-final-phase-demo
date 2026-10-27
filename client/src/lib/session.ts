@@ -15,6 +15,7 @@
  */
 
 import { useAppStore } from '@/lib/store';
+import { isDemoMember } from '@/lib/rewardsAccess';
 
 /**
  * Endpoints where a 401 is an answer, not an expiry.
@@ -98,6 +99,8 @@ let signingOut = false;
  */
 export function handleSessionExpired(): void {
   if (signingOut) return;
+  // The rewards demo's account has no server session to expire.
+  if (isDemoMember(useAppStore.getState().user)) return;
   signingOut = true;
 
   // Clears `isLoggedIn` and `user` from localStorage. The React Query cache
@@ -187,6 +190,7 @@ export function installSessionInterceptor(): void {
  */
 export async function verifySession(): Promise<void> {
   if (!useAppStore.getState().isLoggedIn) return;
+  if (isDemoMember(useAppStore.getState().user)) return;
 
   let res: Response;
   try {

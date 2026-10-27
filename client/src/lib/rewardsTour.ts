@@ -15,6 +15,8 @@ import {
   withoutGst,
 } from './rewards';
 import { useRewardsStore } from './rewardsStore';
+import { useAppStore, type AuthUser } from './store';
+import { DEMO_MEMBER } from './rewardsAccess';
 
 /**
  * The rewards demo: a hands-off walkthrough that books a dummy shipment and
@@ -25,16 +27,21 @@ import { useRewardsStore } from './rewardsStore';
  * a few seconds and then does its action (a click, a step change), so nothing
  * needs a human hand. The presenter can still pause, skip ahead or leave.
  *
- * Nothing in the demo is real. The booking screen runs in demo mode while the
- * tour is on (CreateShipment reads `bookingDemo`): it is filled from
- * TOUR_SHIPMENT, quoted from TOUR_RATES, and "Confirm Booking" never calls
- * the API. The member's rewards figures are saved before the tour and put
- * back after it, however it ends.
+ * Nothing in the demo is real, and none of it needs a server or a sign-in.
+ * For the length of the tour the app is signed in as DEMO_MEMBER, a linked
+ * account that exists only in this browser, whoever was using it before
+ * (a guest, nobody, or a real account). The booking screen runs in demo mode
+ * (CreateShipment reads `bookingDemo`): filled from TOUR_SHIPMENT, quoted from
+ * TOUR_RATES, and "Confirm Booking" never calls the API. The previous session
+ * and the rewards figures are saved first and put back when the tour ends,
+ * however it ends.
  */
 
 // ─── The dummy shipment ─────────────────────────────────────────────────────
 
 export const TOUR_ORDER_NO = 'DEMO-000001';
+/** A linked account's booking files its airway bill straight away. */
+export const TOUR_AWB_NO = 'DEMO-AWB-70001';
 
 /** What the booking form is filled with during the demo. */
 export const TOUR_SHIPMENT = {
@@ -302,7 +309,7 @@ const STEPS: TourStep[] = [
     path: '/create',
     element: '[data-testid="card-success-points"]',
     title: 'Booked',
-    body: 'The order screen confirms the points used and the points on their way.',
+    body: 'A linked account gets its airway bill at once. Below it, the points used and the points on their way.',
     side: 'top',
   },
   {
@@ -340,7 +347,7 @@ const STEPS: TourStep[] = [
   {
     path: '/rewards',
     title: "That's the flow",
-    body: 'This member is back to where they started. Run the demo again from Demo controls.',
+    body: 'Everything is back to where it started. Run it again from "Rewards demo" in the menu.',
     dwell: 5_000,
   },
 ];
@@ -354,6 +361,7 @@ let driverObj: Driver | null = null;
 let skipWait: (() => void) | null = null;
 let snapshot: Pick<ReturnType<typeof useRewardsStore.getState>, 'scenarioId' | 'member' | 'shipmentCursor'> | null =
   null;
+let authSnapshot: { isLoggedIn: boolean; user: AuthUser | null } | null = null;
 
 function guard(id: number): void {
   if (id !== runId) throw new TourStopped();
@@ -498,6 +506,12 @@ export function startRewardsTour(): void {
   if (useRewardsTour.getState().running) return;
   const id = ++runId;
 
+  // Signed in as the demo account, set straight on the store rather than
+  // through login(): nothing about a real session is touched.
+  const auth = useAppStore.getState();
+  authSnapshot = { isLoggedIn: auth.isLoggedIn, user: auth.user };
+  useAppStore.setState({ isLoggedIn: true, user: DEMO_MEMBER });
+
   const state = useRewardsStore.getState();
   snapshot = { scenarioId: state.scenarioId, member: state.member, shipmentCursor: state.shipmentCursor };
   // Always the same member, so the figures in the script hold.
@@ -544,6 +558,14 @@ async function run(id: number): Promise<void> {
         console.warn(`[rewards tour] skipped "${step.title}": ${step.element} not found`);
         continue;
       }
+      // Centred, so a fixed bar (the phone's bottom nav) never sits over it.
+      // Taller than the screen: its top, where the reading starts.
+      if (el) {
+        const tall = el.getBoundingClientRect().height > window.innerHeight * 0.7;
+        el.scrollIntoView({ block: tall ? 'start' : 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
+        await wait(450);
+        guard(id);
+      }
       const ms = step.dwell ?? DEFAULT_DWELL;
       show(step, el, i, ms);
       await dwell(ms, id);
@@ -583,6 +605,14 @@ export function stopRewardsTour(): void {
   }
   useRewardsTour.setState({ running: false, paused: false, bookingDemo: false, bridge: null });
 
-  // Never leave the booking form standing with the dummy shipment in it.
-  if (window.location.pathname.startsWith('/create')) navigate('/rewards', { replace: true });
+  // Back to whoever was here before. A visitor who could not see rewards is
+  // not left on /rewards, and nobody is left on the booking form with the
+  // dummy shipment in it.
+  const before = authSnapshot ?? { isLoggedIn: false, user: null };
+  authSnapshot = null;
+  useAppStore.setState(before);
+  const path = window.location.pathname;
+  if (path.startsWith('/create') || (path === '/rewards' && !before.isLoggedIn)) {
+    navigate(before.isLoggedIn ? '/rewards' : '/home', { replace: true });
+  }
 }

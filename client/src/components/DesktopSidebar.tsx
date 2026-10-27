@@ -11,6 +11,7 @@ import {
   LogOut,
   LogIn,
   Trophy,
+  PlayCircle,
 } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import bombinoLogo from '@/assets/bombino-logo.png';
@@ -18,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { useAppStore } from '@/lib/store';
 import { useGuestProfile } from '@/hooks/useGuestProfile';
 import { useRewardsAccess } from '@/lib/rewardsAccess';
+import { startRewardsTour, useRewardsTour } from '@/lib/rewardsTour';
 import { useUnreadNotificationCount } from '@/hooks/useCustomerOrders';
 import { GuestSignOutDialog } from '@/components/GuestSignOutDialog';
 import { AccountSignOutDialog } from '@/components/AccountSignOutDialog';
@@ -98,6 +100,7 @@ export function DesktopSidebar() {
   // hiding it left their details unreachable once the banner cleared.
   const { data: guestProfile } = useGuestProfile({ enabled: !isLoggedIn });
   const rewardsOn = useRewardsAccess();
+  const tourRunning = useRewardsTour((s) => s.running);
   const [signOutOpen, setSignOutOpen] = useState(false);
   // Shares the polled notification list with the mobile header — see the note
   // on `useUnreadNotificationCount`. One query, two badges, always in step.
@@ -237,6 +240,18 @@ export function DesktopSidebar() {
             active={isActive(path)}
           />
         ))}
+        {/* For presenting rewards: plays the whole flow as a demo account,
+            signed in or not, with no server involved (lib/rewardsTour). */}
+        <button
+          type="button"
+          onClick={startRewardsTour}
+          disabled={tourRunning}
+          className="w-[calc(100%-1rem)] flex items-center gap-3 px-3 py-2.5 rounded-xl mx-2 my-0.5 transition-all duration-150 select-none group text-left text-white/50 hover:bg-white/[0.06] hover:text-white/80 disabled:opacity-60"
+          data-testid="button-rewards-demo-sidebar"
+        >
+          <PlayCircle className="w-[18px] h-[18px] flex-shrink-0 text-[#F2A123]/80 group-hover:text-[#F2A123]" />
+          <span className="text-sm leading-none font-medium">Rewards demo</span>
+        </button>
       </nav>
 
       <div className="flex-shrink-0 border-t border-white/[0.07] px-3 pt-2 pb-3">

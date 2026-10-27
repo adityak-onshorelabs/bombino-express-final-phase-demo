@@ -81,7 +81,7 @@ import { PointsAtCheckout, PointsEarnNote } from '@/components/rewards/PointsAtC
 import { formatPoints, pointsDiscount, pointsFor, withoutGst } from '@/lib/rewards';
 import { useRewardsStore } from '@/lib/rewardsStore';
 import { useRewardsAccess } from '@/lib/rewardsAccess';
-import { TOUR_ORDER_NO, TOUR_RATES, TOUR_SHIPMENT, useRewardsTour } from '@/lib/rewardsTour';
+import { TOUR_AWB_NO, TOUR_ORDER_NO, TOUR_RATES, TOUR_SHIPMENT, useRewardsTour } from '@/lib/rewardsTour';
 import { cn } from '@/lib/utils';
 import { getHsnCode } from '@shared/hsn';
 import { US_STATES, US_STATE_ERROR, US_ZIP_ERROR, isUsZip, usStateName } from '@shared/usAddress';
@@ -1585,7 +1585,7 @@ export default function CreateShipment() {
                 screen to pack the parcel, and the box label goes on it before
                 anyone collects it. The docket row is saved just after the
                 booking answers, so this waits a few seconds for it. */}
-            {newAwbNo && isLoggedIn && (
+            {newAwbNo && isLoggedIn && !tourBooking && (
               <ShipmentDocuments awb={newAwbNo} variant="card" pollUntilReady className="mt-3" />
             )}
 
@@ -2204,7 +2204,7 @@ export default function CreateShipment() {
       setShowConfirmModal(false);
       setNewOrderNo(TOUR_ORDER_NO);
       setNewOrderId('');
-      setNewAwbNo('');
+      setNewAwbNo(TOUR_AWB_NO);
       setNewBoxLabel(false);
       setDocketMessage('');
       recordBookingPoints(TOUR_ORDER_NO);
