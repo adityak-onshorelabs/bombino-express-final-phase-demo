@@ -102,6 +102,8 @@ export interface TourBookingBridge {
   showRates: () => void;
   openReview: () => void;
   setPoints: (points: number) => void;
+  /** The points the booking is set to use right now. */
+  getPoints: () => number;
 }
 
 // ─── State ──────────────────────────────────────────────────────────────────
@@ -137,6 +139,11 @@ interface TourStep {
   align?: Alignment;
   /** How long the step stays up, in ms. */
   dwell?: number;
+  /**
+   * The presenter can use what is highlighted. Touching it pauses the timer,
+   * so the step waits for "Next" or "Resume".
+   */
+  interactive?: boolean;
   /** Runs before the element is looked for: open a sheet, change a step. */
   before?: () => Promise<void> | void;
   /** Runs once the step has been read: usually the click it was describing. */
@@ -157,6 +164,14 @@ function maxForDemo(): number {
 
 function toPayAfter(points: number): number {
   return Math.max(reviewTotal - pointsDiscount(points), 0);
+}
+
+/** The points the booking went through with, read when Confirm is pressed. */
+let bookedWith = 0;
+
+/** What the presenter has chosen: live while on Review & Pay, fixed after booking. */
+function picked(): number {
+  return useRewardsTour.getState().bridge?.getPoints() ?? bookedWith;
 }
 
 function earnAfter(points: number): number {
@@ -276,10 +291,20 @@ const STEPS: TourStep[] = [
   },
   {
     path: '/create',
+    element: '[data-testid="card-points-at-checkout"]',
+    title: 'Your turn',
+    body:
+      'Try it: switch points off and on, use − / +, drag the slider or tap "Use max". The total and To pay above change as you go. The shipment stays the same. Press Next when you are done.',
+    interactive: true,
+    dwell: 20_000,
+  },
+  {
+    path: '/create',
     element: '[data-tour="review-summary"]',
     title: 'The new amount',
     body: () => {
-      const used = Math.min(TOUR_POINTS, maxForDemo());
+      const used = picked();
+      if (used === 0) return `No points used on this one: ${formatInr(reviewTotal)} to pay.`;
       return `Total ${formatInr(reviewTotal)}, minus ${formatInr(pointsDiscount(used))} in points: ${formatInr(toPayAfter(used))} to pay.`;
     },
     side: 'bottom',
@@ -289,7 +314,7 @@ const STEPS: TourStep[] = [
     element: '[data-testid="text-points-earn"]',
     title: 'Points on this booking too',
     body: () =>
-      `Points are earned on what is actually paid, excl. GST: ${formatPoints(earnAfter(Math.min(TOUR_POINTS, maxForDemo())))} points. They arrive once the order settles, not at booking.`,
+      `Points are earned on what is actually paid, excl. GST: ${formatPoints(earnAfter(picked()))} points. They arrive once the order settles, not at booking.`,
     side: 'top',
   },
   {
@@ -299,7 +324,10 @@ const STEPS: TourStep[] = [
     body: 'The button carries the new amount. In the demo, confirming books nothing and charges nothing.',
     side: 'top',
     dwell: 4_000,
-    after: () => click('[data-testid="button-confirm-booking"]'),
+    after: async () => {
+      bookedWith = bridge().getPoints();
+      await click('[data-testid="button-confirm-booking"]');
+    },
   },
   {
     path: '/create',
@@ -313,13 +341,19 @@ const STEPS: TourStep[] = [
     path: '/rewards',
     element: '[data-testid="rewards-wallet"]',
     title: 'Points used',
-    body: () => `The points left the balance at booking. ${formatPoints(member().points)} remain.`,
+    body: () =>
+      bookedWith > 0
+        ? `${formatPoints(bookedWith)} points left the balance at booking. ${formatPoints(member().points)} remain.`
+        : `No points were used, so the balance is still ${formatPoints(member().points)}.`,
   },
   {
     path: '/rewards',
     element: '[data-testid="rewards-activity"]',
     title: 'Activity',
-    body: `The points used on ${TOUR_ORDER_NO}, and the points it will earn, waiting until the order settles.`,
+    body: () =>
+      bookedWith > 0
+        ? `The points used on ${TOUR_ORDER_NO}, and the points it will earn, waiting until the order settles.`
+        : `The points ${TOUR_ORDER_NO} will earn, waiting until the order settles.`,
     side: 'top',
   },
   {
@@ -408,6 +442,81 @@ async function click(selector: string): Promise<void> {
   el?.click();
 }
 
+/** Room kept clear at the top for the sticky header. */
+const HEADER_ROOM = 88;
+/** Room kept clear below a tall element for the popover. */
+const POPOVER_ROOM = 210;
+
+let proxy: HTMLElement | null = null;
+
+function clearProxy(): void {
+  proxy?.remove();
+  proxy = null;
+}
+
+function setSwitching(on: boolean): void {
+  document.documentElement.classList.toggle('bombino-tour-switching', on);
+}
+
+/** Resolves once the element has stopped moving (a sheet opening, a step fading in). */
+async function settled(el: HTMLElement, id: number): Promise<void> {
+  let last = '';
+  const start = performance.now();
+  while (performance.now() - start < 1_500) {
+    const r = el.getBoundingClientRect();
+    const now = `${Math.round(r.top)}:${Math.round(r.height)}:${Math.round(r.left)}`;
+    if (now === last) return;
+    last = now;
+    await wait(80);
+    guard(id);
+  }
+}
+
+/**
+ * Scroll the element into place and return what to highlight.
+ *
+ * driver.js scrolls any element that does not fit on screen up to the very
+ * top, under the sticky header, and moves the highlight with it. So an element
+ * that fits is centred, and one that does not (the sender and receiver cards
+ * on a phone) is stood in for by a box over the part of it that is on screen,
+ * which always fits and so is never scrolled. Scrolling is instant: the
+ * highlight is drawn once, on the element where it ends up.
+ */
+async function placeInView(el: HTMLElement, id: number, interactive = false): Promise<HTMLElement> {
+  clearProxy();
+  await settled(el, id);
+  const room = window.innerHeight - HEADER_ROOM - POPOVER_ROOM;
+  let rect = el.getBoundingClientRect();
+  // driver.js only lets touches reach the highlighted element, so something to
+  // be used is always highlighted itself, never through a stand-in.
+  if (rect.height <= room || interactive) {
+    el.scrollIntoView({ block: 'center', behavior: 'auto' });
+    await settled(el, id);
+    return el;
+  }
+  // Scrolls whatever holds it, the page or a sheet. On the page, leave room
+  // for the sticky header; a sheet has none.
+  el.scrollIntoView({ block: 'start', behavior: 'auto' });
+  if (!el.closest('.fixed')) window.scrollBy({ top: -HEADER_ROOM, behavior: 'auto' });
+  await settled(el, id);
+  rect = el.getBoundingClientRect();
+  proxy = document.createElement('div');
+  proxy.className = 'bombino-tour-proxy';
+  // In a fixed sheet the box is fixed too; on the page it scrolls with it.
+  const inSheet = !!el.closest('.fixed');
+  Object.assign(proxy.style, {
+    position: inSheet ? 'fixed' : 'absolute',
+    zIndex: inSheet ? '60' : 'auto',
+    top: `${rect.top + (inSheet ? 0 : window.scrollY)}px`,
+    left: `${rect.left + (inSheet ? 0 : window.scrollX)}px`,
+    width: `${rect.width}px`,
+    height: `${room}px`,
+    pointerEvents: 'none',
+  });
+  document.body.appendChild(proxy);
+  return proxy;
+}
+
 /** Walk the points counter from one figure to another, so the change is seen. */
 async function animatePoints(from: number, to: number): Promise<void> {
   if (from === to) return;
@@ -467,6 +576,7 @@ function show(step: TourStep, el: HTMLElement | null, index: number, ms: number)
   const body = typeof step.body === 'function' ? step.body() : step.body;
   driverObj.highlight({
     element: el ?? undefined,
+    disableActiveInteraction: !step.interactive,
     popover: {
       title: step.title,
       description: body,
@@ -513,9 +623,12 @@ export function startRewardsTour(): void {
   // Always the same member, so the figures in the script hold.
   state.setScenario('close');
 
+  bookedWith = 0;
   useRewardsTour.setState({ running: true, paused: false, bookingDemo: false });
   driverObj = driver({
-    animate: !reducedMotion(),
+    // No sliding cutout between steps: each is drawn where its element is.
+    // The popover still fades in (index.css).
+    animate: false,
     // The runner scrolls each element into place itself before showing it.
     smoothScroll: false,
     allowClose: true,
@@ -542,11 +655,11 @@ async function run(id: number): Promise<void> {
     for (let i = 0; i < STEPS.length; i++) {
       guard(id);
       const step = STEPS[i];
-      if (step.before) {
-        await step.before();
-        // Each booking step slides in; measure it once it has landed.
-        await wait(500);
-      }
+      // The screen is about to change under the highlight: hide it until the
+      // new spot is ready, rather than leaving a cutout over the wrong thing.
+      const switching = !!step.before || (!!step.path && window.location.pathname !== step.path);
+      if (switching) setSwitching(true);
+      if (step.before) await step.before();
       guard(id);
       if (step.path && window.location.pathname !== step.path) navigate(step.path);
       // The booking screen registers its controls once it has mounted.
@@ -559,24 +672,17 @@ async function run(id: number): Promise<void> {
         console.warn(`[rewards tour] skipped "${step.title}": ${step.element} not found`);
         continue;
       }
-      // Centred, so a fixed bar (the phone's bottom nav) never sits over it.
-      // Taller than the screen: its top, where the reading starts.
-      if (el) {
-        const rect = el.getBoundingClientRect();
-        const tall = rect.height > window.innerHeight * 0.7;
-        const behavior = reducedMotion() ? 'auto' : 'smooth';
-        // A tall one lands just under the sticky header rather than beneath it.
-        if (tall) window.scrollBy({ top: rect.top - 96, behavior });
-        else el.scrollIntoView({ block: 'center', behavior });
-        await wait(450);
-        guard(id);
-      }
+      const target = el ? await placeInView(el, id, step.interactive) : null;
       const ms = step.dwell ?? DEFAULT_DWELL;
-      show(step, el, i, ms);
-      // Anything still settling (a sheet opening, fonts, a late image) would
-      // leave the cutout off the element; measure again once it has.
-      window.setTimeout(() => driverObj?.refresh(), 400);
+      show(step, target, i, ms);
+      setSwitching(false);
+      const pauseOnTouch = (): void => {
+        if (!useRewardsTour.getState().paused) togglePause();
+      };
+      // On the element itself: a stand-in box lets touches through to it.
+      if (step.interactive) el?.addEventListener('pointerdown', pauseOnTouch);
       await dwell(ms, id);
+      el?.removeEventListener('pointerdown', pauseOnTouch);
       guard(id);
       if (step.after) await step.after();
       await wait(350);
@@ -597,6 +703,8 @@ export function stopRewardsTour(): void {
   skipWait?.();
   window.removeEventListener('keydown', onKey);
   document.documentElement.classList.remove('bombino-tour-paused');
+  setSwitching(false);
+  clearProxy();
 
   const d = driverObj;
   driverObj = null;

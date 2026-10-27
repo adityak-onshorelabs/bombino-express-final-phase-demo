@@ -1270,6 +1270,26 @@ input[type="date"] {
 .driver-popover.bombino-tour .driver-popover-arrow-side-left.driver-popover-arrow { border-left-color: #fff; }
 .driver-popover.bombino-tour .driver-popover-arrow-side-right.driver-popover-arrow { border-right-color: #fff; }
 
+/* Fades in each time a step is drawn (driver.js runs with animate: false). */
+.driver-popover.bombino-tour {
+  animation: bombino-tour-pop 180ms ease-out;
+}
+@keyframes bombino-tour-pop {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+/* While the screen changes between steps, nothing is highlighted. */
+.bombino-tour-switching .driver-overlay,
+.bombino-tour-switching .driver-popover {
+  opacity: 0 !important;
+}
+.driver-overlay {
+  transition: opacity 150ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .driver-popover.bombino-tour { animation: none; }
+}
+
 /* Time left on the step. Pausing the demo freezes it. */
 .bombino-tour-timer {
   position: absolute;

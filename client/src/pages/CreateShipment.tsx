@@ -715,6 +715,9 @@ export default function CreateShipment() {
   // Account holders only: a guest sees nothing about rewards.
   const rewardsOn = useRewardsAccess();
   const [pointsToUse, setPointsToUse] = useState(0);
+  // For the rewards demo, which reads back what the presenter chose.
+  const pointsToUseRef = useRef(0);
+  pointsToUseRef.current = pointsToUse;
   const [bookedPoints, setBookedPoints] = useState<{ used: number; earn: number } | null>(null);
   const redeemPoints = useRewardsStore((s) => s.redeem);
   const addPendingPoints = useRewardsStore((s) => s.addPending);
@@ -1255,6 +1258,7 @@ export default function CreateShipment() {
         setShowConfirmModal(true);
       },
       setPoints: setPointsToUse,
+      getPoints: () => pointsToUseRef.current,
     });
     return () => setTourBridge(null);
   }, [tourBooking, setTourBridge]);
@@ -2352,7 +2356,12 @@ export default function CreateShipment() {
         </div>
       </div>
 
-      <main className="max-w-6xl mx-auto w-full px-4 md:px-6 py-4 md:py-6 lg:grid lg:grid-cols-12 lg:gap-8 lg:items-start">
+      {/* In the rewards demo the shipment is fixed: the form can be looked at,
+          not edited. The rate sheet and Review & Pay sit outside it. */}
+      <main
+        inert={tourBooking || undefined}
+        className="max-w-6xl mx-auto w-full px-4 md:px-6 py-4 md:py-6 lg:grid lg:grid-cols-12 lg:gap-8 lg:items-start"
+      >
         <div className="lg:col-span-7 min-w-0">
         {currentStep === 1 && (
           <div className="space-y-4 animate-fade-in">
